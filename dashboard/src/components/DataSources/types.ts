@@ -104,12 +104,10 @@ export interface HubSpotData {
 }
 
 export interface DataSource {
-  id: number;
+  id: string;
   name: string;
-  description: string;
-  type: string;
-  status: DataSourceStatus;
-  lastSync: string;
-  metrics: DataSourceMetrics;
-  data?: HubSpotData;
+  type: 'hubspot' | 'database' | 'file' | 'api';
+  status: 'connected' | 'disconnected' | 'error';
+  lastSync?: Date;
+  error?: string;
 } 
