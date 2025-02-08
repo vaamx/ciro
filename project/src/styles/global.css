@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .sidebar-transition {
+    @apply transition-all duration-200 ease-in-out;
+  }
+
+  .sidebar-collapsed {
+    @apply w-16;
+  }
+
+  .sidebar-expanded {
+    @apply w-64;
+  }
+
+  .nav-item {
+    @apply w-full flex items-center p-2 rounded-lg transition-colors duration-200;
+  }
+
+  .nav-item-active {
+    @apply bg-purple-50 text-purple-700;
+  }
+
+  .nav-item-inactive {
+    @apply text-gray-600 hover:bg-gray-100;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors duration-200;
+  }
+
+  .section-card {
+    @apply bg-white rounded-xl shadow-sm;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow;
+  }
+
+  .has-tooltip {
+    @apply relative;
+  }
+
+  .tooltip {
+    @apply absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded py-1 px-2 whitespace-nowrap;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+} 
