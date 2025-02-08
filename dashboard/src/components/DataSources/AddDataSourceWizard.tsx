@@ -1,18 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+/// <reference types="vite/client" />
+/// <reference path="../../vite-env.d.ts" />
+
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Database, 
   Cloud, 
   FileText, 
   BarChart2, 
-  ChevronRight, 
   AlertCircle,
   CheckCircle,
   Loader2,
   HardDrive,
-  Table
 } from 'lucide-react';
-import { DataSource } from './types';
+import type { DataSource, DataSourceType } from './types';
 
 interface AddDataSourceWizardProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ interface AddDataSourceWizardProps {
   onAdd: (dataSource: Partial<DataSource>) => void;
 }
 
-type DataSourceType = {
+interface DataSourceUIType {
   id: string;
   name: string;
   icon: React.ReactNode;
@@ -33,7 +34,7 @@ type DataSourceType = {
     logoUrl: string;
     description: string;
   }[];
-};
+}
 
 interface OAuthConfig {
   authUrl: string;
@@ -43,7 +44,22 @@ interface OAuthConfig {
   additionalParams?: Record<string, string>;
 }
 
-const DATA_SOURCE_TYPES: DataSourceType[] = [
+interface FormData {
+  name: string;
+  type: DataSourceType;
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  database: string;
+  sslMode: string;
+  description: string;
+  oauthCode: string;
+  connectionType: string;
+  connectionError?: string;
+}
+
+const DATA_SOURCE_TYPES: DataSourceUIType[] = [
   {
     id: 'database',
     name: 'Databases',
@@ -175,7 +191,7 @@ const DATA_SOURCE_TYPES: DataSourceType[] = [
 const OAUTH_CONFIGS: Record<string, OAuthConfig> = {
   'crm-hubspot': {
     authUrl: 'https://app.hubspot.com/oauth/authorize',
-    clientId: import.meta.env.VITE_HUBSPOT_CLIENT_ID || '',
+    clientId: import.meta.env.VITE_HUBSPOT_CLIENT_ID,
     scope: 'oauth',
     responseType: 'code',
     additionalParams: {
@@ -320,34 +336,34 @@ const OAUTH_CONFIGS: Record<string, OAuthConfig> = {
   },
   'crm-salesforce': {
     authUrl: 'https://login.salesforce.com/services/oauth2/authorize',
-    clientId: import.meta.env.VITE_SALESFORCE_CLIENT_ID || '',
+    clientId: import.meta.env.VITE_SALESFORCE_CLIENT_ID,
     scope: 'api refresh_token',
     responseType: 'code',
     additionalParams: {
-      redirect_uri: import.meta.env.VITE_OAUTH_REDIRECT_URI || '',
+      redirect_uri: import.meta.env.VITE_OAUTH_REDIRECT_URI,
       prompt: 'consent'
     }
   },
   'crm-zoho': {
     authUrl: 'https://accounts.zoho.com/oauth/v2/auth',
-    clientId: import.meta.env.VITE_ZOHO_CLIENT_ID || '',
+    clientId: import.meta.env.VITE_ZOHO_CLIENT_ID,
     scope: 'ZohoCRM.modules.ALL',
     responseType: 'code',
   },
   'storage-google-drive': {
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+    clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
     scope: 'https://www.googleapis.com/auth/drive.readonly',
     responseType: 'code',
     additionalParams: {
-      redirect_uri: import.meta.env.VITE_OAUTH_REDIRECT_URI || '',
+      redirect_uri: import.meta.env.VITE_OAUTH_REDIRECT_URI,
       access_type: 'offline',
       prompt: 'consent'
     }
   },
   'analytics-google-analytics': {
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+    clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
     scope: 'https://www.googleapis.com/auth/analytics.readonly',
     responseType: 'code',
   }
@@ -456,27 +472,12 @@ const openOAuthWindow = (url: string): Promise<{ code: string; state: string }> 
   });
 };
 
-interface FormData {
-  name: string;
-  type: string;
-  host: string;
-  port: string;
-  username: string;
-  password: string;
-  database: string;
-  sslMode: string;
-  description: string;
-  oauthCode: string;
-  connectionType: string;
-  connectionError?: string;
-}
-
 export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen, onClose, onAdd }) => {
   const [step, setStep] = useState(0);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>({
     name: '',
-    type: '',
+    type: 'database',
     host: '',
     port: '',
     username: '',
@@ -527,7 +528,10 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
 
   const handleTypeSelect = (typeId: string) => {
     setSelectedType(typeId);
-    setFormData(prev => ({ ...prev, type: typeId }));
+    setFormData(prev => ({
+      ...prev,
+      type: typeId.split('-')[0] as DataSourceType
+    }));
     setStep(1);
   };
 
@@ -687,21 +691,14 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
       onAdd({
         name: formData.name,
         type: formData.type,
-        description: formData.description,
         status: 'connected',
-        metrics: {
-          records: 0,
-          syncRate: 100,
-          avgSyncTime: '0s'
-        }
+        lastSync: new Date()
       });
-    } finally {
-      // Reset all state before closing
       setStep(0);
       setSelectedType(null);
       setFormData({
         name: '',
-        type: '',
+        type: 'database',
         host: '',
         port: '',
         username: '',
@@ -715,6 +712,8 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
       setConnectionStatus('none');
       setIsConnecting(false);
       onClose();
+    } catch (error) {
+      console.error('Error submitting form:', error);
     }
   };
 
@@ -725,7 +724,7 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
       setSelectedType(null);
       setFormData({
         name: '',
-        type: '',
+        type: 'database',
         host: '',
         port: '',
         username: '',

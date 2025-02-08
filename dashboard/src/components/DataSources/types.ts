@@ -1,3 +1,4 @@
+export type DataSourceType = 'hubspot' | 'database' | 'file' | 'api' | 'warehouse' | 'crm' | 'crm-hubspot';
 export type DataSourceStatus = 'connected' | 'disconnected' | 'syncing' | 'error';
 
 export interface DataSourceMetrics {
@@ -24,7 +25,7 @@ export interface HubSpotContact {
     lastmodifieddate?: string;
     createdate?: string;
     associatedcompanyid?: string;
-    [key: string]: any; // For additional properties
+    [key: string]: any;
   };
 }
 
@@ -46,7 +47,7 @@ export interface HubSpotCompany {
     linkedin_company_page?: string;
     createdate?: string;
     lastmodifieddate?: string;
-    [key: string]: any; // For additional properties
+    [key: string]: any;
   };
 }
 
@@ -63,7 +64,7 @@ export interface HubSpotDeal {
     hubspot_owner_id?: string;
     associated_company?: string;
     associated_vids?: string[];
-    [key: string]: any; // For additional properties
+    [key: string]: any;
   };
 }
 
@@ -106,8 +107,11 @@ export interface HubSpotData {
 export interface DataSource {
   id: string;
   name: string;
-  type: 'hubspot' | 'database' | 'file' | 'api';
-  status: 'connected' | 'disconnected' | 'error';
-  lastSync?: Date;
+  type: DataSourceType;
+  status: DataSourceStatus;
+  description?: string;
+  lastSync?: string | Date;
   error?: string;
+  metrics: DataSourceMetrics;
+  data?: HubSpotData;
 } 

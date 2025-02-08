@@ -1,6 +1,9 @@
 {
   "dependencies": {
+    "@types/jsonwebtoken": "^9.0.8",
     "@types/react-beautiful-dnd": "^13.1.8",
+    "axios": "^1.7.9",
+    "jsonwebtoken": "^9.0.2",
     "react-beautiful-dnd": "^13.1.1"
   }
 }

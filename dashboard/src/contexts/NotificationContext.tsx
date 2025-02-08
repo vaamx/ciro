@@ -1,72 +1,56 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { CheckCircle2, AlertCircle, X } from 'lucide-react';
 
-type NotificationType = 'success' | 'error' | 'info' | 'warning';
-
-interface Notification {
-  id: string;
-  type: NotificationType;
-  message: string;
+export interface NotificationContextType {
+  showNotification: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
-interface NotificationContextType {
-  notifications: Notification[];
-  showNotification: (type: NotificationType, message: string) => void;
-  removeNotification: (id: string) => void;
-}
-
-const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+const NotificationContext = createContext<NotificationContextType | null>(null);
 
 export const useNotification = () => {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useNotification must be used within a NotificationProvider');
   }
   return context;
 };
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<Array<{ type: string; message: string; id: number }>>([]);
 
-  const showNotification = useCallback((type: NotificationType, message: string) => {
-    const id = Math.random().toString(36).substring(7);
-    setNotifications(prev => [...prev, { id, type, message }]);
-
-    // Auto remove after 5 seconds
+  const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
+    const id = Date.now();
+    setNotifications(prev => [...prev, { type, message, id }]);
     setTimeout(() => {
-      removeNotification(id);
+      setNotifications(prev => prev.filter(n => n.id !== id));
     }, 5000);
-  }, []);
-
-  const removeNotification = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(notification => notification.id !== id));
-  }, []);
+  };
 
   return (
-    <NotificationContext.Provider value={{ notifications, showNotification, removeNotification }}>
+    <NotificationContext.Provider value={{ showNotification }}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 space-y-2">
-        {notifications.map(notification => (
+        {notifications.map(({ type, message, id }) => (
           <div
-            key={notification.id}
+            key={id}
             className={`flex items-center p-4 rounded-lg shadow-lg ${
-              notification.type === 'success'
+              type === 'success'
                 ? 'bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-200'
-                : notification.type === 'error'
+                : type === 'error'
                 ? 'bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200'
                 : 'bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200'
             }`}
           >
             <div className="flex items-center space-x-2">
-              {notification.type === 'success' ? (
+              {type === 'success' ? (
                 <CheckCircle2 className="w-5 h-5" />
               ) : (
                 <AlertCircle className="w-5 h-5" />
               )}
-              <p className="text-sm font-medium">{notification.message}</p>
+              <p className="text-sm font-medium">{message}</p>
             </div>
             <button
-              onClick={() => removeNotification(notification.id)}
+              onClick={() => setNotifications(prev => prev.filter(n => n.id !== id))}
               className="ml-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
             >
               <X className="w-4 h-4" />

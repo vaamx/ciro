@@ -11,54 +11,12 @@ import {
   AlertCircle,
   History,
   X,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
-import { DataSource } from './types';
+import { DataSource, DataSourceStatus } from './types';
 import { AddDataSourceWizard } from './AddDataSourceWizard';
-
-const dataSources: DataSource[] = [
-  {
-    id: 1,
-    name: 'Customer Database',
-    description: 'Primary PostgreSQL database for customer data',
-    type: 'database',
-    status: 'connected',
-    lastSync: '5 mins ago',
-    metrics: {
-      records: 1250000,
-      syncRate: 98,
-      avgSyncTime: '45s'
-    }
-  },
-  {
-    id: 2,
-    name: 'Sales Analytics',
-    description: 'BigQuery data warehouse for sales analytics',
-    type: 'warehouse',
-    status: 'syncing',
-    lastSync: 'In progress',
-    metrics: {
-      records: 5000000,
-      syncRate: 95,
-      avgSyncTime: '2m'
-    }
-  },
-  {
-    id: 3,
-    name: 'Marketing CRM',
-    description: 'HubSpot CRM integration for marketing data',
-    type: 'crm',
-    status: 'error',
-    lastSync: '1 hour ago',
-    metrics: {
-      records: 750000,
-      syncRate: 85,
-      avgSyncTime: '1.5m',
-      lastError: 'API rate limit exceeded'
-    }
-  }
-];
+import { mockDataSources } from './constants';
 
 const sourceCategories = [
   { id: 'all', name: 'All Sources' },
@@ -72,7 +30,7 @@ interface SourceDetailsModalProps {
   source: DataSource | null;
   isOpen: boolean;
   onClose: () => void;
-  onUpdate: (sourceId: number, updates: Partial<DataSource>) => void;
+  onUpdate: (sourceId: string, updates: Partial<DataSource>) => void;
 }
 
 const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({
@@ -437,11 +395,11 @@ export const DataSourcesView: React.FC = () => {
           const parsedSources = JSON.parse(savedSources);
           setFilteredSources(parsedSources);
         } else {
-          setFilteredSources(dataSources); // Use default sources if none saved
+          setFilteredSources(mockDataSources); // Use default sources if none saved
         }
       } catch (error) {
         console.error('Error loading data sources:', error);
-        setFilteredSources(dataSources);
+        setFilteredSources(mockDataSources);
       } finally {
         setIsLoading(false);
       }
@@ -461,7 +419,7 @@ export const DataSourcesView: React.FC = () => {
   useEffect(() => {
     const filtered = filteredSources.filter(source => {
       const matchesSearch = source.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          source.description.toLowerCase().includes(searchQuery.toLowerCase());
+                         (source.description || '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = activeCategory === 'all' || source.type === activeCategory;
       return matchesSearch && matchesCategory;
     });
@@ -560,11 +518,11 @@ export const DataSourcesView: React.FC = () => {
       
       // Create the data source
       const createdSource: DataSource = {
-        id: Date.now(), // Use timestamp for unique ID
+        id: Date.now().toString(),
         name: newSource.name || '',
-        type: newSource.type || '',
+        type: newSource.type || 'database',
         description: newSource.description || '',
-        status: 'connected' as const,
+        status: 'connected',
         lastSync: new Date().toISOString(),
         metrics: {
           records: 0,
@@ -574,7 +532,7 @@ export const DataSourcesView: React.FC = () => {
       };
 
       // If it's a HubSpot source, fetch the data
-      if (createdSource.type === 'crm-hubspot') {
+      if (newSource.type === 'crm-hubspot') {
         try {
           // Fetch contacts
           const contactsResponse = await fetch('/api/proxy/hubspot/crm/v3/objects/contacts', {
@@ -638,9 +596,11 @@ export const DataSourcesView: React.FC = () => {
           console.error('Error fetching HubSpot data:', error);
           const errorSource: DataSource = {
             ...createdSource,
-            status: 'error' as const,
+            status: 'error',
             metrics: {
-              ...createdSource.metrics,
+              records: 0,
+              syncRate: 0,
+              avgSyncTime: '0s',
               lastError: 'Failed to fetch HubSpot data'
             }
           };
@@ -659,12 +619,11 @@ export const DataSourcesView: React.FC = () => {
     }
   };
 
-  const handleDeleteSource = async (sourceId: number) => {
+  const handleDeleteSource = async (sourceId: string) => {
     try {
       setIsLoading(true);
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Filter out the deleted source
       const updatedSources = filteredSources.filter(source => source.id !== sourceId);
       setFilteredSources(updatedSources);
       showNotification('success', 'Data source deleted successfully');
@@ -675,12 +634,11 @@ export const DataSourcesView: React.FC = () => {
     }
   };
 
-  const handleToggleSourceStatus = async (sourceId: number) => {
+  const handleToggleSourceStatus = async (sourceId: string) => {
     try {
       setIsLoading(true);
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Update the source status
       const updatedSources = filteredSources.map(source => {
         if (source.id === sourceId) {
           const newStatus: DataSource['status'] = source.status === 'connected' ? 'disconnected' : 'connected';
@@ -698,21 +656,18 @@ export const DataSourcesView: React.FC = () => {
     }
   };
 
-  const handleRefreshSource = async (sourceId: number) => {
+  const handleRefreshSource = async (sourceId: string) => {
     try {
-      // Find the source
       const source = filteredSources.find(s => s.id === sourceId);
       if (!source) return;
 
-      // Update the source status to syncing
       const updatedSources = filteredSources.map(s => 
-        s.id === sourceId ? { ...s, status: 'syncing' as const } : s
+        s.id === sourceId ? { ...s, status: 'syncing' as DataSourceStatus } : s
       );
       setFilteredSources(updatedSources);
 
       if (source.type === 'crm-hubspot') {
         try {
-          // Use fetchHubSpotData instead of inline fetching
           const refreshedSource = await fetchHubSpotData(source);
           const finalSources = filteredSources.map(s => 
             s.id === sourceId ? refreshedSource : s
@@ -725,7 +680,7 @@ export const DataSourcesView: React.FC = () => {
           const errorSources = filteredSources.map(s => 
             s.id === sourceId ? {
               ...s,
-              status: 'error' as const,
+              status: 'error' as DataSourceStatus,
               metrics: {
                 ...s.metrics,
                 lastError: 'Failed to refresh HubSpot data'
@@ -736,9 +691,8 @@ export const DataSourcesView: React.FC = () => {
           showNotification('error', 'Failed to refresh HubSpot data');
         }
       } else {
-        // Handle other data source types here
         const finalSources = updatedSources.map(s => 
-          s.id === sourceId ? { ...s, status: 'connected' as const } : s
+          s.id === sourceId ? { ...s, status: 'connected' as DataSourceStatus } : s
         );
         setFilteredSources(finalSources);
         showNotification('success', 'Data source refreshed successfully');
@@ -748,7 +702,7 @@ export const DataSourcesView: React.FC = () => {
     }
   };
 
-  const handleUpdateSource = async (sourceId: number, updates: Partial<DataSource>) => {
+  const handleUpdateSource = async (sourceId: string, updates: Partial<DataSource>) => {
     try {
       setIsLoading(true);
       await new Promise(resolve => setTimeout(resolve, 1000));
