@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { oauthRouter } from './routes/oauth';
 import { proxyRouter } from './routes/proxy';
+import chatRouter from './routes/chat';
+import { initializeDatabase } from './infrastructure/database';
 
 // Load environment variables
 dotenv.config();
@@ -37,6 +39,7 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/oauth', oauthRouter);
 app.use('/api/proxy', proxyRouter);
+app.use('/chat', chatRouter);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -52,7 +55,15 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
-}); 
+// Initialize database and start server
+initializeDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
+    });
+  })
+  .catch(error => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  }); 

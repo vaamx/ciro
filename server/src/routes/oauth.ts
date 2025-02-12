@@ -35,21 +35,21 @@ router.post('/token', async (req, res) => {
 
     if (provider === 'hubspot') {
       // Validate environment variables
-      if (!process.env.HUBSPOT_CLIENT_ID || !process.env.HUBSPOT_CLIENT_SECRET) {
+      if (!process.env.VITE_HUBSPOT_CLIENT_ID || !process.env.VITE_HUBSPOT_CLIENT_SECRET) {
         console.error('Missing HubSpot credentials in environment');
         return res.status(500).json({ error: 'HubSpot credentials not configured' });
       }
 
       const params = new URLSearchParams();
       params.append('grant_type', 'authorization_code');
-      params.append('client_id', process.env.HUBSPOT_CLIENT_ID);
-      params.append('client_secret', process.env.HUBSPOT_CLIENT_SECRET);
+      params.append('client_id', process.env.VITE_HUBSPOT_CLIENT_ID);
+      params.append('client_secret', process.env.VITE_HUBSPOT_CLIENT_SECRET);
       params.append('redirect_uri', `${process.env.FRONTEND_URL}/oauth/callback`);
       params.append('code', code);
 
       console.log('Starting token exchange with params:', {
         grant_type: 'authorization_code',
-        client_id: process.env.HUBSPOT_CLIENT_ID,
+        client_id: process.env.VITE_HUBSPOT_CLIENT_ID,
         redirect_uri: `${process.env.FRONTEND_URL}/oauth/callback`,
         code: code
       });

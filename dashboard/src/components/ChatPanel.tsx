@@ -7,6 +7,9 @@ import {
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import { motion, AnimatePresence } from 'framer-motion';
+import { v4 as uuidv4 } from 'uuid';
+import { chatApi, ChatMessage, ChatResponse } from '../services/api';
+import { Visualization } from './Visualization';
 
 interface ChatPanelProps {
   isOpen: boolean;
@@ -101,14 +104,17 @@ const loadingVariants = {
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose }): JSX.Element => {
-  const [messages, setMessages] = useState<Message[]>([{
+  const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
+    sessionId: uuidv4(),
     type: 'assistant',
     content: "Hi! I'm your AI assistant. How can I help you today?",
     timestamp: new Date()
   }]);
+  const [sessionId] = useState<string>(uuidv4());
   const [inputValue, setInputValue] = useState('');
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sourceDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -117,6 +123,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose }): JSX.El
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+  useEffect(() => {
+    // Load chat history when component mounts
+    const loadChatHistory = async () => {
+      try {
+        const history = await chatApi.getChatHistory(sessionId);
+        if (history.length > 0) {
+          setMessages(prev => [...prev, ...history]);
+        }
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    };
+
+    loadChatHistory();
+  }, [sessionId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -129,7 +151,70 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose }): JSX.El
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const renderMessageContent = (message: Message) => {
+  const handleSendMessage = async (message?: string, selectedDataSource?: string) => {
+    const textToSend = message || inputValue;
+    if (!textToSend.trim()) return;
+
+    const newMessage: ChatMessage = {
+      id: Date.now().toString(),
+      sessionId,
+      type: 'user',
+      content: textToSend,
+      timestamp: new Date(),
+      status: 'sending'
+    };
+
+    setMessages(prev => [...prev, newMessage]);
+    setInputValue('');
+    setIsLoading(true);
+
+    try {
+      const response = await chatApi.sendMessage(
+        sessionId,
+        textToSend,
+        selectedDataSource
+      );
+
+      // Update the user message status
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === newMessage.id
+            ? { ...msg, status: 'sent' }
+            : msg
+        )
+      );
+
+      // Add the assistant's response
+      setMessages(prev => [...prev, response.message]);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      
+      // Update the user message status to error
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === newMessage.id
+            ? { ...msg, status: 'error' }
+            : msg
+        )
+      );
+
+      // Add error message
+      setMessages(prev => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          sessionId,
+          type: 'error',
+          content: 'Sorry, there was an error processing your request. Please try again.',
+          timestamp: new Date()
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renderMessageContent = (message: ChatMessage) => {
     const components: Components = {
       code({ node, inline, className, children, ...props }: any) {
         const match = /language-(\w+)/.exec(className || '');
@@ -160,42 +245,25 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose }): JSX.El
     };
 
     return (
-      <Markdown
-        components={components}
-        className="prose-sm max-w-none"
-      >
-        {message.content}
-      </Markdown>
+      <>
+        <Markdown
+          components={components}
+          className="prose-sm max-w-none"
+        >
+          {message.content}
+        </Markdown>
+        
+        {/* Render visualization if available */}
+        {message.metadata?.visualization && (
+          <div className="mt-4">
+            <Visualization
+              type={message.metadata.visualization.type}
+              config={message.metadata.visualization.config}
+            />
+          </div>
+        )}
+      </>
     );
-  };
-
-  const handleSendMessage = async (message?: string) => {
-    const textToSend = message || inputValue;
-    if (!textToSend.trim()) return;
-
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: textToSend,
-      timestamp: new Date(),
-      status: 'sending'
-    };
-
-    setMessages(prev => [...prev, newMessage]);
-    setInputValue('');
-
-    // Simulate AI response
-    setTimeout(() => {
-      const responseMessage: Message = {
-        id: Date.now().toString(),
-        type: 'assistant',
-        content: `I understand you're asking about "${textToSend}". Let me help you with that...`,
-        timestamp: new Date(),
-        status: 'sent'
-      };
-
-      setMessages(prev => [...prev, responseMessage]);
-    }, 2000);
   };
 
   return (

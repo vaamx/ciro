@@ -1,0 +1,1608 @@
+Ok, I want us to deeply think about our Chat Component and how we can begin setting up our Architecture correclty so that my chat component can correctly fetch data from any of my Data source Asyncronously and for Aggregated Context. @Codebase 
+
+Let me explain the step that we have taken so far.
+
+We have currently built the front end of our app with local state management. 
+
+We are currently not registering users, therefore we dont have a database integrated. 
+
+We have set up a Data Source Connector and currently have connected only Hubspot.
+
+Using our Proxy and Oauth Server, we have been able to succesfully retrieve data from Hubspot. 
+
+Now what I need is to set up a robust architecture so that my Chatbot can talk to my Data Sources. 
+
+In a direct form, or contextual form.
+meaning I can chat directly with Hubspot or with any other data source. 
+
+The Chat should be powered by an LLM Like Open AI. 
+And Product Graphs, Charts and other beautiful Visual Components Directly in the Chat. 
+
+This should be powered by Kafka, and provide real time insights and visualizations. 
+
+We need to make sure we have all the necessary architecture components for this to happen. Like Buffer, Persistentn Memory for the Chat, and for it to learn progressively upon the data and historical performance, etc. 
+
+
+To set up a robust architecture for your chat component that can interact with various data sources asynchronously and provide aggregated context, we need to consider several components and their interactions. Below is a proposed architecture and implementation plan that incorporates your requirements, including the use of Kafka, OpenAI's LLM, and persistent memory for chat history.
+
+Proposed Architecture
+1. Frontend Chat Component:
+The chat component will handle user interactions and display responses from the chatbot.
+It will send user messages to a backend service for processing and receive responses, including data visualizations.
+
+Backend API:
+A dedicated API service that handles requests from the chat component.
+This service will interact with Kafka to publish and consume messages related to user queries and data source interactions.
+
+3. Kafka:
+Kafka will be used for asynchronous communication between the chat component and data sources.
+It will handle events such as user messages, data retrieval requests, and responses from data sources.
+
+4. Data Source Connectors:
+Each data source (e.g., HubSpot, Google Drive) will have a connector that listens for requests from Kafka and fetches data accordingly.
+These connectors will publish the results back to Kafka.
+
+5. OpenAI LLM Integration:
+The backend API will integrate with OpenAI's API to process user messages and generate responses.
+It will also handle context management to maintain conversation state.
+
+6. Persistent Memory:
+A database or in-memory store (like Redis) to keep track of chat history and user interactions.
+This will allow the chatbot to learn from past interactions and provide more contextual responses.
+
+Visualization Components:
+The backend will generate visualizations based on the data retrieved from the data sources and send them back to the frontend for display.
+Implementation Steps
+
+1. Frontend Chat Component
+import React, { useState } from 'react';
+import { Send } from 'lucide-react';
+
+const ChatPanel: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  const handleSend = async () => {
+    const userMessage = { type: 'user', content: input, timestamp: new Date() };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+
+    // Send message to backend
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: input }),
+    });
+    const data = await response.json();
+    setMessages((prev) => [...prev, { type: 'assistant', content: data.response, timestamp: new Date() }]);
+  };
+
+  return (
+    <div>
+      <div>
+        {messages.map((msg, index) => (
+          <div key={index} className={msg.type}>
+            {msg.content}
+          </div>
+        ))}
+      </div>
+      <input value={input} onChange={(e) => setInput(e.target.value)} />
+      <button onClick={handleSend}><Send /></button>
+    </div>
+  );
+};
+
+
+2. Backend API
+import express from 'express';
+import { Kafka } from 'kafkajs';
+import axios from 'axios';
+
+const router = express.Router();
+const kafka = new Kafka({ clientId: 'chat-service', brokers: ['localhost:9092'] });
+const producer = kafka.producer();
+
+router.post('/', async (req, res) => {
+  const { message } = req.body;
+
+  // Send message to Kafka
+  await producer.send({
+    topic: 'chat-messages',
+    messages: [{ value: message }],
+  });
+
+  // Consume response from Kafka
+  const consumer = kafka.consumer({ groupId: 'chat-group' });
+  await consumer.connect();
+  await consumer.subscribe({ topic: 'chat-responses', fromBeginning: true });
+
+  consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      const response = message.value.toString();
+      res.json({ response });
+      await consumer.disconnect();
+    },
+  });
+});
+
+export default router;
+
+
+3. Kafka Consumer for Data Sources
+import { Kafka } from 'kafkajs';
+import { fetchDataFromSource } from './dataSourceConnectors';
+
+const kafka = new Kafka({ clientId: 'data-source-connector', brokers: ['localhost:9092'] });
+const consumer = kafka.consumer({ groupId: 'data-source-group' });
+
+const runConsumer = async () => {
+  await consumer.connect();
+  await consumer.subscribe({ topic: 'chat-messages', fromBeginning: true });
+
+  await consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      const userMessage = message.value.toString();
+      const data = await fetchDataFromSource(userMessage); // Fetch data based on user message
+      await producer.send({
+        topic: 'chat-responses',
+        messages: [{ value: data }],
+      });
+    },
+  });
+};
+
+runConsumer();
+
+4. Data Source Connectors
+import axios from 'axios';
+
+export const fetchDataFromSource = async (message: string) => {
+  // Logic to determine which data source to query based on the message
+  if (message.includes('HubSpot')) {
+    const response = await axios.get('/api/proxy/hubspot/crm/v3/objects/contacts');
+    return JSON.stringify(response.data);
+  }
+  // Add more data source conditions as needed
+  return 'No data found for the requested source.';
+};
+
+
+5. OpenAI LLM Integration
+import axios from 'axios';
+
+export const getOpenAIResponse = async (message: string) => {
+  const response = await axios.post('https://api.openai.com/v1/engines/davinci-codex/completions', {
+    prompt: message,
+    max_tokens: 150,
+  }, {
+    headers: {
+      'Authorization': Bearer ${process.env.OPENAI_API_KEY},
+    },
+  });
+  return response.data.choices[0].text.trim();
+};
+
+
+Additional Considerations
+Persistent Memory: Use a database (like MongoDB or Redis) to store chat history and user interactions. This will allow the chatbot to learn from past conversations and improve over time.
+Real-Time Insights: Implement a mechanism to visualize data in the chat. You can use libraries like Chart.js or D3.js to render charts based on the data fetched from the data sources.
+Buffering: Consider implementing a buffering mechanism to handle bursts of messages and ensure that the chat component remains responsive.
+Security: Ensure that all API endpoints are secured and that sensitive data is handled appropriately.
+Conclusion
+This architecture provides a solid foundation for your chat component to interact with various data sources asynchronously while leveraging Kafka for real-time communication. By integrating OpenAI's LLM, you can enhance the chatbot's capabilities, allowing it to provide contextual responses and visualizations based on user queries.
+
+
+
+Additional Context about what I am building:
+
+## 🚀 Ciro AI: The Future of Intelligent Business Automation
+
+### 🎯 **What is Ciro AI?**
+
+**Ciro AI** is an advanced, all-in-one AI-powered business intelligence platform designed to help organizations seamlessly connect their data, automate workflows, and enhance customer interactions through intelligent voice and chatbot agents. Ciro AI transforms raw data into actionable insights, automated decisions, and smart customer communications, all from a single, unified dashboard.
+
+Ciro AI empowers businesses to **Think, Analyze, Act, and Communicate** effortlessly, making data-driven decisions faster and more intuitive.
+
+---
+
+### **🌍 Core Capabilities of Ciro AI:**
+
+1. **Data Hub: Connecting & Interacting with Data**
+   - **Connect Multiple Data Sources:** Effortlessly integrate with CRMs, databases, APIs, cloud services, and more.
+   - **Real-Time Data Analysis:** Query and explore data using natural language or advanced SQL.
+   - **Unified Data Insights:** Consolidate all business data in one place for seamless analysis.
+
+2. **Dashboards & Panels: Business Intelligence Visualization**
+   - **Customizable Dashboards:** Build interactive dashboards with drag-and-drop components.
+   - **Advanced Data Visualization:** Turn complex data into clear, actionable insights with dynamic charts, KPIs, and heatmaps.
+   - **Collaboration Tools:** Share dashboards, comment on visualizations, and collaborate with team members.
+
+3. **Automations Hub: Workflow Orchestration**
+   - **Integration with Popular Platforms:** Connect with Gmail, Google Drive, HubSpot, SAP, Slack, and more.
+   - **Visual Workflow Builder:** Design automation flows with intuitive drag-and-drop tools.
+   - **Smart Automation Triggers:** Set up data-driven workflows triggered by specific events, time-based schedules, or custom API calls.
+
+4. **AI Agents: Voice Assistants & Chatbots**
+   - **Customizable AI Agents:** Build and deploy intelligent chatbots and voice agents for customer support, sales, and more.
+   - **Data-Driven Conversations:** Integrate agents with business data to provide personalized, real-time responses.
+   - **Visual Flow Designer:** Easily create conversation flows with a visual editor, tailored to specific business needs.
+   - **Multi-Channel Deployment:** Deploy agents across websites, mobile apps, WhatsApp, and other platforms.
+
+5. **Unified Experience:**
+   - **Seamless User Interface:** Consistent design language and navigation across all modules.
+   - **Personalized Workspaces:** Customize dashboards, layouts, and themes (light/dark mode).
+   - **Integrated Analytics:** Monitor automation performance, agent interactions, and business metrics in real-time.
+
+---
+
+### **🚀 The Ciro AI Process: Think, Analyze, Act, Communicate**
+
+1. **Think:** Connect and integrate diverse data sources to create a unified data ecosystem.
+2. **Analyze:** Extract valuable insights using AI-powered analytics and data visualizations.
+3. **Act:** Automate business decisions and workflows for improved efficiency and productivity.
+4. **Communicate:** Enhance customer engagement through AI-driven voice assistants and chatbots.
+
+---
+
+### 💼 **Who is Ciro AI For?**
+
+- **Enterprises:** Optimize large-scale operations with data-driven decision-making.
+- **Startups:** Accelerate growth with automation and intelligent analytics.
+- **Sales & Marketing Teams:** Enhance lead generation, customer engagement, and performance tracking.
+- **Customer Support:** Improve service with AI-powered chatbots and voice agents.
+
+---
+
+### **🔑 Key Benefits:**
+
+- **Data-Driven Decisions:** Empower teams with real-time insights.
+- **Operational Efficiency:** Automate repetitive tasks and workflows.
+- **Smarter Customer Engagement:** Deliver personalized, AI-driven interactions.
+- **Seamless Integration:** Connect with tools you already use.
+
+
+
+Providing Clarity about requirements.
+Right now, we are only focusing on the Chatbot being able to integrate with Data Sources to retreive information, generate insights, and generate visualizations. 
+
+We need a Robust Architecture. 
+
+Yes, setting up a database before implementing the architecture for your chat component is highly recommended. A database will provide persistent storage for chat history, user interactions, and any other relevant data that your application needs to function effectively. Here are some reasons why a database is essential for your use case:
+Reasons to Set Up a Database
+1. Persistent Storage: You need a way to store chat history and user interactions so that the chatbot can learn from past conversations and provide contextually relevant responses.
+2. Data Retrieval: A database allows you to efficiently retrieve and manage data from various sources, including user profiles, chat logs, and any aggregated data from connected data sources.
+Scalability: As your application grows, a database can help manage increasing amounts of data and user interactions without performance degradation.
+Data Integrity: A database can enforce data integrity and relationships between different entities (e.g., users, messages, data sources).
+5. Analytics and Reporting: Storing data in a database allows you to perform analytics and generate reports on user interactions, chatbot performance, and data source usage.
+Recommended Database Options
+Given your specific use cases, here are a few database options to consider:
+1. MongoDB:
+Type: NoSQL Document Database
+Use Case: Ideal for storing chat messages, user profiles, and other semi-structured data. Its flexible schema allows you to easily adapt to changing requirements.
+Benefits:
+Easy to scale horizontally.
+Supports rich queries and indexing.
+Good for handling unstructured data.
+2. PostgreSQL:
+Type: Relational Database
+Use Case: Suitable for structured data and complex queries. If you need to enforce relationships between different entities (e.g., users and their chat histories), PostgreSQL is a strong choice.
+Benefits:
+ACID compliance ensures data integrity.
+Supports advanced features like JSONB for semi-structured data.
+Strong community support and extensive documentation.
+3. Redis:
+Type: In-Memory Data Store
+Use Case: Great for caching chat history and managing real-time data. It can be used alongside another database for quick access to frequently used data.
+Benefits:
+Extremely fast read and write operations.
+Supports data structures like lists, sets, and hashes.
+Can be used for session management and real-time analytics.
+4. Firebase Firestore:
+Type: NoSQL Cloud Database
+Use Case: If you're looking for a serverless solution, Firestore is a good option for real-time data synchronization and easy integration with frontend frameworks.
+Benefits:
+Real-time updates and offline support.
+Scalable and managed by Google.
+Easy to integrate with authentication services.
+Conclusion
+For your specific use case, MongoDB or PostgreSQL would be strong candidates, depending on whether you prefer a NoSQL or relational approach. If you anticipate needing real-time capabilities and are open to a cloud solution, Firebase Firestore could also be a good fit.
+Ultimately, the choice of database should align with your application's requirements, the complexity of the data relationships, and your team's familiarity with the technology. Setting up the database early in the development process will help you build a more robust and scalable architecture for your chat component.
+
+
+Instructions:
+
+I am building this with Cursor Agent to help me develop the code and a step by step implementation instructions.
+
+I need you to help me provide Cursor Instructions and highly Technical, Guide to next steps We need to proceed with the development of my application.
+
+We already have a front end chat component:
+
+import React, { useState, useRef, useEffect } from 'react';
+import Markdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import { 
+  Send, Bot, Plus, X
+} from 'lucide-react';
+import SyntaxHighlighter from 'react-syntax-highlighter';
+import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import { motion, AnimatePresence } from 'framer-motion';
+
+interface ChatPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+interface Message {
+  id: string;
+  type: 'user' | 'assistant' | 'system' | 'error';
+  content: string;
+  timestamp: Date;
+  status?: 'sending' | 'sent' | 'error';
+  attachments?: Array<{
+    type: 'image' | 'document';
+    url: string;
+    name: string;
+  }>;
+}
+
+interface DataSource {
+  id: string;
+  name: string;
+  icon: string;
+  type: 'internal' | 'customer';
+  description?: string;
+}
+
+const dataSources: { [key: string]: DataSource[] } = {
+  internal: [
+    { id: 'all-data', name: 'All Data Sources', icon: '🎯', type: 'internal', description: 'Query across all data sources' },
+    { id: '***REMOVED***', name: 'PostgreSQL', icon: '🐘', type: 'internal', description: 'Production and analytics databases' },
+    { id: 'supabase', name: 'Supabase', icon: '⚡', type: 'internal', description: 'Real-time and edge databases' },
+    { id: 'bigquery', name: 'BigQuery', icon: '📊', type: 'internal', description: 'Data warehouse and analytics' },
+    { id: 'snowflake', name: 'Snowflake', icon: '❄️', type: 'internal', description: 'Enterprise data warehouse' },
+    { id: 'hubspot', name: 'HubSpot', icon: '🎯', type: 'internal', description: 'CRM and marketing data' },
+    { id: 'gdrive', name: 'Google Drive', icon: '📁', type: 'internal', description: 'Documents and spreadsheets' },
+    { id: 'notion', name: 'Notion', icon: '📝', type: 'internal', description: 'Team documentation and notes' },
+    { id: 'metabase', name: 'Metabase', icon: '📈', type: 'internal', description: 'BI dashboards and reports' },
+    { id: 'looker', name: 'Looker', icon: '👀', type: 'internal', description: 'Business intelligence platform' }
+  ],
+  customer: [
+    { id: 'help-center', name: 'Help Center', icon: '💡', type: 'customer', description: 'Customer documentation and guides' },
+    { id: 'api-docs', name: 'API Reference', icon: '🔌', type: 'customer', description: 'API documentation and examples' },
+    { id: 'tutorials', name: 'Tutorials', icon: '📚', type: 'customer', description: 'Step-by-step guides and tutorials' },
+    { id: 'faqs', name: 'FAQs', icon: '❓', type: 'customer', description: 'Frequently asked questions' },
+    { id: 'community', name: 'Community', icon: '👥', type: 'customer', description: 'Community discussions and solutions' }
+  ]
+};
+
+const CodeBlock: React.FC<{ language: string; value: string }> = ({ language, value }) => (
+  <SyntaxHighlighter
+    language={language}
+    style={atomOneDark}
+    customStyle={{ 
+      borderRadius: '8px',
+      padding: '1rem',
+      margin: '1rem 0',
+      fontSize: '0.875rem'
+    }}
+  >
+    {value}
+  </SyntaxHighlighter>
+);
+
+// Animation variants
+const messageVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { 
+      duration: 0.3,
+      ease: 'easeOut'
+    }
+  }
+};
+
+const loadingVariants = {
+  start: {
+    opacity: 0.5,
+    scale: 0.98,
+  },
+  loading: {
+    opacity: [0.5, 1, 0.5],
+    scale: [0.98, 1, 0.98],
+    transition: {
+      duration: 1.5,
+      repeat: Infinity,
+      ease: "easeInOut"
+    }
+  }
+};
+
+export const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose }): JSX.Element => {
+  const [messages, setMessages] = useState<Message[]>([{
+    id: 'welcome',
+    type: 'assistant',
+    content: "Hi! I'm your AI assistant. How can I help you today?",
+    timestamp: new Date()
+  }]);
+  const [inputValue, setInputValue] = useState('');
+  const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sourceDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sourceDropdownRef.current && !sourceDropdownRef.current.contains(event.target as Node)) {
+        setIsSourceDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const renderMessageContent = (message: Message) => {
+    const components: Components = {
+      code({ node, inline, className, children, ...props }: any) {
+        const match = /language-(\w+)/.exec(className || '');
+        return !inline && match ? (
+          <CodeBlock 
+            language={match[1]} 
+            value={String(children).replace(/\n$/, '')} 
+          />
+        ) : (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        );
+      },
+      table(props: React.ComponentPropsWithoutRef<'table'>) {
+        return (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y" {...props} />
+          </div>
+        );
+      },
+      th(props: React.ComponentPropsWithoutRef<'th'>) {
+        return <th className="px-4 py-2 text-left bg-gray-50" {...props} />;
+      },
+      td(props: React.ComponentPropsWithoutRef<'td'>) {
+        return <td className="px-4 py-2 border-t" {...props} />;
+      }
+    };
+
+    return (
+      <Markdown
+        components={components}
+        className="prose-sm max-w-none"
+      >
+        {message.content}
+      </Markdown>
+    );
+  };
+
+  const handleSendMessage = async (message?: string) => {
+    const textToSend = message || inputValue;
+    if (!textToSend.trim()) return;
+
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: textToSend,
+      timestamp: new Date(),
+      status: 'sending'
+    };
+
+    setMessages(prev => [...prev, newMessage]);
+    setInputValue('');
+
+    // Simulate AI response
+    setTimeout(() => {
+      const responseMessage: Message = {
+        id: Date.now().toString(),
+        type: 'assistant',
+        content: I understand you're asking about "${textToSend}". Let me help you with that...,
+        timestamp: new Date(),
+        status: 'sent'
+      };
+
+      setMessages(prev => [...prev, responseMessage]);
+    }, 2000);
+  };
+
+  return (
+    <>
+      {/* Chat Button with enhanced animation */}
+      <motion.button
+        onClick={onClose}
+        className="fixed bottom-6 right-6 p-4 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2 z-50 md:bottom-8 md:right-8"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        aria-label="Open chat"
+      >
+        <Bot className="w-5 h-5" />
+        <span className="text-sm font-medium">Ask Ciro AI</span>
+      </motion.button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed bottom-0 right-0 w-full h-[100dvh] md:bottom-24 md:right-6 md:w-[650px] md:h-[600px] bg-white dark:bg-gray-800 rounded-none md:rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
+              <div className="flex items-center space-x-3">
+                {/* Logo/Avatar */}
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 flex items-center justify-center shadow-sm">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                  <h1 className="text-lg font-semibold text-gray-800 dark:text-white">Ask Ciro AI</h1>
+                </div>
+
+                {/* Add Data Source Button */}
+                <div className="relative" ref={sourceDropdownRef}>
+                  <motion.button
+                    onClick={() => setIsSourceDropdownOpen(!isSourceDropdownOpen)}
+                    className="flex items-center space-x-1.5 px-2.5 py-1.5 text-sm bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors group"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <Plus className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors" />
+                    <span className="text-gray-600 dark:text-gray-300 group-hover:text-gray-900 dark:group-hover:text-white text-sm">Add Source</span>
+                  </motion.button>
+
+                  <AnimatePresence>
+                    {isSourceDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute top-full left-0 mt-1 w-[280px] bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 z-50"
+                        style={{ maxHeight: '400px', overflowY: 'auto' }}
+                      >
+                        {Object.entries(dataSources).map(([category, sources]) => (
+                          <div key={category} className="py-1">
+                            <div className="sticky top-0 px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+                              {category === 'internal' ? 'Internal Sources' : 'Customer-Facing'}
+                            </div>
+                            {sources.map((source) => (
+                              <button
+                                key={source.id}
+                                onClick={() => {
+                                  setIsSourceDropdownOpen(false);
+                                  handleSendMessage(Tell me about ${source.name});
+                                }}
+                                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                              >
+                                <span className="text-lg mr-2">{source.icon}</span>
+                                <div className="flex flex-col items-start">
+                                  <span>{source.name}</span>
+                                  {source.description && (
+                                    <span className="text-xs text-gray-400 dark:text-gray-500">{source.description}</span>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              <motion.button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </motion.button>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+              <div className="min-h-full flex flex-col">
+                {messages.length === 1 ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="flex-1 flex flex-col items-center justify-center p-6 space-y-6"
+                  >
+                    {/* Large Logo */}
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg">
+                      <Bot className="w-10 h-10 text-white" />
+                    </div>
+
+                    {/* Welcome Message */}
+                    <div className="text-center space-y-2">
+                      <h2 className="text-xl font-semibold text-gray-800 dark:text-white">Welcome to Ciro AI</h2>
+                      <p className="text-gray-500 dark:text-gray-400 max-w-sm">Ask me anything about your data or get help with our products</p>
+                    </div>
+
+                    {/* Quick Actions */}
+                    <div className="grid grid-cols-2 gap-3 w-full max-w-md">
+                      <button
+                        onClick={() => handleSendMessage("Show me our key metrics")}
+                        className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-500 dark:hover:border-indigo-400 hover:shadow-sm transition-all text-left group"
+                      >
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="text-lg">📊</span>
+                          <span className="font-medium text-gray-800 dark:text-white">Analytics</span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Query your data and metrics</p>
+                      </button>
+                      <button
+                        onClick={() => handleSendMessage("Help me with integration")}
+                        className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-500 dark:hover:border-indigo-400 hover:shadow-sm transition-all text-left group"
+                      >
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="text-lg">🔌</span>
+                          <span className="font-medium text-gray-800 dark:text-white">Integration</span>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Get integration help</p>
+                      </button>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <div className="flex-1 p-6 space-y-6">
+                    {messages.map((message) => (
+                      <motion.div
+                        key={message.id}
+                        variants={messageVariants}
+                        initial="hidden"
+                        animate={message.status === 'sending' ? "loading" : "visible"}
+                        className={flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}}
+                      >
+                        {message.type === 'assistant' && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ delay: 0.2 }}
+                            className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 flex items-center justify-center mr-3 shadow-sm"
+                          >
+                            <Bot className="w-6 h-6 text-white" />
+                          </motion.div>
+                        )}
+                        <motion.div
+                          variants={loadingVariants}
+                          className={max-w-[70%] ${
+                            message.type === 'user'
+                              ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white'
+                              : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+                          } rounded-2xl p-4 shadow-sm}
+                          whileHover={{ scale: 1.01 }}
+                        >
+                          <div className={message.type === 'assistant' ? 'text-gray-800 dark:text-white' : ''}>
+                            {renderMessageContent(message)}
+                          </div>
+                        </motion.div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Message Input */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Type your message..."
+                  className="w-full pl-4 pr-12 py-2 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage(inputValue)}
+                />
+                <button
+                  onClick={() => handleSendMessage(inputValue)}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 text-gray-400 dark:text-gray-500 hover:text-purple-600 dark:hover:text-purple-400"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Simplified Footer */}
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+              <div className="flex items-center space-x-2">
+                <span className="hidden sm:inline">Powered by</span>
+                <div className="w-6 h-6 rounded-full bg-gradient-to-r from-purple-500 to-indigo-600 flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-white" />
+                </div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Ciro AI</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+};
+
+
+
+
+Let's break this down into actionable technical steps using Cursor Agent. Here's a comprehensive implementation guide:
+
+### 1. Database Setup (MongoDB)
+```bash
+# Install MongoDB locally or use Atlas cloud
+brew install mongodb-community@7.0
+brew services start mongodb-community@7.0
+
+# Create database and collections
+mongo
+> use ciro-ai
+> db.createCollection("conversations")
+> db.createCollection("data_source_connections")
+```
+
+### 2. Kafka Infrastructure Setup
+```bash
+# Using Docker Compose
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+```
+
+### 3. Backend Service Architecture
+```
+src/
+├── backend/
+│   ├── services/
+│   │   ├── kafka/
+│   │   │   ├── producer.ts
+│   │   │   └── consumer.ts
+│   ├── connectors/
+│   │   ├── hubspot.ts
+│   │   └── data-source.factory.ts
+│   ├── llm/
+│   │   ├── openai-service.ts
+│   │   └── prompt-engine.ts
+│   ├── models/
+│   │   ├── conversation.ts
+│   │   └── data-source.ts
+│   └── api/
+│       └── chat.ts
+```
+
+### 4. Core Implementation Steps
+
+**Step 4.1: Enhanced Chat Service with Kafka**
+```typescript
+// services/kafka/producer.ts
+import { Kafka, Producer } from 'kafkajs';
+
+const kafka = new Kafka({
+  clientId: 'ciro-ai-chat',
+  brokers: ['localhost:9092']
+});
+
+export const producer = kafka.producer();
+
+export async function publishChatEvent(topic: string, payload: any) {
+  await producer.connect();
+  await producer.send({
+    topic,
+    messages: [{
+      value: JSON.stringify({
+        ...payload,
+        timestamp: new Date().toISOString()
+      })
+    }]
+  });
+}
+```
+
+**Step 4.2: Data Source Connector Interface**
+```typescript
+// connectors/data-source.factory.ts
+import { HubspotConnector } from './hubspot';
+
+export interface DataSourceConnector {
+  connect(config: any): Promise<void>;
+  query(query: string, context: any): Promise<any>;
+  visualize(data: any): Promise<Visualization>;
+}
+
+export type Visualization = {
+  type: 'chart' | 'table' | 'metric';
+  data: any;
+  options?: any;
+};
+
+export function getConnector(sourceType: string): DataSourceConnector {
+  switch(sourceType) {
+    case 'hubspot': return new HubspotConnector();
+    // Add other connectors
+    default: throw new Error('Unsupported data source');
+  }
+}
+```
+
+**Step 4.3: AI Service with Context Management**
+```typescript
+// llm/openai-service.ts
+import OpenAI from 'openai';
+
+export class AIService {
+  private openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    organization: process.env.OPENAI_ORG_ID
+  });
+
+  async generateResponse(context: ChatContext): Promise<ChatResponse> {
+    const prompt = this.buildPrompt(context);
+    
+    const response = await this.openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [{
+        role: "system",
+        content: prompt.system
+      }, {
+        role: "user",
+        content: prompt.user
+      }],
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    return this.parseResponse(response.choices[0].message.content);
+  }
+
+  private buildPrompt(context: ChatContext): { system: string; user: string } {
+    return {
+      system: `You are Ciro AI, a business intelligence assistant. 
+      Current context: ${JSON.stringify(context)}
+      Always respond with Markdown formatting.`,
+      user: context.currentMessage
+    };
+  }
+}
+```
+
+**Step 4.4: Real-time Visualization Handler**
+```typescript
+// services/visualization.ts
+import { Visualization } from '../connectors/data-source.factory';
+
+export class VisualizationService {
+  async generateVisualization(data: any, type: string): Promise<Visualization> {
+    switch(type) {
+      case 'timeseries':
+        return {
+          type: 'chart',
+          data: this.processTimeSeries(data),
+          options: {
+            chartType: 'line',
+            xAxis: 'date',
+            yAxis: 'value'
+          }
+        };
+      // Add other visualization types
+    }
+  }
+
+  private processTimeSeries(data: any[]) {
+    return data.map(entry => ({
+      date: new Date(entry.timestamp),
+      value: entry.metric
+    }));
+  }
+}
+```
+
+### 5. Frontend Integration Updates
+
+**Step 5.1: Enhanced Message Interface**
+```typescript
+interface Message {
+  id: string;
+  type: 'user' | 'assistant' | 'visualization';
+  content: string | Visualization;
+  timestamp: Date;
+  status?: 'sending' | 'sent' | 'error';
+  metadata?: {
+    dataSource?: string;
+    query?: string;
+    executionTime?: number;
+  };
+}
+```
+
+**Step 5.2: Visualization Render Component**
+```typescript
+const VisualizationRenderer: React.FC<{ visualization: Visualization }> = ({ visualization }) => {
+  if (visualization.type === 'chart') {
+    return (
+      <div className="p-4 bg-white rounded-lg shadow">
+        <Line
+          data={visualization.data}
+          options={visualization.options}
+        />
+      </div>
+    );
+  }
+  
+  // Handle other visualization types
+};
+```
+
+### 6. Deployment Strategy
+
+**Infrastructure Diagram**
+```
+Frontend (Next.js) → Backend API (Node.js) → Kafka → Data Source Workers
+                    │                     │
+                    ├→ MongoDB            └→ OpenAI
+                    └→ Redis (Caching)
+```
+
+**Monitoring Setup**
+```bash
+# Add Prometheus + Grafana
+docker run -d --name prometheus -p 9090:9090 prom/prometheus
+docker run -d --name grafana -p 3000:3000 grafana/grafana
+
+# Sample metrics to track:
+- Message processing latency
+- Data source response times
+- LLM token usage
+- Kafka lag per topic
+```
+
+### 7. Next Steps for Cursor Agent Implementation
+
+1. **Implement Connection Pooling** for data sources using `generic-pool`
+2. **Add Circuit Breakers** with `brakes` for external API calls
+3. **Implement Vector Caching** for frequent queries using Redis
+4. **Set up Schema Validation** with Zod for all Kafka messages
+5. **Implement Rate Limiting** for OpenAI API calls
+6. **Add Distributed Tracing** with OpenTelemetry
+7. **Implement Automatic Retries** with exponential backoff
+8. **Create Load Testing** scenarios with Artillery
+
+To implement these with Cursor Agent:
+1. Open command palette (Cmd+K)
+2. Use "New Architecture Component" template
+3. Select "AI Chat Backend" blueprint
+4. Enable "Kafka Integration" and "LLM Context Management" features
+5. Run code validation with built-in testing framework
+
+Use Cursor's AI refactoring capabilities to:
+- Auto-generate connector interfaces
+- Optimize Kafka message schemas
+- Generate TypeScript types from sample data
+- Create performance test scenarios
+
+This architecture provides enterprise-grade scalability while maintaining flexibility for different data sources and visualization needs. The Kafka-based pipeline ensures reliable async processing even during peak loads.
+
+
+
+Below is a **step-by-step**, **highly technical** guide—including **Cursor-style instructions**—to help you move forward with implementing a **robust architecture** for your Chat component. We will focus on setting up **PostgreSQL** for persistent chat storage, establishing a **backend service** that connects to Kafka and your data sources (e.g., HubSpot), and integrating the chat logic with OpenAI (or similar LLM). 
+
+---
+
+## 1. Set Up Your Database (PostgreSQL)
+
+### 1.1 Create `docker-compose.yml` to Launch Postgres
+
+1. **In your project root**, create a new file named **`docker-compose.yml`**:
+
+```yaml
+version: '3.8'
+services:
+  ***REMOVED***:
+    image: ***REMOVED***:15-alpine
+    container_name: ciro_***REMOVED***
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ciro_user
+      POSTGRES_PASSWORD: ciro_password
+      POSTGRES_DB: ciro_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - db_data:/var/lib/***REMOVED***ql/data
+volumes:
+  db_data:
+```
+
+2. **In your terminal**, run:
+   ```bash
+   docker-compose up -d
+   ```
+   This will spin up a PostgreSQL instance on port **5432** with a default database named **`ciro_db`**.
+
+### 1.2 Install a PostgreSQL Client/ORM in Your Node Backend
+
+- **If you are using a Node/Express backend**, install `pg` or an ORM like **TypeORM** or **Sequelize**:
+
+```bash
+npm install pg
+# or
+npm install typeorm reflect-metadata
+# or
+npm install sequelize
+```
+
+- In this guide, we'll assume you're using the lower-level **`pg`** library for direct SQL. If you prefer TypeORM/Sequelize, the steps are similar, just with model definitions.
+
+### 1.3 Create a DB Connection File
+
+1. **Create** a new file **`db.ts`** (or `db.js`) in your backend:
+
+```ts
+// backend/src/db.ts
+import { Pool } from 'pg';
+
+export const pool = new Pool({
+  user: process.env.POSTGRES_USER || 'ciro_user',
+  host: process.env.POSTGRES_HOST || 'localhost',
+  database: process.env.POSTGRES_DB || 'ciro_db',
+  password: process.env.POSTGRES_PASSWORD || 'ciro_password',
+  port: Number(process.env.POSTGRES_PORT) || 5432,
+});
+```
+
+2. Make sure your **`.env`** file (or environment variables) match the settings in `docker-compose.yml` (if you plan to override them).
+
+---
+
+## 2. Define Tables for Chat Persistence
+
+You’ll want to store at least:
+
+- **Chats** or **Sessions** table (if you ever need multi-session or user-based queries).
+- **Messages** table, referencing a **session** or **chat_id**.
+
+### 2.1 Create a Migration or Direct SQL Script
+
+**Example** direct SQL approach:
+
+```sql
+-- create_chat_tables.sql
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(255) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(255) NOT NULL,
+  message_type VARCHAR(20) NOT NULL,  -- user, assistant, system, error
+  content TEXT NOT NULL,
+  timestamp TIMESTAMP DEFAULT NOW(),
+  status VARCHAR(20),                -- sending, sent, error
+  FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+);
+```
+
+1. **Run** this script against your database:
+   ```bash
+   psql -h localhost -U ciro_user -d ciro_db -f create_chat_tables.sql
+   ```
+
+(Or adapt these table definitions into a migration if you're using an ORM.)
+
+---
+
+## 3. Implement a Backend Endpoint for Chat
+
+Below is a simple **Express.js**-style backend with:
+
+- **`POST /chat`** to handle incoming messages
+- A **Postgres** query to save each message
+- A **Kafka** flow for asynchronous responses
+
+### 3.1 Directory Structure & Install Dependencies
+
+```bash
+npm install express cors kafkajs axios pg
+```
+
+Your folder structure could look like this:
+
+```
+backend/
+  ├─ src/
+  │   ├─ index.ts         (entry point)
+  │   ├─ chatRouter.ts    (chat routes)
+  │   ├─ db.ts            (Postgres pool)
+  │   ├─ kafka.ts         (Kafka producer/consumer)
+  │   └─ ...
+  ├─ package.json
+  ├─ tsconfig.json
+  └─ ...
+```
+
+### 3.2 `kafka.ts`: Initialize Kafka
+
+```ts
+// backend/src/kafka.ts
+import { Kafka } from 'kafkajs';
+
+const kafka = new Kafka({
+  clientId: 'ciro-chat-service',
+  brokers: ['localhost:9092'],
+});
+
+export const producer = kafka.producer();
+export const consumer = kafka.consumer({ groupId: 'ciro-chat-group' });
+
+export const initKafka = async () => {
+  await producer.connect();
+  await consumer.connect();
+  // Subscribe to topics in consumer if needed
+  // e.g., await consumer.subscribe({ topic: 'chat-responses', fromBeginning: true });
+};
+```
+
+### 3.3 `chatRouter.ts`: The Chat Endpoint
+
+```ts
+// backend/src/chatRouter.ts
+import express, { Request, Response } from 'express';
+import { pool } from './db';
+import { producer } from './kafka';
+import { v4 as uuidv4 } from 'uuid';
+
+const router = express.Router();
+
+// Create or get a Session ID
+function getSessionId(req: Request) {
+  // If you have a user-based system, fetch from user record or JWT
+  // For now, use a random session ID or a passed-in cookie
+  return req.headers['x-session-id'] || uuidv4();
+}
+
+router.post('/chat', async (req: Request, res: Response) => {
+  try {
+    const { message, messageType } = req.body; // messageType => 'user' | 'assistant' ...
+    const sessionId = getSessionId(req);
+
+    // 1. Insert or ensure chat_session is created
+    await pool.query(
+      `INSERT INTO chat_sessions (session_id) 
+       VALUES ($1) 
+       ON CONFLICT (session_id) DO NOTHING;`,
+      [sessionId]
+    );
+
+    // 2. Insert incoming message
+    const insertResult = await pool.query(
+      `INSERT INTO chat_messages (session_id, message_type, content) 
+       VALUES ($1, $2, $3) 
+       RETURNING id;`,
+      [sessionId, messageType || 'user', message]
+    );
+
+    // 3. Produce event to Kafka (for asynchronous data source fetch, LLM calls, etc.)
+    await producer.send({
+      topic: 'chat-messages',
+      messages: [
+        {
+          key: sessionId.toString(),
+          value: JSON.stringify({ sessionId, message }),
+        },
+      ],
+    });
+
+    // For now, we can respond immediately to the client
+    // but the actual "assistant" messages might come later from Kafka (see consumer)
+    return res.json({ success: true, chatMessageId: insertResult.rows[0].id });
+  } catch (error) {
+    console.error('Error in /chat route:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;
+```
+
+### 3.4 `index.ts`: Express Server Initialization
+
+```ts
+// backend/src/index.ts
+import express from 'express';
+import cors from 'cors';
+import { initKafka } from './kafka';
+import chatRouter from './chatRouter';
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.use('/chat', chatRouter);
+
+const PORT = process.env.PORT || 3001;
+
+(async () => {
+  await initKafka(); // Connect to Kafka
+  app.listen(PORT, () => {
+    console.log(`Ciro AI backend server running on port ${PORT}`);
+  });
+})();
+```
+
+---
+
+## 4. Connect Kafka Consumer to Data Sources
+
+For asynchronous data retrieval from sources like **HubSpot**:
+
+1. **Subscribe** to the `chat-messages` topic.  
+2. **Parse** the user’s message to see if it references a certain data source.  
+3. **Retrieve** data from that data source.  
+4. Possibly **call an LLM** to structure the final answer.  
+5. **Insert** the assistant’s reply into Postgres.  
+6. **Optionally** produce a `chat-responses` event if you want a push model to the frontend, or just have the frontend poll for new messages.
+
+**Example**:
+
+```ts
+// backend/src/kafkaDataHandler.ts
+import { consumer, producer } from './kafka';
+import { pool } from './db';
+import axios from 'axios';
+
+export const runDataHandler = async () => {
+  await consumer.subscribe({ topic: 'chat-messages', fromBeginning: false });
+
+  await consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      try {
+        if (!message.value) return;
+        const { sessionId, message: userMessage } = JSON.parse(message.value.toString());
+
+        // 1. Check if userMessage references a data source. 
+        // e.g. "Tell me about HubSpot deals"
+        let dataSource = null;
+        if (/hubspot/i.test(userMessage)) {
+          dataSource = 'hubspot';
+        }
+        
+        let data = '';
+        if (dataSource === 'hubspot') {
+          // Retrieve data from HubSpot (assuming you have the OAuth token)
+          const hubspotResponse = await axios.get(
+            `https://api.hubapi.com/crm/v3/objects/deals`,
+            { headers: { Authorization: `Bearer ${process.env.HUBSPOT_TOKEN}` } }
+          );
+          data = JSON.stringify(hubspotResponse.data);
+        }
+
+        // 2. Optionally call an LLM to parse the data
+        // const llmResponse = await openAiClient(data);
+
+        const assistantMessage = data
+          ? `Here is the data I found from HubSpot: \n${data}`
+          : `No specific data source found in your request. Here's a general response.`;
+
+        // 3. Insert assistant reply into Postgres
+        await pool.query(
+          `INSERT INTO chat_messages (session_id, message_type, content) 
+           VALUES ($1, 'assistant', $2);`,
+          [sessionId, assistantMessage]
+        );
+
+        // 4. Optionally produce an event to 'chat-responses' or simply rely on the frontend to poll
+        await producer.send({
+          topic: 'chat-responses',
+          messages: [
+            {
+              key: sessionId.toString(),
+              value: JSON.stringify({ sessionId, assistantMessage }),
+            },
+          ],
+        });
+
+      } catch (err) {
+        console.error('Error in data handler:', err);
+      }
+    },
+  });
+};
+```
+
+Finally, **import** `runDataHandler()` from your main **`index.ts`** to start the consumer:
+
+```ts
+// backend/src/index.ts
+...
+import { runDataHandler } from './kafkaDataHandler';
+
+(async () => {
+  await initKafka();
+  runDataHandler();  // start listening to chat-messages
+  app.listen(PORT, ...
+```
+
+---
+
+## 5. Frontend Integration
+
+### 5.1 Sending Messages to Backend
+
+In your **React chat** component (`ChatPanel.tsx`), replace the **mock** AI response logic with a **`fetch`** call:
+
+```tsx
+// Simulate AI response
+// Old code:
+// setTimeout(() => { ... }, 2000);
+
+// New code:
+try {
+  const response = await fetch('http://localhost:3001/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: textToSend,
+      messageType: 'user', // or you can pass 'assistant' if needed
+    }),
+  });
+  const data = await response.json();
+  // We might immediately poll for new messages or wait for 'chat-responses' from Kafka
+} catch (e) {
+  console.error(e);
+}
+```
+
+### 5.2 Polling or WebSocket for New Messages
+
+- **Option A**: Poll the backend periodically (e.g., every 2 seconds) for new messages.  
+- **Option B**: Use a **WebSocket** to push new messages from the server.  
+
+For simplicity, you can set up a `/chat/messages` endpoint that returns the latest chat messages for a `sessionId`. Then:
+
+```ts
+useEffect(() => {
+  const interval = setInterval(async () => {
+    // poll new messages
+    const res = await fetch(`http://localhost:3001/chat/messages?sessionId=${sessionId}`);
+    const updatedMessages = await res.json();
+    setMessages(updatedMessages);
+  }, 2000);
+
+  return () => clearInterval(interval);
+}, [sessionId]);
+```
+
+---
+
+## 6. Integration with OpenAI (Optional Step Here)
+
+If you want to run data through an LLM:
+
+1. **Install** `openai` npm package or use `axios` to call the API.  
+2. In your **`kafkaDataHandler.ts`**, after retrieving data from a source, pass it to the LLM.  
+3. Save the LLM’s response as the final assistant message.
+
+**Pseudo-code**:
+
+```ts
+import { Configuration, OpenAIApi } from 'openai';
+
+const config = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(config);
+
+...
+
+const llmResponse = await openai.createCompletion({
+  model: 'text-davinci-003',
+  prompt: `User wants: ${userMessage}\nData from HubSpot: ${data}\nGenerate a concise answer:`,
+  max_tokens: 200,
+});
+
+const assistantMessage = llmResponse.data.choices[0].text?.trim() || '';
+```
+
+---
+
+## 7. Next Steps & Recommendations
+
+1. **User Authentication**:
+   - Even if you don’t have user registration yet, consider at least generating a unique session token or ID and storing it in a cookie/localStorage to track conversation state.
+
+2. **Security**:
+   - Make sure environment variables (API keys, DB credentials) are never committed to your repo.  
+   - Use HTTPS in production.  
+   - Validate user input to avoid injection or malicious content.
+
+3. **Scalability**:
+   - For large-scale usage, consider deploying Kafka, Postgres, and your Node services on robust infrastructure (Kubernetes, AWS ECS, etc.).  
+   - Use a real-time method (WebSockets) to reduce frequent polling overhead.
+
+4. **Monitoring & Logging**:
+   - Add logs and metrics for each step (when messages are inserted, when data source calls happen, when LLM is queried, etc.).  
+   - Tools like Prometheus + Grafana or Datadog can help you monitor your overall system health.
+
+5. **Visualization**:
+   - When your data source returns chart-friendly data, parse it on the backend (or directly in the LLM) and send back a **JSON** structure.  
+   - Render with a charting library (e.g. **Recharts**, **Chart.js**, or **D3.js**) in the chat bubble.
+
+---
+
+# Final “Cursor-Style” Instruction Recap
+
+**1. Create Docker Setup for Postgres**  
+   - `docker-compose.yml` with Postgres.  
+   - Spin it up: `docker-compose up -d`.
+
+**2. Create DB Connection File**  
+   - `db.ts` with `pg.Pool`.
+
+**3. Create Table Schemas**  
+   - `create_chat_tables.sql` or a migration for `chat_sessions` and `chat_messages`.  
+   - Run the script or migrations.
+
+**4. Build Backend**  
+   - `npm install express cors kafkajs axios pg`.  
+   - `index.ts`: Start Express, connect to Kafka.  
+   - `chatRouter.ts`: Insert messages into DB, produce events to Kafka.  
+   - `kafkaDataHandler.ts`: Subscribe to `chat-messages`, fetch data from sources, insert `assistant` replies.
+
+**5. Integrate the Frontend**  
+   - Update your chat component to `POST /chat` instead of using mock AI responses.  
+   - Implement a polling or WebSocket mechanism to fetch new messages from the DB regularly.
+
+**6. (Optional) Add LLM**  
+   - `openai` package, environment variables for `OPENAI_API_KEY`.  
+   - Pass combined user message + data source results to the LLM.  
+   - Insert final response into DB.
+
+**7. Test and Iterate**  
+   - Verify local chat flow.  
+   - Check data in Postgres.  
+   - Confirm Kafka messages are produced/consumed.  
+   - Expand data source connectors and refine your Chat + Visualization logic.
+
+This approach will provide the **persistent memory**, **asynchronous data retrieval**, and **scalable architecture** you need for Ciro AI’s evolving chatbot. Good luck building!
+
+
+Given your project's scope and the need to support advanced BI visualizations, real-time data integrations, and AI-driven analytics, a hybrid, microservices-based backend architecture is recommended. This approach lets you scale each component independently while keeping your overall system flexible. Here’s a high-level breakdown of the recommended backend infrastructure:
+
+---
+
+### 1. **API Gateway / Backend-for-Frontend (BFF)**
+
+- **Purpose:** Acts as a single entry point for all client requests (chat, dashboard data, automations, etc.) and routes them to the appropriate service.
+- **Benefits:** Centralized authentication, rate limiting, logging, and request routing.
+
+---
+
+### 2. **Microservices**
+
+Split your backend into dedicated services that can evolve and scale independently. For example:
+
+- **Data Integration & Connector Service:**  
+  - **Role:** Handle integrations with external data sources (e.g., HubSpot, Google Drive, SAP, etc.).  
+  - **Technology:** Use asynchronous messaging (with Kafka) to decouple data ingestion from processing.  
+  - **Additional Note:** Build connectors as separate microservices if some integrations require specialized handling (authentication, data transformation, etc.).
+
+- **Chat / LLM Service:**  
+  - **Role:** Manage chat sessions, process user queries, and integrate with AI models (like OpenAI) for natural language understanding and contextual responses.  
+  - **Persistent Memory:** Store chat history, context, and conversation state in a relational database (e.g., PostgreSQL).  
+  - **Vector Search:** Extend PostgreSQL with the PG Vector extension (or use Supabase with PG Vector) to handle embedding-based similarity searches for Retrieval-Augmented Generation (RAG) style responses.
+
+- **Analytics & Dashboard Service:**  
+  - **Role:** Aggregate, process, and serve data for BI dashboards and visualizations.  
+  - **Storage:** Use a data warehouse or OLAP database (e.g., PostgreSQL with time-series extensions or a managed service like BigQuery/Snowflake) for complex queries and reporting.
+  - **Real-Time Processing:** Integrate with real-time streaming platforms (e.g., Kafka Streams) for up-to-the-minute data updates in dashboards.
+
+- **Automation & Workflow Service:**  
+  - **Role:** Orchestrate business process automation and workflow triggers.  
+  - **Technology:** Consider workflow engines like Apache Airflow or Temporal if your automation flows are complex.
+
+---
+
+### 3. **Messaging Layer**
+
+- **Apache Kafka:**  
+  - **Role:** Serve as the central event bus for asynchronous communication between microservices.
+  - **Use Cases:**  
+    - Buffering incoming chat messages before processing.  
+    - Streaming data updates from various data connectors.  
+    - Communicating real-time events to the analytics service for live dashboard updates.
+
+---
+
+### 4. **Databases & Persistent Storage**
+
+Since your application spans BI analytics, chat history, and embedding-based retrieval, a combination of specialized data stores is ideal:
+
+- **Relational Database (e.g., PostgreSQL):**  
+  - **Usage:**  
+    - Store chat history, user profiles, workflow metadata, and structured data.  
+    - Extend with [PG Vector](https://github.com/pgvector/pgvector) to support vector similarity search for RAG use cases.
+  - **Alternative:**  
+    - Use **Supabase** if you prefer a managed PostgreSQL solution with built-in real‑time subscriptions, authentication, and storage, then enable the PG Vector extension.
+
+- **Data Warehouse / OLAP Storage:**  
+  - **Usage:** Handle high-volume BI data and time-series information for dashboards and complex analytics.
+  - **Options:** BigQuery, Snowflake, or even PostgreSQL with timescale extensions (depending on scale and cost considerations).
+
+- **Caching Layer (e.g., Redis):**  
+  - **Usage:** Cache frequently accessed data and support real‑time session management.
+
+---
+
+### 5. **Visualization & Reporting**
+
+- **Backend Data Preparation:**  
+  - Prepare data (aggregated metrics, KPIs, and raw datasets) in a format that’s optimal for front-end libraries.
+- **Front-End Libraries:**  
+  - Use libraries like **Chart.js**, **D3.js**, or **Recharts** to render dynamic graphs and dashboards.
+- **Real-Time Updates:**  
+  - Utilize the real-time capabilities of your chosen database or push updates via WebSockets (or Supabase’s real-time features) to refresh dashboards instantly.
+
+---
+
+### 6. **Deployment & Orchestration**
+
+- **Containerization & Orchestration:**  
+  - **Docker & Kubernetes:** Containerize each microservice and use Kubernetes (or a managed service like Google Kubernetes Engine or AWS EKS) to orchestrate and scale them.
+- **Serverless Options:**  
+  - For certain services (like lightweight API endpoints), consider serverless platforms for easier scaling and cost management.
+
+- **Monitoring & Logging:**  
+  - Use tools such as **Prometheus** for metrics, **Grafana** for dashboards, and ELK/EFK stacks (Elasticsearch, Fluentd/Logstash, Kibana) for log aggregation and analysis.
+
+---
+
+### **Why This Approach Works for Ciro AI**
+
+- **Scalability & Flexibility:**  
+  - Each microservice can be scaled independently, ensuring that as your data and user base grows, performance remains consistent.
+  
+- **Real-Time Data & Insights:**  
+  - Kafka and real-time database features enable live updates to dashboards and rapid, data-driven decision-making.
+  
+- **Unified Data Ecosystem:**  
+  - Using PostgreSQL (or Supabase) with PG Vector allows you to combine structured data storage and vector search in one place, streamlining development and operations.
+  
+- **BI-Focused Optimization:**  
+  - The architecture supports heavy analytics and visualization workloads, essential for a BI platform, while also integrating advanced AI capabilities to drive intelligent automation and insights.
+
+---
+
+### **Conclusion**
+
+For Ciro AI—a comprehensive AI-powered business intelligence and automation platform—a microservices-based backend built on a combination of an API Gateway, specialized services (chat, data integration, analytics, automation), Kafka for messaging, and a hybrid data storage solution (PostgreSQL with PG Vector/Supabase for structured and vector data, plus a data warehouse for BI) is the most robust approach. This design ensures you can efficiently handle large volumes of data, deliver real-time insights, and support a wide array of BI visualizations while powering advanced AI interactions.
+
+Feel free to ask if you need more detailed code samples or additional clarifications on any component!
