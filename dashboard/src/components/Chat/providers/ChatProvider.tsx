@@ -40,7 +40,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ChatContextType['settings']>({
-    model: 'gpt-4-turbo-preview',
+    model: 'gpt-4o',
     temperature: 0.7,
     streaming: false,
     systemPrompt: 'You are a helpful AI assistant.'

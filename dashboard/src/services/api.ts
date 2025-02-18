@@ -233,7 +233,11 @@ class ApiServiceImpl implements ApiService {
       const response = await fetch(`${this.baseUrl}/api/chat/completion`, {
         method: 'POST',
         headers: await this.getAuthHeaders(),
-        body: JSON.stringify({ messages, ...options }),
+        body: JSON.stringify({ 
+          messages, 
+          ...options,
+          model: options?.model || 'gpt-4o'  // Set default model
+        }),
         credentials: 'include'
       });
 
@@ -246,7 +250,7 @@ class ApiServiceImpl implements ApiService {
 
   async streamChatCompletion(
     messages: ChatMessage[],
-    options: ChatOptions = { model: 'gpt-4', temperature: 0.7, streaming: true, contextLength: 4096 }
+    options: ChatOptions = { model: 'gpt-4o', temperature: 0.7, streaming: true, contextLength: 4096 }
   ): Promise<Response> {
     try {
       const response = await fetch(`${this.baseUrl}/api/chat/completion`, {

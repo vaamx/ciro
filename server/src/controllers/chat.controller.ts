@@ -234,7 +234,7 @@ export class ChatController {
         // Generate AI response
         const completion = await this.makeOpenAIRequest('/chat/completions', {
           messages: [{ role: 'user', content: message }],
-          model: 'gpt-4-turbo-preview',
+          model: 'gpt-4o',
           temperature: 0.7,
           stream: false
         });
@@ -307,53 +307,40 @@ export class ChatController {
     return data as OpenAICompletion;
   }
 
+  // Generate chat completion
   public generateCompletion = async (req: AuthRequest, res: Response) => {
     try {
-      const { messages, model = 'gpt-4-turbo-preview', temperature = 0.7 } = req.body;
+      const { messages, model = 'gpt-4o', temperature = 0.7, systemPrompt } = req.body;
 
-      if (!messages || !Array.isArray(messages)) {
-        return res.status(400).json({ error: 'Invalid messages format' });
+      // Add system message if provided
+      if (systemPrompt) {
+        messages.unshift({
+          role: 'system',
+          content: systemPrompt
+        });
       }
 
-      console.log('Generating completion with:', {
+      const completion = await this.makeOpenAIRequest('/v1/chat/completions', {
         model,
+        messages,
         temperature,
-        messageCount: messages.length,
-        firstMessage: messages[0]
+        max_tokens: 500,
+        store: true
       });
 
-      const completion = await this.makeOpenAIRequest('/chat/completions', {
-        messages: messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        })),
-        model,
-        temperature,
-        stream: false
-      });
-
-      console.log('OpenAI Response:', {
-        status: 'success',
-        messageContent: completion.choices[0].message.content,
-        usage: completion.usage
-      });
-
-      return res.json({
+      res.json({
         message: completion.choices[0].message,
         usage: completion.usage
       });
     } catch (error) {
-      console.error('Chat completion error:', error);
-      return res.status(500).json({
-        error: 'Failed to generate chat completion',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
+      console.error('Error generating completion:', error);
+      res.status(500).json({ error: 'Failed to generate completion' });
     }
   };
 
   public regenerateMessage = async (req: AuthRequest, res: Response) => {
     try {
-      const { messages, model = 'gpt-4-turbo-preview', temperature = 0.7 } = req.body;
+      const { messages, model = 'gpt-4o', temperature = 0.7 } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'Invalid messages format' });

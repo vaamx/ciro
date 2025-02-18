@@ -46,7 +46,7 @@ export const ThreadSettings: React.FC<ThreadSettingsProps> = ({
               onChange={(e) => handleChange('model', e.target.value)}
               className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md dark:bg-gray-700 dark:text-white"
             >
-              <option value="gpt-4">GPT-4</option>
+              <option value="gpt-4o">GPT-4 Optimized</option>
               <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
             </select>
           </div>

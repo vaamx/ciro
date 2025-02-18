@@ -6,13 +6,17 @@ import {
   PointElement,
   LineElement,
   BarElement,
+  ArcElement,
+  RadialLinearScale,
+  Filler,
   Title,
   Tooltip,
   Legend,
   ChartData,
   ChartOptions
 } from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
+import { Line, Bar, Pie, Radar, Scatter } from 'react-chartjs-2';
+import { motion } from 'framer-motion';
 
 // Register ChartJS components
 ChartJS.register(
@@ -21,6 +25,9 @@ ChartJS.register(
   PointElement,
   LineElement,
   BarElement,
+  ArcElement,
+  RadialLinearScale,
+  Filler,
   Title,
   Tooltip,
   Legend
@@ -32,14 +39,40 @@ interface VisualizationProps {
   className?: string;
 }
 
-const defaultOptions: ChartOptions = {
+const defaultChartOptions: ChartOptions = {
   responsive: true,
   maintainAspectRatio: false,
   plugins: {
     legend: {
-      position: 'top' as const,
+      position: 'top',
+      labels: {
+        padding: 20,
+        font: {
+          family: 'Inter, system-ui, sans-serif',
+          size: 12
+        }
+      }
     },
+    tooltip: {
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      padding: 12,
+      titleFont: {
+        family: 'Inter, system-ui, sans-serif',
+        size: 14,
+        weight: 600
+      },
+      bodyFont: {
+        family: 'Inter, system-ui, sans-serif',
+        size: 12
+      },
+      cornerRadius: 4,
+      displayColors: true
+    }
   },
+  animation: {
+    duration: 750,
+    easing: 'easeInOutQuart'
+  }
 };
 
 export const Visualization: React.FC<VisualizationProps> = ({
@@ -47,10 +80,19 @@ export const Visualization: React.FC<VisualizationProps> = ({
   config,
   className = 'h-64'
 }) => {
+  const chartOptions = {
+    ...defaultChartOptions,
+    ...config.options
+  };
+
   // Handle table visualization
   if (type === 'table') {
     return (
-      <div className={`overflow-x-auto ${className}`}>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={`overflow-x-auto ${className}`}
+      >
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-800">
             {config.headers && (
@@ -68,7 +110,7 @@ export const Visualization: React.FC<VisualizationProps> = ({
           </thead>
           <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
             {config.data.map((row: any[], rowIndex: number) => (
-              <tr key={rowIndex}>
+              <tr key={rowIndex} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                 {row.map((cell: any, cellIndex: number) => (
                   <td
                     key={cellIndex}
@@ -81,31 +123,115 @@ export const Visualization: React.FC<VisualizationProps> = ({
             ))}
           </tbody>
         </table>
-      </div>
+      </motion.div>
     );
   }
 
   // Handle line chart
   if (type === 'line') {
     return (
-      <div className={className}>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={className}
+      >
         <Line
-          options={defaultOptions}
-          data={config.data as ChartData<'line'>}
+          options={chartOptions}
+          data={config.data}
         />
-      </div>
+      </motion.div>
     );
   }
 
   // Handle bar chart
   if (type === 'bar') {
     return (
-      <div className={className}>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={className}
+      >
         <Bar
-          options={defaultOptions}
-          data={config.data as ChartData<'bar'>}
+          options={chartOptions}
+          data={config.data}
         />
-      </div>
+      </motion.div>
+    );
+  }
+
+  // Handle pie chart
+  if (type === 'pie') {
+    return (
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={className}
+      >
+        <Pie
+          options={chartOptions}
+          data={config.data}
+        />
+      </motion.div>
+    );
+  }
+
+  // Handle radar chart
+  if (type === 'radar') {
+    return (
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={className}
+      >
+        <Radar
+          options={chartOptions}
+          data={config.data}
+        />
+      </motion.div>
+    );
+  }
+
+  // Handle scatter plot
+  if (type === 'scatter') {
+    return (
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={className}
+      >
+        <Scatter
+          options={chartOptions}
+          data={config.data}
+        />
+      </motion.div>
+    );
+  }
+
+  // Handle heatmap (using custom implementation)
+  if (type === 'heatmap') {
+    return (
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={`${className} grid gap-1`}
+        style={{
+          gridTemplateColumns: `repeat(${config.data[0].length}, minmax(0, 1fr))`
+        }}
+      >
+        {config.data.map((row: number[], rowIndex: number) =>
+          row.map((value: number, colIndex: number) => (
+            <div
+              key={`${rowIndex}-${colIndex}`}
+              className="aspect-square rounded"
+              style={{
+                backgroundColor: `rgba(147, 51, 234, ${value})`,
+                transition: 'background-color 0.3s ease'
+              }}
+              title={`Value: ${value}`}
+            />
+          ))
+        )}
+      </motion.div>
     );
   }
 

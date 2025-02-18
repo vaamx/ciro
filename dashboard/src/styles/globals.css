@@ -1,0 +1,7 @@
+@import './assistant-ui.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ... rest of your existing styles ... */ 

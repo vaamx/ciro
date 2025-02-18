@@ -12,7 +12,7 @@ interface ChatPanelProps {
 }
 
 const defaultSettings: ChatSettings = {
-  model: 'gpt-4',
+  model: 'gpt-4o',
   temperature: 0.7,
   streaming: true,
   contextLength: 4096,

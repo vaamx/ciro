@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { MainLayout } from './components/Layout/MainLayout';
 import { EnhancedOverview } from './components/Dashboard/EnhancedOverview';
@@ -10,6 +9,16 @@ import { OAuthCallback } from './components/DataSources/OAuthCallback';
 import { useState } from 'react';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { LoginForm } from './Auth/LoginForm';
+import { SignupForm } from './Auth/SignupForm';
+import { VerifyEmailForm } from './Auth/VerifyEmailForm';
+import { ResetPasswordForm } from './Auth/ResetPasswordForm';
+import { ForgotPasswordForm } from './Auth/ForgotPasswordForm';
+import { AuthLayout } from './Auth/AuthLayout';
+import { ProtectedRoute } from './components/Auth/ProtectedRoute';
+import { GettingStarted } from './pages/GettingStarted';
+import { VerificationPendingWrapper } from './Auth/VerificationPendingWrapper';
 
 function App() {
   const [activeSection, setActiveSection] = useState('overview');
@@ -38,36 +47,51 @@ function App() {
   return (
     <ThemeProvider>
       <NotificationProvider>
-        <Router>
-          <Routes>
-            {/* OAuth Callback Route */}
-            <Route path="/oauth/callback" element={<OAuthCallback />} />
-            
-            {/* Main App Routes */}
-            <Route element={
-              <MainLayout 
-                activeSection={activeSection} 
-                onSectionChange={handleSectionChange}
-              />
-            }>
-              <Route path="/" element={<Navigate to="/overview" replace />} />
-              <Route 
-                path="/overview" 
-                element={
-                  <EnhancedOverview 
-                    activeTab={activeTab}
-                    onTabChange={handleTabChange}
+        <AuthProvider>
+          <Router>
+            <Routes>
+              {/* Auth Routes */}
+              <Route element={<AuthLayout />}>
+                <Route path="/login" element={<LoginForm />} />
+                <Route path="/signup" element={<SignupForm />} />
+                <Route path="/verify-email" element={<VerifyEmailForm />} />
+                <Route path="/verification-pending" element={<VerificationPendingWrapper />} />
+                <Route path="/reset-password" element={<ResetPasswordForm />} />
+                <Route path="/forgot-password" element={<ForgotPasswordForm />} />
+                <Route path="/getting-started" element={<GettingStarted />} />
+              </Route>
+
+              {/* OAuth Callback Route */}
+              <Route path="/oauth/callback" element={<OAuthCallback />} />
+              
+              {/* Protected Main App Routes */}
+              <Route element={
+                <ProtectedRoute>
+                  <MainLayout 
+                    activeSection={activeSection} 
+                    onSectionChange={handleSectionChange}
                   />
-                } 
-              />
-              <Route path="/data-sources" element={<DataSourcesView />} />
-              <Route path="/decisions" element={<DecisionsView />} />
-              <Route path="/automations" element={<AutomationsView />} />
-              <Route path="/communications" element={<CommunicationsView />} />
-              <Route path="*" element={<Navigate to="/overview" replace />} />
-            </Route>
-          </Routes>
-        </Router>
+                </ProtectedRoute>
+              }>
+                <Route path="/" element={<Navigate to="/overview" replace />} />
+                <Route 
+                  path="/overview" 
+                  element={
+                    <EnhancedOverview 
+                      activeTab={activeTab}
+                      onTabChange={handleTabChange}
+                    />
+                  } 
+                />
+                <Route path="/data-sources" element={<DataSourcesView />} />
+                <Route path="/decisions" element={<DecisionsView />} />
+                <Route path="/automations" element={<AutomationsView />} />
+                <Route path="/communications" element={<CommunicationsView />} />
+                <Route path="*" element={<Navigate to="/overview" replace />} />
+              </Route>
+            </Routes>
+          </Router>
+        </AuthProvider>
       </NotificationProvider>
     </ThemeProvider>
   );

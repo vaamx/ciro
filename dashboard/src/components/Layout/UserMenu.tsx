@@ -10,6 +10,7 @@ import {
   Shield,
   Key
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface UserMenuProps {
   user: {
@@ -28,6 +29,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { logout } = useAuth();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -39,6 +41,16 @@ export const UserMenu: React.FC<UserMenuProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const handleSignOut = async () => {
+    try {
+      await logout();
+      // The auth context will handle clearing the user state
+      // and the app will redirect to login due to the protected route
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+    }
+  };
 
   return (
     <div className="relative" ref={menuRef}>
@@ -122,7 +134,10 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 
           {/* Logout Section */}
           <div className="border-t border-gray-100 pt-2 mt-2">
-            <button className="w-full px-4 py-2 flex items-center space-x-3 text-red-600 hover:bg-red-50 transition-colors">
+            <button 
+              onClick={handleSignOut}
+              className="w-full px-4 py-2 flex items-center space-x-3 text-red-600 hover:bg-red-50 transition-colors"
+            >
               <LogOut className="w-4 h-4" />
               <span className="text-sm">Sign Out</span>
             </button>

@@ -123,6 +123,23 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ language, value }) => {
 };
 
 export const MessageMarkdown: React.FC<MessageMarkdownProps> = ({ content, metadata }) => {
+  // Try to parse visualization data from the content
+  const tryParseVisualization = (text: string) => {
+    try {
+      if (text.includes('{"type":') && text.includes('"config":')) {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}') + 1;
+        const jsonStr = text.slice(start, end);
+        return JSON.parse(jsonStr);
+      }
+    } catch (e) {
+      console.error('Failed to parse visualization:', e);
+    }
+    return null;
+  };
+
+  const visualization = tryParseVisualization(content);
+
   const components: Components = {
     code({ className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || '');
@@ -223,21 +240,16 @@ export const MessageMarkdown: React.FC<MessageMarkdownProps> = ({ content, metad
   };
 
   return (
-    <>
-      <div className="prose dark:prose-invert max-w-none prose-pre:p-0 
-        prose-headings:mb-3 prose-headings:mt-6 first:prose-headings:mt-0
-        prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg
-        prose-p:my-3 prose-p:leading-relaxed
-        prose-a:text-indigo-600 dark:prose-a:text-indigo-400 
-        prose-a:no-underline hover:prose-a:underline
-        prose-code:before:content-none prose-code:after:content-none
-        prose-code:bg-gray-100 dark:prose-code:bg-gray-800 
-        prose-code:rounded prose-code:px-1.5 prose-code:py-0.5
-        prose-code:text-sm prose-code:font-medium
-        prose-ul:my-3 prose-li:my-1
-        prose-img:rounded-lg prose-img:shadow-md
-        [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-      >
+    <div className="prose prose-sm dark:prose-invert max-w-none">
+      {visualization ? (
+        <div className="my-4 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
+          <Visualization
+            type={visualization.type}
+            config={visualization.config}
+            className="h-80"
+          />
+        </div>
+      ) : (
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
@@ -245,21 +257,7 @@ export const MessageMarkdown: React.FC<MessageMarkdownProps> = ({ content, metad
         >
           {content}
         </ReactMarkdown>
-      </div>
-
-      {metadata?.visualization && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-4 rounded-lg border border-gray-200 dark:border-gray-700 
-            p-4 bg-white dark:bg-gray-800 shadow-sm"
-        >
-          <Visualization
-            type={metadata.visualization.type}
-            config={metadata.visualization.config}
-          />
-        </motion.div>
       )}
-    </>
+    </div>
   );
 }; 

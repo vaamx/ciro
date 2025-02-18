@@ -1,5 +1,5 @@
-export type DataSourceType = 'hubspot' | 'database' | 'file' | 'api' | 'warehouse' | 'crm' | 'crm-hubspot';
-export type DataSourceStatus = 'connected' | 'disconnected' | 'syncing' | 'error';
+export type DataSourceType = 'hubspot' | 'salesforce' | 'zoho' | 'google' | 'custom';
+export type DataSourceStatus = 'connected' | 'disconnected' | 'error' | 'syncing';
 
 export interface DataSourceMetrics {
   records: number;
@@ -8,25 +8,27 @@ export interface DataSourceMetrics {
   lastError?: string;
 }
 
+export interface HubSpotContactProperties {
+  firstname?: string;
+  lastname?: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  jobtitle?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  zip?: string;
+  lifecyclestage?: string;
+  lastmodifieddate?: string;
+  createdate?: string;
+  associatedcompanyid?: string;
+  [key: string]: string | undefined;
+}
+
 export interface HubSpotContact {
   id: string;
-  properties: {
-    firstname?: string;
-    lastname?: string;
-    email?: string;
-    phone?: string;
-    company?: string;
-    jobtitle?: string;
-    city?: string;
-    state?: string;
-    country?: string;
-    zip?: string;
-    lifecyclestage?: string;
-    lastmodifieddate?: string;
-    createdate?: string;
-    associatedcompanyid?: string;
-    [key: string]: any;
-  };
+  properties: HubSpotContactProperties;
 }
 
 export interface HubSpotCompany {
@@ -72,9 +74,7 @@ export interface HubSpotActivity {
   id: string;
   type: string;
   timestamp: string;
-  properties: {
-    [key: string]: any;
-  };
+  properties: Record<string, string | number | boolean | null>;
 }
 
 export interface HubSpotData {

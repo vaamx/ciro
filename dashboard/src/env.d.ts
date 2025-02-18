@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_ZOHO_CLIENT_ID: string;
   readonly VITE_GOOGLE_CLIENT_ID: string;
   readonly VITE_OAUTH_REDIRECT_URI: string;
+  readonly VITE_NODE_ENV: 'development' | 'production' | 'test';
 }
 
 interface ImportMeta {
@@ -19,4 +20,10 @@ interface ImportMeta {
 // Ensure Vite includes ImportMetaEnv
 declare module '@env' {
   export interface ImportMetaEnv extends ImportMetaEnv {}
+}
+
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv extends ImportMetaEnv {}
+  }
 } 

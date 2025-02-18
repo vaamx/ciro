@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { XMarkIcon, Cog6ToothIcon, TrashIcon, StopIcon, ChevronDownIcon, ShareIcon, StarIcon } from './icons';
+import { XMarkIcon, Cog6ToothIcon, StopIcon, ChevronDownIcon, ShareIcon, StarIcon } from './icons';
 import { Menu } from '@headlessui/react';
 
 export interface ThreadHeaderProps {
@@ -119,38 +119,34 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = ({
           </Menu.Button>
           <AnimatePresence>
             <Menu.Items
-              as={motion.div}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
               className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 
                 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 
                 py-1 z-50"
             >
-              <Menu.Item>
-                {({ active }) => (
-                  <button
-                    onClick={onSettingsClick}
-                    className={`${
-                      active ? 'bg-gray-100 dark:bg-gray-700' : ''
-                    } w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300`}
-                  >
-                    Settings
-                  </button>
-                )}
-              </Menu.Item>
-              <Menu.Item>
-                {({ active }) => (
-                  <button
-                    onClick={onClearChat}
-                    className={`${
-                      active ? 'bg-gray-100 dark:bg-gray-700' : ''
-                    } w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400`}
-                  >
-                    Clear conversation
-                  </button>
-                )}
-              </Menu.Item>
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+              >
+                <Menu.Item as="button"
+                  onClick={onSettingsClick}
+                  className={({ active }) => `
+                    w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300
+                    ${active ? 'bg-gray-100 dark:bg-gray-700' : ''}
+                  `}
+                >
+                  Settings
+                </Menu.Item>
+                <Menu.Item as="button"
+                  onClick={onClearChat}
+                  className={({ active }) => `
+                    w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400
+                    ${active ? 'bg-gray-100 dark:bg-gray-700' : ''}
+                  `}
+                >
+                  Clear conversation
+                </Menu.Item>
+              </motion.div>
             </Menu.Items>
           </AnimatePresence>
         </Menu>

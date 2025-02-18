@@ -1,9 +1,23 @@
 {
   "dependencies": {
+    "@assistant-ui/react": "^0.7.82",
+    "@assistant-ui/react-ai-sdk": "^0.7.15",
+    "@assistant-ui/react-ui": "^0.1.7",
+    "@headlessui/react": "^2.2.0",
+    "@heroicons/react": "^2.2.0",
+    "@tailwindcss/typography": "^0.5.16",
     "@types/jsonwebtoken": "^9.0.8",
     "@types/react-beautiful-dnd": "^13.1.8",
     "axios": "^1.7.9",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.4.3",
     "jsonwebtoken": "^9.0.2",
-    "react-beautiful-dnd": "^13.1.1"
+    "katex": "^0.16.21",
+    "react-beautiful-dnd": "^13.1.1",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "tailwind-merge": "^3.0.1",
+    "tailwindcss-animate": "^1.0.7"
   }
 }

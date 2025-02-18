@@ -1,0 +1,10 @@
+ id |       email       | email_verified 
+----+-------------------+----------------
+  1 | test3@example.com | f
+  2 | test@example.com  | t
+  5 | admin@example.com | t
+  6 | test2@example.com | t
+  8 | test4@example.com | t
+  9 | test5@example.com | t
+(6 rows)
+

@@ -6,13 +6,6 @@ export interface ComposerProps {
   placeholder?: string;
   disabled?: boolean;
   isGenerating?: boolean;
-  streaming?: boolean;
-  suggestions?: string[];
-  mentionableUsers?: {
-    id: string;
-    name: string;
-    avatar?: string;
-  }[];
   allowAttachments?: boolean;
   allowVoiceInput?: boolean;
   maxAttachmentSize?: number;
@@ -24,9 +17,6 @@ export const Composer: React.FC<ComposerProps> = ({
   disabled = false,
   placeholder = 'Type a message...',
   isGenerating = false,
-  streaming = false,
-  suggestions = [],
-  mentionableUsers = [],
   allowAttachments = false,
   allowVoiceInput = false,
   maxAttachmentSize = 5 * 1024 * 1024,
@@ -35,8 +25,6 @@ export const Composer: React.FC<ComposerProps> = ({
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [showMentions, setShowMentions] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
@@ -73,21 +61,6 @@ export const Composer: React.FC<ComposerProps> = ({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    const validFiles = files.filter(file => {
-      const isValidType = supportedFileTypes.some(type => {
-        if (type.endsWith('/*')) {
-          return file.type.startsWith(type.replace('/*', ''));
-        }
-        return file.type === type;
-      });
-      const isValidSize = file.size <= maxAttachmentSize;
-      return isValidType && isValidSize;
-    });
-    setAttachments(prev => [...prev, ...validFiles]);
-  };
-
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items);
     const files = items
@@ -108,26 +81,6 @@ export const Composer: React.FC<ComposerProps> = ({
       });
       setAttachments(prev => [...prev, ...validFiles]);
     }
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSuggestionClick = (suggestion: string) => {
-    setMessage(suggestion);
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  };
-
-  const handleMentionClick = (user: { id: string; name: string }) => {
-    const textBeforeCursor = message.slice(0, textareaRef.current?.selectionStart || 0);
-    const textAfterCursor = message.slice(textareaRef.current?.selectionEnd || 0);
-    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
-    const newMessage = `${textBeforeCursor.slice(0, lastAtIndex)}@${user.name} ${textAfterCursor}`;
-    setMessage(newMessage);
-    setShowMentions(false);
   };
 
   return (
@@ -197,16 +150,6 @@ export const Composer: React.FC<ComposerProps> = ({
             value={message}
             onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
               setMessage(e.target.value);
-              const lastAtIndex = e.target.value.lastIndexOf('@');
-              if (lastAtIndex !== -1 && lastAtIndex === e.target.selectionStart - 1) {
-                setShowMentions(true);
-                setMentionQuery('');
-              } else if (lastAtIndex !== -1) {
-                const query = e.target.value.slice(lastAtIndex + 1, e.target.selectionStart);
-                setMentionQuery(query);
-              } else {
-                setShowMentions(false);
-              }
             }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -240,136 +183,15 @@ export const Composer: React.FC<ComposerProps> = ({
                     : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}
                   hover:bg-gray-100 dark:hover:bg-gray-700
                 `}
-                title={isRecording ? 'Stop recording' : 'Start recording'}
-                disabled={disabled || isGenerating}
               >
                 <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8 14a1 1 0 110-2 1 1 0 010 2zM12 10a1 1 0 110-2 1 1 0 010 2z" clipRule="evenodd" />
                 </svg>
               </motion.button>
             )}
-
-            <motion.button
-              type="submit"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              disabled={!message.trim() || disabled || isGenerating}
-              className={`
-                p-2 rounded-lg transition-colors
-                ${message.trim() && !disabled && !isGenerating
-                  ? 'text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 dark:hover:text-indigo-300'
-                  : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'}
-                hover:bg-gray-100 dark:hover:bg-gray-700
-              `}
-              title="Send message"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-              </svg>
-            </motion.button>
           </div>
         </div>
       </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          const validFiles = files.filter(file => {
-            const isValidType = supportedFileTypes.some(type => {
-              if (type.endsWith('/*')) {
-                return file.type.startsWith(type.replace('/*', ''));
-              }
-              return file.type === type;
-            });
-            const isValidSize = file.size <= maxAttachmentSize;
-            return isValidType && isValidSize;
-          });
-          setAttachments(prev => [...prev, ...validFiles]);
-          if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-          }
-        }}
-        multiple
-        accept={supportedFileTypes.join(',')}
-        className="hidden"
-      />
-
-      <AnimatePresence>
-        {showMentions && mentionableUsers.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            className="absolute bottom-full mb-2 w-full"
-          >
-            <div className="max-h-48 overflow-y-auto p-2 bg-white dark:bg-gray-800 
-              rounded-lg shadow-lg border border-gray-200 dark:border-gray-700"
-            >
-              {mentionableUsers
-                .filter(user => user.name.toLowerCase().includes(mentionQuery.toLowerCase()))
-                .map(user => (
-                  <motion.button
-                    key={user.id}
-                    type="button"
-                    onClick={() => {
-                      const textBeforeCursor = message.slice(0, textareaRef.current?.selectionStart || 0);
-                      const textAfterCursor = message.slice(textareaRef.current?.selectionEnd || 0);
-                      const lastAtIndex = textBeforeCursor.lastIndexOf('@');
-                      const newMessage = `${textBeforeCursor.slice(0, lastAtIndex)}@${user.name} ${textAfterCursor}`;
-                      setMessage(newMessage);
-                      setShowMentions(false);
-                      if (textareaRef.current) {
-                        textareaRef.current.focus();
-                      }
-                    }}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className="w-full flex items-center space-x-2 p-2 hover:bg-gray-100 
-                      dark:hover:bg-gray-700 rounded-md transition-colors"
-                  >
-                    {user.avatar ? (
-                      <img src={user.avatar} alt="" className="w-6 h-6 rounded-full" />
-                    ) : (
-                      <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 
-                        flex items-center justify-center text-sm font-medium text-gray-600 
-                        dark:text-gray-300"
-                      >
-                        {user.name.charAt(0)}
-                      </div>
-                    )}
-                    <span className="text-gray-700 dark:text-gray-300">{user.name}</span>
-                  </motion.button>
-                ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {isGenerating && (
-        <div className="absolute right-4 -top-8">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400
-              bg-white dark:bg-gray-800 px-3 py-1 rounded-full shadow-sm
-              border border-gray-200 dark:border-gray-700"
-          >
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              className="w-4 h-4"
-            >
-              <svg className="w-full h-full" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M12 6V12L16 14" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </motion.div>
-            <span>{streaming ? 'AI is typing...' : 'Generating...'}</span>
-          </motion.div>
-        </div>
-      )}
     </form>
   );
-}; 
+};

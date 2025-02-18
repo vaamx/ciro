@@ -1,0 +1,83 @@
+/* Assistant UI Base Styles */
+:root {
+  --aui-thread-max-width: 42rem;
+  --aui-radius: 0.5rem;
+}
+
+/* Thread Styles */
+.aui-thread-root {
+  @apply bg-gray-50 dark:bg-gray-900 box-border h-full;
+}
+
+.aui-thread-viewport {
+  @apply flex h-full flex-col items-center overflow-y-scroll scroll-smooth bg-inherit px-4 pt-8;
+}
+
+.aui-thread-viewport-footer {
+  @apply sticky bottom-0 mt-3 flex w-full max-w-[var(--aui-thread-max-width)] flex-col items-center justify-end rounded-t-lg bg-inherit pb-4;
+}
+
+/* Message Styles */
+.aui-assistant-message-root {
+  @apply grid grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr];
+  @apply relative w-full max-w-[var(--aui-thread-max-width)] py-4;
+}
+
+.aui-assistant-message-content {
+  @apply text-gray-800 dark:text-white max-w-[calc(var(--aui-thread-max-width)*0.8)] break-words leading-7;
+  @apply col-span-2 col-start-2 row-start-1 my-1.5;
+}
+
+.aui-assistant-action-bar-root {
+  @apply text-gray-400 dark:text-gray-500 flex gap-1;
+  @apply col-start-3 row-start-2;
+  @apply -ml-1;
+}
+
+/* Composer Styles */
+.aui-composer-root {
+  @apply focus-within:border-purple-500/20 flex w-full flex-wrap items-end rounded-lg border bg-inherit px-2.5 shadow-sm transition-colors ease-in;
+}
+
+.aui-composer-input {
+  @apply placeholder:text-gray-500 dark:placeholder:text-gray-400 max-h-40 flex-grow resize-none border-none bg-transparent px-2 py-4 text-sm outline-none focus:ring-0 disabled:cursor-not-allowed;
+}
+
+.aui-composer-send {
+  @apply my-2.5 size-8 p-2 transition-opacity ease-in;
+}
+
+.aui-composer-cancel {
+  @apply my-2.5 size-8 p-2 transition-opacity ease-in;
+}
+
+/* Animation Classes */
+.animate-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-out {
+  animation: fadeOut 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+} 

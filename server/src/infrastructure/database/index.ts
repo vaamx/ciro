@@ -1,25 +1,145 @@
 import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // PostgreSQL connection for chat history and structured data
 export const pool = new Pool({
-  user: process.env.POSTGRES_USER || '***REMOVED***',
-  host: process.env.POSTGRES_HOST || 'localhost',
-  database: process.env.POSTGRES_DB || 'ciro_db',
-  password: process.env.POSTGRES_PASSWORD || '***REMOVED***',
-  port: Number(process.env.POSTGRES_PORT) || 5432,
+  user: process.env.DB_USER || '***REMOVED***',
+  password: process.env.DB_PASSWORD || '***REMOVED***',
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432'),
+  database: process.env.DB_NAME || 'ciro_db'
 });
+
+// Test database connection
+async function testConnection() {
+  try {
+    const client = await pool.connect();
+    console.log('Successfully connected to database');
+    client.release();
+    return true;
+  } catch (error) {
+    console.error('Failed to connect to database:', error);
+    return false;
+  }
+}
+
+async function addMissingColumns() {
+  const client = await pool.connect();
+  try {
+    // Check if required columns exist
+    const checkColumns = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'data_sources' 
+      AND column_name IN ('credentials', 'metadata')
+    `);
+
+    const existingColumns = checkColumns.rows.map(row => row.column_name);
+
+    // Add missing columns
+    if (!existingColumns.includes('credentials')) {
+      console.log('Adding missing credentials column to data_sources table...');
+      await client.query(`
+        ALTER TABLE data_sources 
+        ADD COLUMN IF NOT EXISTS credentials JSONB
+      `);
+    }
+
+    if (!existingColumns.includes('metadata')) {
+      console.log('Adding missing metadata column to data_sources table...');
+      await client.query(`
+        ALTER TABLE data_sources 
+        ADD COLUMN IF NOT EXISTS metadata JSONB
+      `);
+    }
+
+    // Verify columns were added
+    const verifyColumns = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'data_sources'
+    `);
+    console.log('Data sources columns:', verifyColumns.rows.map(r => r.column_name));
+
+  } catch (error) {
+    console.error('Error adding missing columns:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 // Initialize database schema
 export async function initializeDatabase() {
+  console.log('Starting database initialization...');
+  
+  // First test the connection
+  const isConnected = await testConnection();
+  if (!isConnected) {
+    throw new Error('Could not connect to database');
+  }
+
   try {
-    // Read and execute the schema file
-    const schemaPath = path.join(__dirname, 'schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf8');
-    await pool.query(schema);
+    // Check if tables already exist
+    const tablesExist = await pool.query(`
+      SELECT COUNT(*) 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      AND table_name = 'users'
+    `);
+
+    // Only initialize schema if tables don't exist
+    if (parseInt(tablesExist.rows[0].count) === 0) {
+      console.log('Tables do not exist. Creating schema...');
+      // Read and execute the schema file
+      const schemaPath = path.join(__dirname, 'schema.sql');
+      console.log('Reading schema file from:', schemaPath);
+      
+      const schema = fs.readFileSync(schemaPath, 'utf8');
+      console.log('Schema file read successfully');
+      
+      // Split schema into individual statements
+      const statements = schema
+        .split(';')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+      
+      console.log(`Executing ${statements.length} schema statements...`);
+      
+      // Execute each statement separately
+      for (const statement of statements) {
+        try {
+          await pool.query(statement);
+        } catch (error: any) {
+          console.error('Error executing statement:', {
+            error,
+            statement: statement.substring(0, 100) + '...' // Log first 100 chars
+          });
+          throw error;
+        }
+      }
+      
+      console.log('Database schema initialized successfully');
+    } else {
+      console.log('Tables already exist, skipping schema initialization');
+    }
+
+    // Always check for and add any missing columns
+    await addMissingColumns();
     
-    console.log('Database schema initialized successfully');
+    // Verify tables exist
+    const tables = await pool.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+    `);
+    
+    console.log('Existing tables:', tables.rows.map(r => r.table_name));
+
   } catch (error) {
     console.error('Error initializing database schema:', error);
     throw error;

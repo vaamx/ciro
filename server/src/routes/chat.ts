@@ -277,7 +277,7 @@ const sendMessage = async (req: AuthRequest, res: Response) => {
     res.json({
       content: chatResponse,
       metadata: {
-        model: 'gpt-4-turbo-preview'
+        model: 'gpt-4o'
       }
     });
   } catch (error) {
