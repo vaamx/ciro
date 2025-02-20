@@ -42,7 +42,8 @@ class ApiServiceImpl implements ApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    // Use relative path since we're using Vite's proxy
+    this.baseUrl = '';
   }
 
   private async getAuthHeaders(): Promise<HeadersInit> {
@@ -55,28 +56,45 @@ class ApiServiceImpl implements ApiService {
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Origin': window.location.origin
     };
+  }
+
+  private async fetchWithCredentials(url: string, options: RequestInit = {}): Promise<Response> {
+    const defaultOptions: RequestInit = {
+      credentials: 'include',
+      mode: 'cors',
+      headers: await this.getAuthHeaders()
+    };
+
+    const response = await fetch(url, {
+      ...defaultOptions,
+      ...options,
+      headers: {
+        ...defaultOptions.headers,
+        ...options.headers
+      }
+    });
+
+    return this.handleResponse(response);
   }
 
   private async handleResponse(response: Response) {
     if (response.status === 401 || response.status === 403) {
       const error = await response.json().catch(() => ({}));
-      
-      // Clear token if it's invalid
       localStorage.removeItem('auth_token');
-      
       throw new Error(error.message || 'Authentication failed');
     }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(error.message || error.error || `Server error: ${response.status}`);
     }
     
-    // Check for new auth token in response headers
-    const newToken = response.headers.get('Authorization');
-    if (newToken?.startsWith('Bearer ')) {
-      const token = newToken.substring(7);
+    const authHeader = response.headers.get('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
       localStorage.setItem('auth_token', token);
     }
     
@@ -85,11 +103,7 @@ class ApiServiceImpl implements ApiService {
 
   async getChatSessions(): Promise<ChatSession[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions`, {
-        headers: await this.getAuthHeaders(),
-        credentials: 'include'
-      });
-      await this.handleResponse(response);
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions`);
       return response.json();
     } catch (error) {
       console.error('Error fetching chat sessions:', error);
@@ -99,13 +113,10 @@ class ApiServiceImpl implements ApiService {
 
   async createChatSession(title?: string): Promise<ChatSession> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions`, {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions`, {
         method: 'POST',
-        headers: await this.getAuthHeaders(),
-        credentials: 'include',
         body: JSON.stringify({ title })
       });
-      await this.handleResponse(response);
       return response.json();
     } catch (error) {
       console.error('Error creating chat session:', error);
@@ -115,13 +126,10 @@ class ApiServiceImpl implements ApiService {
 
   async updateChatSession(sessionId: string, title: string): Promise<ChatSession> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions/${sessionId}`, {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}`, {
         method: 'PUT',
-        headers: await this.getAuthHeaders(),
-        credentials: 'include',
         body: JSON.stringify({ title })
       });
-      await this.handleResponse(response);
       return response.json();
     } catch (error) {
       console.error('Error updating chat session:', error);
@@ -131,12 +139,9 @@ class ApiServiceImpl implements ApiService {
 
   async deleteChatSession(sessionId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions/${sessionId}`, {
-        method: 'DELETE',
-        headers: await this.getAuthHeaders(),
-        credentials: 'include'
+      await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}`, {
+        method: 'DELETE'
       });
-      await this.handleResponse(response);
     } catch (error) {
       console.error('Error deleting chat session:', error);
       throw error;
@@ -145,25 +150,7 @@ class ApiServiceImpl implements ApiService {
 
   async getChatHistory(sessionId: string): Promise<ChatMessage[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions/${sessionId}`, {
-        headers: await this.getAuthHeaders(),
-        credentials: 'include'
-      });
-
-      // Handle non-OK responses first
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = `Server error: ${response.status}`;
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          // Keep default error message if parsing fails
-        }
-        throw new Error(errorMessage);
-      }
-
-      // For successful responses, parse JSON directly
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}`);
       const data = await response.json();
       
       if (!Array.isArray(data)) {
@@ -180,13 +167,10 @@ class ApiServiceImpl implements ApiService {
 
   async saveChatHistory(sessionId: string, messages: ChatMessage[]): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions/${sessionId}/history`, {
+      await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}/history`, {
         method: 'PUT',
-        headers: await this.getAuthHeaders(),
-        credentials: 'include',
         body: JSON.stringify({ messages })
       });
-      await this.handleResponse(response);
     } catch (error) {
       console.error('Error saving chat history:', error);
       throw error;
@@ -195,16 +179,13 @@ class ApiServiceImpl implements ApiService {
 
   async sendMessage(sessionId: string, message: string, dataSource?: string): Promise<ChatResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/sessions/${sessionId}/messages`, {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}/messages`, {
         method: 'POST',
-        headers: await this.getAuthHeaders(),
-        credentials: 'include',
         body: JSON.stringify({
           message,
           dataSource,
         }),
       });
-      await this.handleResponse(response);
       return response.json();
     } catch (error) {
       console.error('Error sending message:', error);
@@ -213,9 +194,7 @@ class ApiServiceImpl implements ApiService {
   }
 
   async regenerateMessage(messageId: string): Promise<{ content: string; metadata?: ChatMetadata }> {
-    const response = await fetch(`${this.baseUrl}/api/chat/message/${messageId}/regenerate`, {
-      method: 'POST',
-    });
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/message/${messageId}/regenerate`);
 
     if (!response.ok) {
       throw new Error('Failed to regenerate message');
@@ -230,18 +209,16 @@ class ApiServiceImpl implements ApiService {
 
   async generateChatCompletion(messages: ChatMessage[], options?: ChatOptions): Promise<Response> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/completion`, {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/completion`, {
         method: 'POST',
-        headers: await this.getAuthHeaders(),
         body: JSON.stringify({ 
           messages, 
           ...options,
           model: options?.model || 'gpt-4o'  // Set default model
         }),
-        credentials: 'include'
       });
 
-      return await this.handleResponse(response);
+      return response;
     } catch (error) {
       console.error('Error in generateChatCompletion:', error);
       throw error;
@@ -253,14 +230,12 @@ class ApiServiceImpl implements ApiService {
     options: ChatOptions = { model: 'gpt-4o', temperature: 0.7, streaming: true, contextLength: 4096 }
   ): Promise<Response> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat/completion`, {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/completion`, {
         method: 'POST',
-        headers: await this.getAuthHeaders(),
         body: JSON.stringify({ ...options, messages, stream: true }),
-        credentials: 'include'
       });
 
-      return await this.handleResponse(response);
+      return response;
     } catch (error) {
       console.error('Error in streamChatCompletion:', error);
       throw error;

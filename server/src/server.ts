@@ -10,7 +10,7 @@ import { proxyRouter } from './routes/proxy';
 import chatRouter from './routes/chat';
 import { authRouter } from './routes/auth';
 import { refreshSession } from './middleware/auth';
-import { initializeDatabase } from './infrastructure/database';
+import { initializeDatabase } from './infrastructure/database/init';
 
 const app = express();
 
@@ -20,14 +20,18 @@ app.use(cookieParser());
 
 // Configure CORS
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: true, // Allow all origins in development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['set-cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Authorization', 'Set-Cookie'],
+  maxAge: 86400 // 24 hours
 };
 
 app.use(cors(corsOptions));
+
+// Enable pre-flight requests for all routes
+app.options('*', cors(corsOptions));
 
 // Session refresh middleware
 app.use(refreshSession);
@@ -64,17 +68,17 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Something went wrong!', details: err.message });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 // Initialize database and start server
 initializeDatabase()
   .then(() => {
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Frontend URL: ${process.env.FRONTEND_URL}`);
     });
   })
-  .catch(error => {
+  .catch((error: Error) => {
     console.error('Failed to initialize database:', error);
     process.exit(1);
   }); 

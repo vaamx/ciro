@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
-// Add API URL configuration
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Use relative path since we're using Vite's proxy
+export const API_URL = '';
 
 interface User {
   id: number;
@@ -45,20 +45,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'Origin': window.location.origin
         },
         body: JSON.stringify({ email, password }),
-        credentials: 'include'
+        credentials: 'include',
+        mode: 'cors'
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
+        const data = await response.json();
         throw new Error(data.error || data.message || 'Failed to login');
       }
 
+      const data = await response.json();
+
       // Get token from response header or body
-      const authToken = response.headers.get('Authorization')?.split(' ')[1] || data.token;
+      const authHeader = response.headers.get('Authorization');
+      const authToken = authHeader ? authHeader.split(' ')[1] : data.token;
       
       if (!authToken) {
         throw new Error('No authentication token received');
