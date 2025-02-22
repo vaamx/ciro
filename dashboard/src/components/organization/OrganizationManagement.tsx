@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { OrganizationModal } from './OrganizationModal';
-import { Building2, ChevronRight, Plus } from 'lucide-react';
+import { Building2, ChevronRight, Plus, Users, Settings as SettingsIcon, Trash2, PencilLine } from 'lucide-react';
 
 export function OrganizationManagement() {
   const { organizations, currentOrganization, loadOrganizations, setCurrentOrganization } = useOrganization();
@@ -39,45 +39,64 @@ export function OrganizationManagement() {
 
   const getLogoUrl = (logoPath: string | undefined | null): string | undefined => {
     if (!logoPath) return undefined;
-    // Avoid adding /files prefix if it's already there
     return logoPath.startsWith('/files') ? logoPath : `/files${logoPath}`;
   };
 
   const renderOrganizationsList = () => (
-    <div className="w-64 border-r border-gray-700 h-full overflow-y-auto">
-      <div className="p-4 border-b border-gray-700">
+    <div className="w-80 border-r border-gray-100 dark:border-gray-800 h-full overflow-y-auto bg-white dark:bg-gray-900">
+      <div className="p-4 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-900/95">
         <button
           onClick={() => {
             setSelectedOrganization(undefined);
             setIsModalOpen(true);
           }}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 
+            bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700
+            text-white rounded-xl hover:from-purple-600 hover:to-purple-700 
+            dark:hover:from-purple-500 dark:hover:to-purple-600
+            shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30
+            focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-600
+            transition-all duration-200"
         >
-          <Plus size={16} />
-          New Organization
+          <Plus size={18} />
+          <span className="font-medium">New Organization</span>
         </button>
       </div>
-      <div className="space-y-1 p-2">
+      <div className="space-y-1 p-3">
         {organizations.map((org) => (
           <button
             key={org.id}
             onClick={() => setCurrentOrganization(org)}
-            className={`w-full text-left px-4 py-3 rounded-md flex items-center justify-between group hover:bg-gray-700 ${
-              currentOrganization?.id === org.id ? 'bg-gray-700' : ''
-            }`}
+            className={`w-full text-left px-4 py-3 rounded-xl flex items-center justify-between group 
+              transition-all duration-200
+              ${currentOrganization?.id === org.id 
+                ? 'bg-purple-50 dark:bg-purple-900/20 shadow-sm dark:shadow-purple-900/20' 
+                : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+              }`}
           >
             <div className="flex items-center gap-3">
               {org.logo_url ? (
-                <img src={getLogoUrl(org.logo_url)} alt="" className="w-8 h-8 rounded-md" />
+                <img src={getLogoUrl(org.logo_url)} alt="" className="w-10 h-10 rounded-lg object-cover ring-2 ring-purple-500/20" />
               ) : (
-                <div className="w-8 h-8 rounded-md bg-purple-600 flex items-center justify-center">
-                  <Building2 size={16} />
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 
+                  shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30 
+                  flex items-center justify-center">
+                  <Building2 size={20} className="text-white" />
                 </div>
               )}
-              <span className="text-sm font-medium text-gray-200">{org.name}</span>
+              <div className="flex flex-col">
+                <span className={`text-sm font-medium ${
+                  currentOrganization?.id === org.id
+                    ? 'text-gray-900 dark:text-white'
+                    : 'text-gray-700 dark:text-gray-300'
+                }`}>{org.name}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">5 members</span>
+              </div>
             </div>
-            <ChevronRight size={16} className={`text-gray-400 opacity-0 group-hover:opacity-100 ${
-              currentOrganization?.id === org.id ? 'opacity-100' : ''
+            <ChevronRight size={16} className={`transition-all duration-200 ${
+              currentOrganization?.id === org.id
+                ? 'text-purple-600 dark:text-purple-400'
+                : 'text-gray-400 opacity-0 group-hover:opacity-100'
             }`} />
           </button>
         ))}
@@ -88,115 +107,121 @@ export function OrganizationManagement() {
   const renderOrganizationDetails = () => {
     if (!currentOrganization) {
       return (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <Building2 size={48} className="mx-auto text-gray-500 mb-4" />
-            <h3 className="text-lg font-medium text-gray-300">Select an organization</h3>
-            <p className="text-sm text-gray-500 mt-2">Choose an organization from the list or create a new one</p>
+        <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+          <div className="text-center max-w-md px-6">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 
+              shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30 
+              flex items-center justify-center mx-auto mb-6">
+              <Building2 size={32} className="text-white" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Select an organization</h3>
+            <p className="text-gray-500 dark:text-gray-400">Choose an organization from the list or create a new one to get started</p>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900">
         {/* Organization Header */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="p-6 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               {currentOrganization.logo_url ? (
-                <img src={getLogoUrl(currentOrganization.logo_url)} alt="" className="w-12 h-12 rounded-lg" />
+                <img src={getLogoUrl(currentOrganization.logo_url)} alt="" 
+                  className="w-14 h-14 rounded-xl object-cover ring-2 ring-purple-500/20" />
               ) : (
-                <div className="w-12 h-12 rounded-lg bg-purple-600 flex items-center justify-center">
-                  <Building2 size={24} />
+                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700 
+                  shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30 
+                  flex items-center justify-center">
+                  <Building2 size={28} className="text-white" />
                 </div>
               )}
               <div>
-                <h1 className="text-2xl font-semibold text-white">{currentOrganization.name}</h1>
+                <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">{currentOrganization.name}</h1>
                 {currentOrganization.description && (
-                  <p className="text-gray-400 mt-1">{currentOrganization.description}</p>
+                  <p className="text-gray-500 dark:text-gray-400 mt-1">{currentOrganization.description}</p>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => {
                   setSelectedOrganization(currentOrganization);
                   setIsModalOpen(true);
                 }}
-                className="px-4 py-2 text-sm text-gray-300 hover:text-white focus:outline-none"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 
+                  hover:text-purple-600 dark:hover:text-purple-400 
+                  hover:bg-purple-50 dark:hover:bg-purple-900/20 
+                  rounded-lg transition-all duration-200"
               >
+                <PencilLine size={16} />
                 Edit
               </button>
               <button
                 onClick={() => handleDelete(currentOrganization.id)}
-                className="px-4 py-2 text-sm text-red-400 hover:text-red-300 focus:outline-none"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 
+                  hover:bg-red-50 dark:hover:bg-red-900/20 
+                  rounded-lg transition-all duration-200"
               >
+                <Trash2 size={16} />
                 Delete
               </button>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-6 mt-6">
-            <button
-              onClick={() => setActiveTab('general')}
-              className={`text-sm font-medium pb-2 border-b-2 ${
-                activeTab === 'general'
-                  ? 'text-purple-400 border-purple-400'
-                  : 'text-gray-400 border-transparent hover:text-gray-300'
-              }`}
-            >
-              General
-            </button>
-            <button
-              onClick={() => setActiveTab('teams')}
-              className={`text-sm font-medium pb-2 border-b-2 ${
-                activeTab === 'teams'
-                  ? 'text-purple-400 border-purple-400'
-                  : 'text-gray-400 border-transparent hover:text-gray-300'
-              }`}
-            >
-              Teams
-            </button>
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`text-sm font-medium pb-2 border-b-2 ${
-                activeTab === 'settings'
-                  ? 'text-purple-400 border-purple-400'
-                  : 'text-gray-400 border-transparent hover:text-gray-300'
-              }`}
-            >
-              Settings
-            </button>
+          <div className="flex gap-6 mt-8">
+            {[
+              { id: 'general', label: 'General', icon: Building2 },
+              { id: 'teams', label: 'Teams', icon: Users },
+              { id: 'settings', label: 'Settings', icon: SettingsIcon }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`flex items-center gap-2 pb-3 border-b-2 transition-all duration-200 ${
+                  activeTab === tab.id
+                    ? 'text-purple-600 dark:text-purple-400 border-purple-600 dark:border-purple-400'
+                    : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                <tab.icon size={18} />
+                <span className="font-medium">{tab.label}</span>
+              </button>
+            ))}
           </div>
         </div>
 
         {/* Tab Content */}
-        <div className="flex-1 p-6">
+        <div className="flex-1 p-6 overflow-y-auto">
           {activeTab === 'general' && (
-            <div>
-              {/* General organization information and stats would go here */}
-              <h2 className="text-lg font-medium text-white mb-4">Organization Overview</h2>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm dark:shadow-gray-900/30">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Organization Overview</h2>
               {/* Add overview content */}
             </div>
           )}
           {activeTab === 'teams' && (
-            <div>
-              {/* Teams management would go here */}
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-lg font-medium text-white">Teams</h2>
-                <button className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500">
-                  Create Team
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Teams</h2>
+                <button className="flex items-center gap-2 px-4 py-2 
+                  bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700
+                  text-white rounded-lg hover:from-purple-600 hover:to-purple-700 
+                  shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30
+                  transition-all duration-200">
+                  <Plus size={18} />
+                  <span className="font-medium">Create Team</span>
                 </button>
               </div>
-              {/* Add teams list */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm dark:shadow-gray-900/30">
+                {/* Add teams list */}
+              </div>
             </div>
           )}
           {activeTab === 'settings' && (
-            <div>
-              {/* Organization settings would go here */}
-              <h2 className="text-lg font-medium text-white mb-4">Organization Settings</h2>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm dark:shadow-gray-900/30">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Organization Settings</h2>
               {/* Add settings content */}
             </div>
           )}
@@ -206,7 +231,7 @@ export function OrganizationManagement() {
   };
 
   return (
-    <div className="flex h-full bg-gray-900">
+    <div className="flex h-full bg-white dark:bg-gray-900">
       {renderOrganizationsList()}
       {renderOrganizationDetails()}
       

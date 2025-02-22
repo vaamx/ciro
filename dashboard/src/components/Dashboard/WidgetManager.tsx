@@ -122,7 +122,7 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
           <div
             {...provided.droppableProps}
             ref={provided.innerRef}
-            className={`grid gap-4 ${
+            className={`grid gap-6 px-6 pb-6 ${
               isGridView
                 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
                 : 'grid-cols-1'
@@ -135,85 +135,123 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
                     ref={provided.innerRef}
                     {...provided.draggableProps}
                     className={`
-                      relative bg-white dark:bg-gray-800 rounded-xl shadow-sm 
-                      ${snapshot.isDragging ? 'shadow-lg ring-2 ring-purple-500 ring-opacity-50' : 'hover:shadow-md'} 
-                      transition-all duration-200 border border-gray-100 dark:border-gray-700
+                      relative bg-white dark:bg-gray-800 rounded-xl
+                      shadow-[0_4px_20px_-4px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_20px_-4px_rgba(0,0,0,0.4)]
+                      hover:shadow-[0_8px_30px_-4px_rgba(145,115,225,0.2)] dark:hover:shadow-[0_8px_30px_-4px_rgba(145,115,225,0.3)]
+                      border border-gray-200 dark:border-gray-700/80
+                      transition-all duration-300 ease-out
+                      group
+                      ${snapshot.isDragging ? 'shadow-lg ring-2 ring-purple-400/30 dark:ring-purple-500/30 rotate-2 scale-[1.02]' : ''} 
                       ${expandedWidget === widget.id ? 'lg:col-span-2 row-span-2' : ''}
                       ${widget.size === 'large' ? 'lg:col-span-2' : ''}
                     `}
                   >
                     {/* Widget Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between p-4 
+                      border-b border-gray-200 dark:border-gray-700
+                      bg-gray-50 dark:bg-gray-800/80">
                       <div className="flex items-center space-x-3" {...provided.dragHandleProps}>
-                        <div className="cursor-move p-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
-                          <Move className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                        <div className="cursor-move p-2 rounded-lg 
+                          bg-white dark:bg-gray-700
+                          group-hover:bg-purple-50 dark:group-hover:bg-purple-900/50
+                          ring-1 ring-gray-200 dark:ring-gray-600
+                          group-hover:ring-purple-200 dark:group-hover:ring-purple-700
+                          transition-all duration-300">
+                          <Move className="w-4 h-4 text-gray-600 dark:text-gray-300 
+                            group-hover:text-purple-600 dark:group-hover:text-purple-400 
+                            transition-colors" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                          <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200
+                            group-hover:text-purple-700 dark:group-hover:text-purple-300
+                            transition-all duration-300">
                             {widget.title}
                           </h3>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
                             Draggable Widget
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-1">
                         <button 
                           onClick={() => setExpandedWidget(expandedWidget === widget.id ? null : widget.id)}
-                          className="p-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                          className="p-2 rounded-lg text-gray-500 dark:text-gray-400
+                            hover:text-purple-600 dark:hover:text-purple-400 
+                            hover:bg-purple-50 dark:hover:bg-purple-900/50
+                            active:bg-purple-100 dark:active:bg-purple-900/70
+                            transition-all duration-200"
                         >
-                          <Maximize2 className="w-4 h-4" />
+                          <Maximize2 className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={(e) => handleSettingsClick(widget.id, e)}
                           className={`p-2 rounded-lg transition-all duration-200 ${
                             showSettings === widget.id
-                              ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400'
-                              : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300'
+                              ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 ring-1 ring-purple-200 dark:ring-purple-700'
+                              : 'text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50'
                           }`}
                         >
-                          <Settings className="w-4 h-4" />
+                          <Settings className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => onDeleteWidget(widget.id)}
-                          className="p-2 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                          className="p-2 rounded-lg text-gray-500 dark:text-gray-400
+                            hover:text-red-600 dark:hover:text-red-400 
+                            hover:bg-red-50 dark:hover:bg-red-900/50
+                            active:bg-red-100 dark:active:bg-red-900/70
+                            transition-all duration-200"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
 
                     {/* Widget Content */}
-                    <div className={`p-5 ${expandedWidget === widget.id ? 'flex-1 overflow-auto' : ''}`}>
-                      {typeof widget.content === 'function' ? widget.content({ isExpanded: expandedWidget === widget.id }) : widget.content}
+                    <div className={`p-5 bg-white dark:bg-gray-800 
+                      ${expandedWidget === widget.id ? 'flex-1 overflow-auto' : ''}`}>
+                      {typeof widget.content === 'function' 
+                        ? widget.content({ isExpanded: expandedWidget === widget.id }) 
+                        : widget.content}
                     </div>
 
                     {/* Settings Panel */}
                     {showSettings === widget.id && (
                       <>
                         {/* Backdrop */}
-                        <div className="fixed inset-0 bg-black/5 dark:bg-black/20 z-40" onClick={() => setShowSettings(null)} />
+                        <div className="fixed inset-0 bg-black/10 dark:bg-black/40 backdrop-blur-[1px] z-40" 
+                          onClick={() => setShowSettings(null)} />
                         
                         {/* Panel */}
                         <div 
                           ref={settingsRef}
-                          className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 w-80 z-50 transform transition-all duration-200 ease-out"
+                          className="fixed bg-white dark:bg-gray-800 rounded-xl 
+                            shadow-[0_8px_30px_-4px_rgba(0,0,0,0.2)] dark:shadow-[0_8px_30px_-4px_rgba(0,0,0,0.5)]
+                            border border-gray-200 dark:border-gray-700 w-80 z-50 
+                            transform transition-all duration-200 ease-out"
                           style={{ 
                             top: `${settingsPosition.top}px`, 
                             left: `${settingsPosition.left}px`
                           }}
                         >
                           {/* Header */}
-                          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-between p-4 
+                            border-b border-gray-200 dark:border-gray-700
+                            bg-gray-50 dark:bg-gray-800/80">
                             <div>
-                              <h3 className="text-sm font-medium text-gray-900 dark:text-white">{widget.title}</h3>
+                              <h3 className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                {widget.title}
+                              </h3>
                               <p className="text-xs text-gray-500 dark:text-gray-400">Widget Settings</p>
                             </div>
                             <button 
                               onClick={() => setShowSettings(null)}
-                              className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400
+                                hover:text-gray-700 dark:hover:text-gray-200 
+                                hover:bg-gray-100 dark:hover:bg-gray-700
+                                active:bg-gray-200 dark:active:bg-gray-600
+                                transition-all duration-200"
                             >
-                              <X className="w-4 h-4" />
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </div>
                           
@@ -295,13 +333,41 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
             {/* Add Widget Button */}
             <button
               onClick={onAddWidget}
-              className="h-48 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-center hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors group"
+              className="relative h-48 
+                bg-white dark:bg-gray-800 rounded-xl
+                border-2 border-dashed border-gray-300 dark:border-gray-600 
+                hover:border-purple-400 dark:hover:border-purple-500
+                hover:bg-purple-50/50 dark:hover:bg-purple-900/20
+                shadow-sm hover:shadow-lg dark:shadow-gray-900/30
+                transition-all duration-300 ease-out group
+                overflow-hidden"
             >
-              <div className="text-center">
-                <Plus className="w-8 h-8 text-gray-400 dark:text-gray-600 group-hover:text-purple-500 dark:group-hover:text-purple-400 mx-auto mb-2" />
-                <span className="text-sm text-gray-500 dark:text-gray-400 group-hover:text-purple-600 dark:group-hover:text-purple-300">
+              <div className="relative text-center">
+                <div className="w-14 h-14 rounded-xl bg-gray-50 dark:bg-gray-700
+                  group-hover:bg-purple-100 dark:group-hover:bg-purple-900/50
+                  ring-1 ring-gray-200 dark:ring-gray-600
+                  group-hover:ring-purple-300 dark:group-hover:ring-purple-700
+                  shadow-sm group-hover:shadow
+                  flex items-center justify-center mx-auto mb-3 
+                  transition-all duration-300 ease-out
+                  group-hover:scale-110">
+                  <Plus className="w-6 h-6 text-gray-600 dark:text-gray-300 
+                    group-hover:text-purple-600 dark:group-hover:text-purple-400 
+                    transition-colors" />
+                </div>
+                <span className="block text-sm font-medium text-gray-600 dark:text-gray-300
+                  group-hover:text-purple-700 dark:group-hover:text-purple-400
+                  transition-all duration-300">
                   Add New Widget
                 </span>
+              </div>
+              
+              {/* Shine effect */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 
+                  bg-gradient-to-r from-transparent via-white/20 dark:via-purple-400/10 to-transparent 
+                  translate-x-[-100%] group-hover:translate-x-[100%] 
+                  transition-all duration-1000 ease-out"></div>
               </div>
             </button>
           </div>

@@ -222,46 +222,69 @@ export const DashboardManager: React.FC = () => {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            className="flex items-center space-x-2 px-3 py-2 rounded-lg 
+              bg-gray-100/80 dark:bg-gray-800/80 
+              hover:bg-gray-200/80 dark:hover:bg-gray-700/80 
+              border border-gray-200/20 dark:border-gray-700/20
+              backdrop-blur-sm
+              transition-all duration-200"
           >
-            <Icons.Layout size={16} />
-            <span className="font-medium max-w-[200px] truncate">
+            <Icons.Layout size={16} className="text-gray-600 dark:text-gray-400" />
+            <span className="font-medium max-w-[200px] truncate text-gray-700 dark:text-gray-300">
               {currentDashboard?.name || 'Select Dashboard'}
             </span>
             <Icons.ChevronDown 
               size={16} 
-              className={`transform transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} 
+              className={`text-gray-500 dark:text-gray-400 transition-all duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} 
             />
           </button>
           <button
             onClick={handleCreateNew}
-            className="p-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white"
+            className="p-2 rounded-lg 
+              bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700
+              hover:from-purple-600 hover:to-purple-700 dark:hover:from-purple-500 dark:hover:to-purple-600
+              text-white shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30
+              transition-all duration-200 hover:scale-105"
             title="Create New Dashboard"
           >
-            <Icons.Plus size={16} />
+            <Icons.Plus size={16} className="text-white" />
           </button>
         </div>
 
         {/* Dropdown Menu */}
         {isDropdownOpen && (
-          <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+          <div className="absolute top-full left-0 mt-2 w-72 
+            bg-white dark:bg-gray-800 
+            rounded-xl shadow-xl dark:shadow-gray-900/50 
+            border border-gray-100/50 dark:border-gray-700/50 
+            backdrop-blur-xl backdrop-saturate-150 
+            py-2 z-50">
             <div className="p-2">
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 px-2">
                 Your Dashboards
               </div>
               {dashboards.length === 0 ? (
-                <div className="px-2 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                  No dashboards found. Create your first one!
+                <div className="px-4 py-8 text-sm text-center">
+                  <Icons.Layout className="w-8 h-8 mx-auto mb-2 text-gray-400 dark:text-gray-600" />
+                  <p className="text-gray-500 dark:text-gray-400">No dashboards found.</p>
+                  <button
+                    onClick={handleCreateNew}
+                    className="mt-4 px-4 py-2 text-sm font-medium text-purple-600 dark:text-purple-400 
+                      hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors inline-flex items-center"
+                  >
+                    <Icons.Plus size={16} className="mr-2" />
+                    Create your first dashboard
+                  </button>
                 </div>
               ) : (
                 dashboards.map((dashboard) => (
                   <div
                     key={dashboard.id}
-                    className={`group flex items-center justify-between px-2 py-2 rounded-md ${
-                      currentDashboard?.id === dashboard.id
+                    className={`group flex items-center justify-between px-2 py-2 rounded-lg 
+                      ${currentDashboard?.id === dashboard.id
                         ? 'bg-purple-50 dark:bg-purple-900/20'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                    }`}
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                      } transition-all duration-200`}
                   >
                     <div 
                       className="flex items-center space-x-2 flex-1 min-w-0 cursor-pointer" 
@@ -275,22 +298,26 @@ export const DashboardManager: React.FC = () => {
                         className={`flex-shrink-0 ${
                           currentDashboard?.id === dashboard.id
                             ? 'text-purple-600 dark:text-purple-400'
-                            : 'text-gray-500 dark:text-gray-400'
+                            : 'text-gray-500 dark:text-gray-400 group-hover:text-purple-600 dark:group-hover:text-purple-400'
                         }`} 
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
+                        <div className="font-medium truncate text-gray-900 dark:text-white">
                           {dashboard.name}
                         </div>
                         {(dashboard.team || dashboard.category) && (
                           <div className="flex items-center gap-1 mt-0.5">
                             {dashboard.team && (
-                              <span className="px-1.5 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 truncate max-w-[100px]">
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-full 
+                                bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 
+                                ring-1 ring-blue-100/50 dark:ring-blue-800/50 truncate max-w-[100px]">
                                 {dashboard.team}
                               </span>
                             )}
                             {dashboard.category && (
-                              <span className="px-1.5 py-0.5 text-xs rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 truncate max-w-[100px]">
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-full 
+                                bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400 
+                                ring-1 ring-green-100/50 dark:ring-green-800/50 truncate max-w-[100px]">
                                 {dashboard.category}
                               </span>
                             )}
@@ -301,7 +328,8 @@ export const DashboardManager: React.FC = () => {
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => handleEdit(dashboard)}
-                        className="p-1 text-gray-400 hover:text-purple-600 dark:text-gray-500 dark:hover:text-purple-400"
+                        className="p-1 rounded-md text-gray-400 hover:text-purple-600 dark:text-gray-500 dark:hover:text-purple-400
+                          hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all duration-200"
                         title="Edit Dashboard"
                       >
                         <Icons.Settings size={14} />
@@ -309,7 +337,9 @@ export const DashboardManager: React.FC = () => {
                       {dashboard.id !== 'default' && (
                         <button
                           onClick={() => handleDelete(dashboard.id)}
-                          className="p-1 text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400 disabled:opacity-50"
+                          className="p-1 rounded-md text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400
+                            hover:bg-red-50 dark:hover:bg-red-900/30 transition-all duration-200
+                            disabled:opacity-50"
                           disabled={isDeleting === dashboard.id}
                           title="Delete Dashboard"
                         >
