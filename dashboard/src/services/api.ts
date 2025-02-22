@@ -24,6 +24,30 @@ export interface ChatResponse {
   metadata?: ChatMetadata;
 }
 
+export interface Widget {
+  id: string;
+  dashboard_id: string;
+  widget_type: string;
+  title: string;
+  size: string;
+  settings: Record<string, any>;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Dashboard {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  team: string;
+  category: string;
+  created_at: string;
+  updated_at: string;
+  widgets: Widget[];
+}
+
 export interface ApiService {
   getChatSessions: () => Promise<ChatSession[]>;
   createChatSession: (title?: string) => Promise<ChatSession>;
@@ -36,6 +60,11 @@ export interface ApiService {
   cancelGeneration?: () => Promise<void>;
   generateChatCompletion: (messages: ChatMessage[], options?: ChatOptions) => Promise<Response>;
   streamChatCompletion: (messages: ChatMessage[], options?: ChatOptions) => Promise<Response>;
+  getDashboards: () => Promise<Dashboard[]>;
+  createDashboard: (dashboard: Omit<Dashboard, 'id' | 'created_at' | 'updated_at'>) => Promise<Dashboard>;
+  updateDashboard: (id: string, dashboard: Partial<Dashboard>) => Promise<Dashboard>;
+  deleteDashboard: (id: string) => Promise<void>;
+  updateDashboardWidgets: (dashboardId: string, widgets: Partial<Widget>[]) => Promise<Widget[]>;
 }
 
 class ApiServiceImpl implements ApiService {
@@ -238,6 +267,66 @@ class ApiServiceImpl implements ApiService {
       return response;
     } catch (error) {
       console.error('Error in streamChatCompletion:', error);
+      throw error;
+    }
+  }
+
+  async getDashboards(): Promise<Dashboard[]> {
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`);
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching dashboards:', error);
+      throw error;
+    }
+  }
+
+  async createDashboard(dashboard: Omit<Dashboard, 'id' | 'created_at' | 'updated_at'>): Promise<Dashboard> {
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`, {
+        method: 'POST',
+        body: JSON.stringify(dashboard)
+      });
+      return response.json();
+    } catch (error) {
+      console.error('Error creating dashboard:', error);
+      throw error;
+    }
+  }
+
+  async updateDashboard(id: string, dashboard: Partial<Dashboard>): Promise<Dashboard> {
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(dashboard)
+      });
+      return response.json();
+    } catch (error) {
+      console.error('Error updating dashboard:', error);
+      throw error;
+    }
+  }
+
+  async deleteDashboard(id: string): Promise<void> {
+    try {
+      await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      console.error('Error deleting dashboard:', error);
+      throw error;
+    }
+  }
+
+  async updateDashboardWidgets(dashboardId: string, widgets: Partial<Widget>[]): Promise<Widget[]> {
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${dashboardId}/widgets`, {
+        method: 'PUT',
+        body: JSON.stringify({ widgets })
+      });
+      return response.json();
+    } catch (error) {
+      console.error('Error updating dashboard widgets:', error);
       throw error;
     }
   }

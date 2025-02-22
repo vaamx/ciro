@@ -178,18 +178,37 @@ export const sqlInjectionPrevention = (req: Request, res: Response, next: NextFu
 export const errorHandler = (err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error('Error:', err);
   
+  // Handle JWT errors
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+    return res.status(401).json({ 
+      error: 'Session expired',
+      message: 'Please log in again'
+    });
+  }
+
   if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ 
+      error: 'Authentication required',
+      message: 'Please log in to continue'
+    });
   }
 
   if (err.name === 'ValidationError') {
     return res.status(400).json({ error: err.message });
   }
 
+  // Handle operational errors
+  if (err instanceof Error && 'isOperational' in err) {
+    return res.status((err as any).statusCode || 500).json({ 
+      error: err.message
+    });
+  }
+
   // Default error
   res.status(500).json({ 
     error: process.env.NODE_ENV === 'production' 
       ? 'Internal server error' 
-      : err.message 
+      : err.message,
+    message: 'An unexpected error occurred'
   });
 }; 

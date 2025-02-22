@@ -45,12 +45,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': window.location.origin
         },
         body: JSON.stringify({ email, password }),
-        credentials: 'include',
-        mode: 'cors'
+        credentials: 'include'
       });
 
       if (!response.ok) {
@@ -60,23 +57,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const data = await response.json();
 
-      // Get token from response header or body
-      const authHeader = response.headers.get('Authorization');
-      const authToken = authHeader ? authHeader.split(' ')[1] : data.token;
-      
-      if (!authToken) {
+      if (!data.token) {
         throw new Error('No authentication token received');
       }
 
-      // Save the auth token and user data
-      localStorage.setItem('auth_token', authToken);
+      // Save the auth token
+      localStorage.setItem('auth_token', data.token);
       
       if (!data.user) {
         throw new Error('No user data received');
       }
 
       setUser(data.user);
-
     } catch (err) {
       console.error('Login error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred during login');
@@ -101,49 +93,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        console.log('Attempting to restore session with token:', token?.substring(0, 10) + '...');
-
         const response = await fetch(`${API_URL}/api/auth/me`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
           },
           credentials: 'include'
         });
 
         if (!response.ok) {
-          console.error('Session restoration failed with status:', response.status);
           throw new Error('Session expired');
         }
 
         const data = await response.json();
-        console.log('Session restoration response:', data);
         
-        // Handle both nested and direct user data responses
-        const userData = data.user || data;
-        
-        if (!userData || !userData.id) {
-          throw new Error('No user data received');
+        if (!data || !data.id) {
+          throw new Error('Invalid user data received');
         }
 
-        // Update token if a new one was provided
-        const newToken = data.token || response.headers.get('Authorization')?.split(' ')[1];
+        // Update token if a new one was provided in the Authorization header
+        const newToken = response.headers.get('Authorization')?.split(' ')[1];
         if (newToken && mounted) {
-          console.log('Updating token in localStorage');
           localStorage.setItem('auth_token', newToken);
         }
 
-        // Update user state
         if (mounted) {
-          setUser({
-            id: userData.id,
-            email: userData.email,
-            name: userData.name || userData.email.split('@')[0],
-            role: userData.role,
-            emailVerified: userData.email_verified || userData.emailVerified || false
-          });
+          setUser(data);
         }
       } catch (error) {
         console.error('Session restoration failed:', error);
@@ -151,14 +127,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem('auth_token');
           setUser(null);
         }
+        throw error;
       }
     };
 
     // Initial session restore
-    restoreSession();
+    restoreSession().catch(error => {
+      console.error('Initial session restoration failed:', error);
+    });
 
     // Set up periodic session verification (every 4 minutes)
-    intervalId = window.setInterval(restoreSession, 4 * 60 * 1000);
+    intervalId = window.setInterval(() => {
+      restoreSession().catch(error => {
+        console.error('Periodic session restoration failed:', error);
+      });
+    }, 4 * 60 * 1000);
 
     return () => {
       mounted = false;

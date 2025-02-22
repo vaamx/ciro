@@ -26,7 +26,7 @@ export interface ChatMessage {
 }
 
 export interface ChatOptions {
-  model?: 'gpt-4o' | 'gpt-4' | 'gpt-3.5-turbo';
+  model?: string;
   temperature?: number;
   stream?: boolean;
   systemPrompt?: string;
@@ -80,29 +80,31 @@ export class OpenAIService {
             'Connection': 'keep-alive',
           },
         });
-      } else {
-        // Return a regular JSON response
-        const response = completion.choices[0]?.message?.content || '';
-        return new Response(JSON.stringify({
-          id: completion.id,
-          role: 'assistant',
-          content: response,
-          timestamp: Date.now(),
-          status: 'complete',
-          metadata: {
-            model,
-            tokens: {
-              prompt: completion.usage?.prompt_tokens || 0,
-              completion: completion.usage?.completion_tokens || 0,
-              total: completion.usage?.total_tokens || 0,
-            }
-          }
-        }), {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
       }
+
+      // For non-stream responses, we know it's a ChatCompletion
+      const nonStreamCompletion = completion as OpenAI.Chat.ChatCompletion;
+      const response = nonStreamCompletion.choices[0]?.message?.content || '';
+      
+      return new Response(JSON.stringify({
+        id: nonStreamCompletion.id,
+        role: 'assistant',
+        content: response,
+        timestamp: Date.now(),
+        status: 'complete',
+        metadata: {
+          model,
+          tokens: {
+            prompt: nonStreamCompletion.usage?.prompt_tokens || 0,
+            completion: nonStreamCompletion.usage?.completion_tokens || 0,
+            total: nonStreamCompletion.usage?.total_tokens || 0,
+          }
+        }
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
     } catch (error) {
       console.error('Error generating chat completion:', error);
       return new Response(JSON.stringify({

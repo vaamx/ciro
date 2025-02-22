@@ -1,0 +1,13 @@
+{
+  "name": "ciro-test",
+  "version": "1.0.0",
+  "description": "Simple Ciro test app for SAP BTP integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "express": "^4.17.1"
+  }
+} 

@@ -6,7 +6,8 @@ import {
   Brain, 
   Workflow, 
   MessageSquare,
-  HelpCircle
+  HelpCircle,
+  Building2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -20,7 +21,8 @@ const navItems = [
   { name: 'Data Sources', icon: Database, section: 'data', path: '/data-sources', description: 'Connect and analyze your data sources' },
   { name: 'Decisions', icon: Brain, section: 'decisions', path: '/decisions', description: 'Create and manage decision rules' },
   { name: 'Automations', icon: Workflow, section: 'automations', path: '/automations', description: 'Build automated workflows' },
-  { name: 'Communications', icon: MessageSquare, section: 'communications', path: '/communications', description: 'Manage chat and voice agents' }
+  { name: 'Communications', icon: MessageSquare, section: 'communications', path: '/communications', description: 'Manage chat and voice agents' },
+  { name: 'Organizations', icon: Building2, section: 'organizations', path: '/organizations', description: 'Manage organizations and teams' }
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ 

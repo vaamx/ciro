@@ -1,52 +1,65 @@
-import express from 'express';
-import { requireAuth } from '../middleware/auth';
+import express, { Request, Response, NextFunction } from 'express';
+import { authenticate, AuthRequest } from '../middleware/auth';
 import { HubSpotService } from '../infrastructure/datasource/providers/HubSpotService';
-import { pool } from '../infrastructure/database';
+import { db } from '../infrastructure/database';
+
+declare module 'express' {
+  interface Request {
+    user?: {
+      id: string;
+      email: string;
+      role: string;
+      organizationId: string;
+    };
+  }
+}
 
 export const oauthRouter = express.Router();
 
+// Use authentication middleware
+oauthRouter.use(authenticate);
+
 // Handle OAuth token exchange
-oauthRouter.post('/token', requireAuth, async (req, res) => {
-  const { code, provider } = req.body;
-  console.log('Token exchange request received:', req.body);
+oauthRouter.post('/token', (req: Request, res: Response, next: NextFunction) => {
+  const authReq = req as AuthRequest;
+  const { code, provider } = authReq.body;
+  console.log('Token exchange request received:', authReq.body);
 
-  try {
-    switch (provider) {
-      case 'hubspot': {
-        const hubspotService = new HubSpotService();
-        
-        try {
-          const credentials = await hubspotService.exchangeCodeForToken(code);
-          console.log('Successfully exchanged code for HubSpot token');
+  (async () => {
+    try {
+      switch (provider) {
+        case 'hubspot': {
+          const hubspotService = new HubSpotService();
           
-          // Set up data source with the credentials
-          await hubspotService.setupDataSource(req.user!.id, credentials);
-          console.log('Successfully set up HubSpot data source');
+          try {
+            const credentials = await hubspotService.exchangeCodeForToken(code);
+            console.log('Successfully exchanged code for HubSpot token');
+            
+            // Set up data source with the credentials
+            await hubspotService.setupDataSource(parseInt(authReq.user.id, 10), credentials);
+            console.log('Successfully set up HubSpot data source');
 
-          res.json({ success: true });
-        } catch (error) {
-          console.error('HubSpot integration error:', error);
-          res.status(500).json({ 
-            error: 'Failed to integrate with HubSpot',
-            details: error instanceof Error ? error.message : 'Unknown error'
-          });
+            res.json({ success: true });
+          } catch (error) {
+            console.error('HubSpot integration error:', error);
+            res.status(500).json({ 
+              error: 'Failed to integrate with HubSpot',
+              details: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+          break;
         }
-        break;
+        default:
+          res.status(400).json({ error: `Unsupported provider: ${provider}` });
       }
-      default:
-        res.status(400).json({ error: `Unsupported provider: ${provider}` });
+    } catch (error) {
+      next(error);
     }
-  } catch (error) {
-    console.error('OAuth token exchange error:', error);
-    res.status(500).json({ 
-      error: 'OAuth flow failed',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
+  })().catch(next);
 });
 
 // Middleware to verify session
-export const verifySession = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+export const verifySession = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const sessionToken = req.cookies.session_token;
 
   if (!sessionToken) {
@@ -56,21 +69,20 @@ export const verifySession = async (req: express.Request, res: express.Response,
 
   try {
     // Get session from database
-    const session = await pool.query(
-      `SELECT s.*, u.* 
-       FROM sessions s
-       JOIN users u ON s.user_id = u.id
-       WHERE s.session_token = $1 AND s.expires_at > NOW()`,
-      [sessionToken]
-    );
+    const session = await db('sessions')
+      .join('users', 'sessions.user_id', 'users.id')
+      .where('sessions.session_token', sessionToken)
+      .whereRaw('sessions.expires_at > NOW()')
+      .select('users.id', 'users.email', 'users.role', 'users.organization_id as organizationId')
+      .first();
 
-    if (session.rows.length === 0) {
+    if (!session) {
       console.log('No valid session found:', sessionToken);
       return res.status(401).json({ error: 'Invalid session' });
     }
 
     // Attach user to request
-    req.user = session.rows[0];
+    req.user = session;
     next();
   } catch (error) {
     console.error('Session verification error:', error);

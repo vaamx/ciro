@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { 
   LayoutGrid,
   PlusCircle,
@@ -12,6 +12,9 @@ import { StatsOverview } from './StatsOverview';
 import { StaticMetricsCards } from './StaticMetricsCards';
 import { ActivityTimeline } from './ActivityTimeline';
 import { PerformanceMetrics } from './PerformanceMetrics';
+import { useDashboard } from '../../contexts/DashboardContext';
+import { AddMetricModal } from './AddMetricModal';
+import type { MetricCard } from './StaticMetricsCards';
 
 interface EnhancedOverviewProps {
   activeTab: string;
@@ -25,7 +28,7 @@ const tabItems = [
   { id: 'health', name: 'Automations Health', icon: Activity }
 ];
 
-const initialWidgets: Widget[] = [
+const defaultWidgets: Widget[] = [
   { 
     id: 'stats',
     title: 'Key Metrics',
@@ -41,7 +44,7 @@ const initialWidgets: Widget[] = [
   {
     id: 'activity',
     title: 'Activity Timeline',
-    type: 'timeline',
+    type: 'activity',
     size: 'large',
     content: <ActivityTimeline />,
     settings: {
@@ -53,7 +56,7 @@ const initialWidgets: Widget[] = [
   {
     id: 'performance',
     title: 'Performance Metrics',
-    type: 'metrics',
+    type: 'stats',
     size: 'medium',
     content: <PerformanceMetrics />,
     settings: {
@@ -68,24 +71,95 @@ export const EnhancedOverview: React.FC<EnhancedOverviewProps> = ({
   activeTab,
   onTabChange
 }) => {
-  const [isGridView, setIsGridView] = useState(true);
-  const [widgets, setWidgets] = useState<Widget[]>(initialWidgets);
-  const [showAddWidget, setShowAddWidget] = useState(false);
+  const [isGridView, setIsGridView] = React.useState(true);
+  const [showAddWidget, setShowAddWidget] = React.useState(false);
+  const [showAddMetric, setShowAddMetric] = useState(false);
+  const [editingMetric, setEditingMetric] = useState<MetricCard | undefined>();
+  const { currentDashboard, updateWidgets, updateDashboard, updateMetrics } = useDashboard();
+
+  // Debounced update function
+  const debouncedUpdateWidgets = useCallback(
+    (widgets: Widget[]) => {
+      console.log('Updating widgets (debounced):', widgets);
+      updateWidgets(widgets);
+    },
+    [updateWidgets]
+  );
+
+  // Initialize widgets from default if none exist and dashboard was just created
+  useEffect(() => {
+    if (currentDashboard && 
+        (!currentDashboard.widgets || currentDashboard.widgets.length === 0) &&
+        // Check if dashboard was just created (within last minute)
+        new Date(currentDashboard.createdAt).getTime() > Date.now() - 60000) {
+      console.log('Initializing new dashboard with default widgets');
+      debouncedUpdateWidgets(defaultWidgets);
+    }
+  }, [currentDashboard, debouncedUpdateWidgets]);
 
   const handleAddWidget = (newWidget: Omit<Widget, 'id'>) => {
+    if (!currentDashboard) return;
+
     const widget: Widget = {
+      id: `widget-${Date.now()}`,
       ...newWidget,
-      id: `widget-${Date.now()}`
+      widget_type: newWidget.type,
+      position: currentDashboard.widgets?.length || 0
     };
-    setWidgets([...widgets, widget]);
+
+    console.log('Adding new widget:', widget);
+    const updatedWidgets = [...(currentDashboard.widgets || []), widget];
+    console.log('Updated widgets array:', updatedWidgets);
+    debouncedUpdateWidgets(updatedWidgets);
   };
 
   const handleDeleteWidget = (widgetId: string) => {
-    setWidgets(widgets.filter(w => w.id !== widgetId));
+    if (!currentDashboard) return;
+    
+    const updatedWidgets = currentDashboard.widgets.filter(w => w.id !== widgetId);
+    debouncedUpdateWidgets(updatedWidgets);
   };
 
   const handleEditWidget = (widget: Widget) => {
-    setWidgets(widgets.map(w => w.id === widget.id ? widget : w));
+    if (!currentDashboard) return;
+    
+    const updatedWidgets = currentDashboard.widgets.map(w => 
+      w.id === widget.id ? widget : w
+    );
+    debouncedUpdateWidgets(updatedWidgets);
+  };
+
+  const handleAddMetric = (metric: Omit<MetricCard, 'id'>) => {
+    if (!currentDashboard) return;
+
+    const newMetric: MetricCard = {
+      id: `metric-${Date.now()}`,
+      ...metric
+    };
+
+    const updatedMetrics = [...(currentDashboard.metrics || []), newMetric];
+    updateMetrics(updatedMetrics);
+    
+    setShowAddMetric(false);
+  };
+
+  const handleEditMetric = (metric: MetricCard) => {
+    if (!currentDashboard) return;
+
+    const updatedMetrics = currentDashboard.metrics.map(m =>
+      m.id === metric.id ? metric : m
+    );
+    updateMetrics(updatedMetrics);
+    
+    setShowAddMetric(false);
+    setEditingMetric(undefined);
+  };
+
+  const handleDeleteMetric = (metricId: string) => {
+    if (!currentDashboard) return;
+
+    const updatedMetrics = currentDashboard.metrics.filter(m => m.id !== metricId);
+    updateMetrics(updatedMetrics);
   };
 
   const renderTabContent = () => {
@@ -93,15 +167,25 @@ export const EnhancedOverview: React.FC<EnhancedOverviewProps> = ({
       case 'overview':
         return (
           <>
-            <StaticMetricsCards />
-            <WidgetManager
-              widgets={widgets}
-              onWidgetsChange={setWidgets}
-              isGridView={isGridView}
-              onDeleteWidget={handleDeleteWidget}
-              onEditWidget={handleEditWidget}
-              onAddWidget={() => setShowAddWidget(true)}
+            <StaticMetricsCards
+              metrics={currentDashboard?.metrics || []}
+              onAddMetric={() => setShowAddMetric(true)}
+              onEditMetric={(metric) => {
+                setEditingMetric(metric);
+                setShowAddMetric(true);
+              }}
+              onDeleteMetric={handleDeleteMetric}
             />
+            {currentDashboard && (
+              <WidgetManager
+                widgets={currentDashboard.widgets || []}
+                onWidgetsChange={updateWidgets}
+                isGridView={isGridView}
+                onDeleteWidget={handleDeleteWidget}
+                onEditWidget={handleEditWidget}
+                onAddWidget={() => setShowAddWidget(true)}
+              />
+            )}
           </>
         );
       case 'panels':
@@ -163,6 +247,23 @@ export const EnhancedOverview: React.FC<EnhancedOverviewProps> = ({
         isOpen={showAddWidget}
         onClose={() => setShowAddWidget(false)}
         onAddWidget={handleAddWidget}
+      />
+
+      {/* Add Metric Modal */}
+      <AddMetricModal
+        isOpen={showAddMetric}
+        onClose={() => {
+          setShowAddMetric(false);
+          setEditingMetric(undefined);
+        }}
+        onSave={(metric) => {
+          if (editingMetric) {
+            handleEditMetric({ ...metric, id: editingMetric.id });
+          } else {
+            handleAddMetric(metric);
+          }
+        }}
+        editingMetric={editingMetric}
       />
     </div>
   );

@@ -1,333 +1,183 @@
-import { v4 as uuidv4 } from 'uuid';
-import path from 'path';
-import fs from 'fs/promises';
-import { config } from '../config';
+import { Knex } from 'knex';
+import { BadRequestError } from '../utils/errors';
+import { File } from '../types/file';
+import { db } from '../infrastructure/database';
 import sharp from 'sharp';
-import type { Multer } from 'multer';
-import { pool } from '../infrastructure/database';
-import { openai } from './openai.service';
-import { createReadStream } from 'fs';
-import { PDFExtract, PDFExtractResult } from 'pdf.js-extract';
-import { Readable } from 'stream';
 
-type File = Express.Multer.File;
-type FileStatus = 'processing' | 'ready' | 'error';
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const ALLOWED_MIME_TYPES = {
+  'text/csv': 'csv',
+  'application/json': 'json',
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'excel',
+  'application/vnd.ms-excel': 'excel',
+  'image/jpeg': 'image',
+  'image/png': 'image',
+  'image/gif': 'image',
+  'image/webp': 'image'
+} as const;
 
-interface PDFPage {
-  content: string;
-  [key: string]: any;
-}
+type AllowedMimeType = keyof typeof ALLOWED_MIME_TYPES;
 
-export interface FileMetadata {
-  id: string;
-  originalName: string;
-  mimeType: string;
+interface DBFile {
+  id: number;
+  filename: string;
+  original_filename: string;
+  mime_type: string;
   size: number;
-  url: string;
-  thumbnailUrl?: string;
-  userId: number;
-  status: FileStatus;
-  contentType?: string;
-  contentText?: string;
-  embedding?: number[];
-  metadata?: Record<string, any>;
-  createdAt: Date;
-  updatedAt: Date;
+  file_type: string;
+  content: Buffer | null;
+  metadata: Record<string, any>;
+  organization_id: number;
+  uploaded_by: number;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export class FileService {
-  private static instance: FileService;
-  private uploadDir: string;
-  private allowedTypes: Set<string>;
-  private maxFileSize: number;
-  private pdfExtract: PDFExtract;
+  constructor(private readonly db: Knex = db) {}
 
-  private constructor() {
-    this.uploadDir = path.join(process.cwd(), 'uploads');
-    this.allowedTypes = new Set([
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'application/pdf',
-      'text/plain',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    ]);
-    this.maxFileSize = 10 * 1024 * 1024; // 10MB
-    this.pdfExtract = new PDFExtract();
-    this.initializeStorage();
+  isFileTypeAllowed(mimeType: string): mimeType is AllowedMimeType {
+    return mimeType in ALLOWED_MIME_TYPES;
   }
 
-  static getInstance(): FileService {
-    if (!FileService.instance) {
-      FileService.instance = new FileService();
+  async validateFile(file: Express.Multer.File): Promise<void> {
+    if (!file) {
+      throw new BadRequestError('No file provided');
     }
-    return FileService.instance;
-  }
 
-  private async initializeStorage() {
-    try {
-      await fs.access(this.uploadDir);
-    } catch {
-      await fs.mkdir(this.uploadDir, { recursive: true });
-      await fs.mkdir(path.join(this.uploadDir, 'thumbnails'), { recursive: true });
+    if (file.size > MAX_FILE_SIZE) {
+      throw new BadRequestError(`File size exceeds maximum limit of ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+    }
+
+    if (!this.isFileTypeAllowed(file.mimetype)) {
+      throw new BadRequestError('Unsupported file type');
     }
   }
 
-  private validateFile(file: File): void {
-    if (!this.allowedTypes.has(file.mimetype)) {
-      throw new Error('File type not allowed');
-    }
-
-    if (file.size > this.maxFileSize) {
-      throw new Error('File size exceeds limit');
-    }
-  }
-
-  private async generateThumbnail(file: File): Promise<string | undefined> {
-    if (!file.mimetype.startsWith('image/')) {
-      return undefined;
-    }
-
-    const fileId = uuidv4();
-    const thumbnailPath = path.join(this.uploadDir, 'thumbnails', `${fileId}.jpg`);
-
-    await sharp(file.buffer)
-      .resize(200, 200, { fit: 'inside' })
-      .jpeg({ quality: 80 })
-      .toFile(thumbnailPath);
-
-    return `/files/thumbnails/${fileId}.jpg`;
-  }
-
-  private async compressImage(buffer: Buffer, mimeType: string): Promise<Buffer> {
-    if (!mimeType.startsWith('image/')) {
-      return buffer;
-    }
-
-    const image = sharp(buffer);
+  private async processImage(file: Express.Multer.File): Promise<{ content: Buffer; metadata: any }> {
+    const image = sharp(file.buffer);
     const metadata = await image.metadata();
-
+    
+    // Resize if image is too large
     if (metadata.width && metadata.width > 2048) {
-      image.resize(2048, undefined, { fit: 'inside' });
+      const content = await image.resize(2048, undefined, {
+        withoutEnlargement: true,
+        fit: 'inside'
+      }).toBuffer();
+      return { content, metadata };
     }
 
-    if (mimeType === 'image/jpeg') {
-      return image.jpeg({ quality: 85 }).toBuffer();
-    } else if (mimeType === 'image/png') {
-      return image.png({ compressionLevel: 8 }).toBuffer();
-    }
-
-    return buffer;
+    return { content: file.buffer, metadata };
   }
 
-  private async extractText(file: File): Promise<string | undefined> {
-    try {
-      if (file.mimetype === 'text/plain') {
-        return file.buffer.toString('utf-8');
-      }
+  async uploadFile(
+    file: Express.Multer.File,
+    organizationId: number,
+    userId: number
+  ): Promise<File> {
+    await this.validateFile(file);
 
-      if (file.mimetype === 'application/pdf') {
-        const tempPath = path.join(this.uploadDir, 'temp', `${uuidv4()}.pdf`);
-        await fs.mkdir(path.dirname(tempPath), { recursive: true });
-        await fs.writeFile(tempPath, file.buffer);
-        
-        const data = await this.pdfExtract.extract(tempPath);
-        await fs.unlink(tempPath);
-        
-        return data.pages
-          .map(page => page.content.map(text => text.str).join(' '))
-          .join('\n');
-      }
+    let content = file.buffer;
+    let metadata = {};
 
-      // Add more document type handlers here
+    // Process images
+    if (file.mimetype.startsWith('image/')) {
+      const processed = await this.processImage(file);
+      content = processed.content;
+      metadata = processed.metadata;
+    }
 
-      return undefined;
-    } catch (error) {
-      console.error('Text extraction error:', error);
-      return undefined;
+    const fileData = {
+      filename: file.filename,
+      original_filename: file.originalname,
+      mime_type: file.mimetype,
+      size: content.length,
+      file_type: ALLOWED_MIME_TYPES[file.mimetype as AllowedMimeType],
+      content,
+      metadata,
+      organization_id: organizationId,
+      uploaded_by: userId
+    };
+
+    const [insertedFile] = await this.db('files')
+      .insert(fileData)
+      .returning('*');
+
+    return this.mapFileResponse(insertedFile);
+  }
+
+  async getAllFiles(organizationId: number): Promise<File[]> {
+    const files = await this.db('files')
+      .where({ organization_id: organizationId })
+      .orderBy('created_at', 'desc');
+
+    return files.map(this.mapFileResponse);
+  }
+
+  async getFileById(fileId: number, organizationId: number): Promise<File> {
+    const file = await this.db('files')
+      .where({ 
+        id: fileId,
+        organization_id: organizationId 
+      })
+      .first();
+
+    if (!file) {
+      throw new BadRequestError('File not found');
+    }
+
+    return this.mapFileResponse(file);
+  }
+
+  async deleteFile(fileId: number, organizationId: number): Promise<void> {
+    const deleted = await this.db('files')
+      .where({ 
+        id: fileId,
+        organization_id: organizationId 
+      })
+      .delete();
+
+    if (!deleted) {
+      throw new BadRequestError('File not found');
     }
   }
 
-  private async generateEmbedding(text: string): Promise<number[]> {
-    try {
-      const response = await openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: text.slice(0, 8000), // Limit text length
-        encoding_format: 'float'
-      });
+  async searchFiles(query: string, organizationId: number): Promise<File[]> {
+    const files = await this.db('files')
+      .where({ organization_id: organizationId })
+      .where(builder => {
+        builder
+          .whereILike('filename', `%${query}%`)
+          .orWhereILike('original_filename', `%${query}%`)
+          .orWhereILike('file_type', `%${query}%`);
+      })
+      .orderBy('created_at', 'desc');
 
-      return response.data[0].embedding;
-    } catch (error) {
-      console.error('Embedding generation error:', error);
-      return [];
-    }
+    return files.map(this.mapFileResponse);
   }
 
-  async uploadFile(file: File, userId: number): Promise<FileMetadata> {
-    this.validateFile(file);
+  async getFileContent(fileId: number, organizationId: number): Promise<Buffer> {
+    const file = await this.db('files')
+      .where({ 
+        id: fileId,
+        organization_id: organizationId 
+      })
+      .select('content')
+      .first();
 
-    const fileId = uuidv4();
-    const fileExt = path.extname(file.originalname);
-    const fileName = `${fileId}${fileExt}`;
-    const filePath = path.join(this.uploadDir, fileName);
+    if (!file || !file.content) {
+      throw new BadRequestError('File content not found');
+    }
 
-    // Compress image if applicable
-    const processedBuffer = await this.compressImage(file.buffer, file.mimetype);
-    await fs.writeFile(filePath, processedBuffer);
+    return file.content;
+  }
 
-    const thumbnailUrl = await this.generateThumbnail(file);
-
-    // Initial database entry
-    const result = await pool.query(
-      `INSERT INTO files (
-        id, original_name, mime_type, size, url, thumbnail_url, 
-        user_id, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *`,
-      [
-        fileId,
-        file.originalname,
-        file.mimetype,
-        processedBuffer.length,
-        `/files/${fileName}`,
-        thumbnailUrl,
-        userId,
-        'processing'
-      ]
-    );
-
-    const metadata = result.rows[0];
-
-    // Process file asynchronously
-    this.processFile(fileId, file).catch(console.error);
-
+  private mapFileResponse(file: DBFile): File {
+    const { content, ...fileData } = file;
     return {
-      id: metadata.id,
-      originalName: metadata.original_name,
-      mimeType: metadata.mime_type,
-      size: metadata.size,
-      url: metadata.url,
-      thumbnailUrl: metadata.thumbnail_url,
-      userId: metadata.user_id,
-      status: metadata.status,
-      createdAt: metadata.created_at,
-      updatedAt: metadata.updated_at
+      ...fileData,
+      hasContent: !!content
     };
   }
-
-  private async processFile(fileId: string, file: File): Promise<void> {
-    try {
-      // Extract text content
-      const contentText = await this.extractText(file);
-      
-      if (contentText) {
-        // Generate embedding
-        const embedding = await this.generateEmbedding(contentText);
-
-        // Update database with processed data
-        await pool.query(
-          `UPDATE files 
-           SET status = $1, content_text = $2, embedding = $3
-           WHERE id = $4`,
-          ['ready', contentText, embedding, fileId]
-        );
-      } else {
-        await pool.query(
-          `UPDATE files SET status = $1 WHERE id = $2`,
-          ['ready', fileId]
-        );
-      }
-    } catch (error) {
-      console.error('File processing error:', error);
-      await pool.query(
-        `UPDATE files SET status = $1 WHERE id = $2`,
-        ['error', fileId]
-      );
-    }
-  }
-
-  async deleteFile(fileId: string, userId: number): Promise<void> {
-    const result = await pool.query(
-      'DELETE FROM files WHERE id = $1 AND user_id = $2 RETURNING url, thumbnail_url',
-      [fileId, userId]
-    );
-
-    if (result.rows.length === 0) {
-      throw new Error('File not found or unauthorized');
-    }
-
-    const { url, thumbnail_url } = result.rows[0];
-
-    // Delete physical files
-    const filePath = path.join(this.uploadDir, path.basename(url));
-    await fs.unlink(filePath);
-
-    if (thumbnail_url) {
-      const thumbnailPath = path.join(this.uploadDir, 'thumbnails', path.basename(thumbnail_url));
-      try {
-        await fs.unlink(thumbnailPath);
-      } catch {
-        // Ignore if thumbnail doesn't exist
-      }
-    }
-  }
-
-  async getFileStream(fileId: string): Promise<fs.FileHandle> {
-    const result = await pool.query(
-      'SELECT url FROM files WHERE id = $1',
-      [fileId]
-    );
-
-    if (result.rows.length === 0) {
-      throw new Error('File not found');
-    }
-
-    const filePath = path.join(this.uploadDir, path.basename(result.rows[0].url));
-    return fs.open(filePath, 'r');
-  }
-
-  async searchFiles(query: string, userId: number): Promise<FileMetadata[]> {
-    try {
-      const embedding = await this.generateEmbedding(query);
-      
-      const result = await pool.query(
-        `SELECT *, (embedding <=> $1) as similarity
-         FROM files
-         WHERE user_id = $2 AND embedding IS NOT NULL
-         ORDER BY similarity
-         LIMIT 10`,
-        [embedding, userId]
-      );
-
-      return result.rows.map(row => ({
-        id: row.id,
-        originalName: row.original_name,
-        mimeType: row.mime_type,
-        size: row.size,
-        url: row.url,
-        thumbnailUrl: row.thumbnail_url,
-        userId: row.user_id,
-        status: row.status,
-        contentType: row.content_type,
-        contentText: row.content_text,
-        metadata: row.metadata,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      }));
-    } catch (error) {
-      console.error('File search error:', error);
-      return [];
-    }
-  }
-
-  isFileTypeAllowed(mimeType: string): boolean {
-    return this.allowedTypes.has(mimeType);
-  }
-
-  getMaxFileSize(): number {
-    return this.maxFileSize;
-  }
-}
-
-export const fileService = FileService.getInstance(); 
+} 

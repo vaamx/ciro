@@ -1,4 +1,4 @@
-export type DataSourceType = 'hubspot' | 'salesforce' | 'zoho' | 'google' | 'custom';
+export type DataSourceType = 'database' | 'crm' | 'storage' | 'analytics' | 'sap' | 'local-files' | 'custom' | 'crm-hubspot' | 'warehouse';
 export type DataSourceStatus = 'connected' | 'disconnected' | 'error' | 'syncing';
 
 export interface DataSourceMetrics {
@@ -104,14 +104,45 @@ export interface HubSpotData {
   };
 }
 
-export interface DataSource {
+export type LocalFileType = 'csv' | 'excel' | 'pdf' | 'json';
+
+export interface LocalFileMetadata {
   id: string;
+  filename: string;
+  fileType: LocalFileType;
+  size: number;
+  uploadedAt: Date;
+  lastModified: Date;
+  status: 'ready' | 'processing' | 'error';
+  records?: number;
+  content?: any[];
+  preview?: string;
+}
+
+export interface LocalFileData {
+  metadata: LocalFileMetadata;
+  content: any[];
+  preview: string;
+}
+
+export interface DataSource {
+  id?: string;
   name: string;
   type: DataSourceType;
   status: DataSourceStatus;
   description?: string;
-  lastSync?: string | Date;
+  lastSync?: string;
   error?: string;
-  metrics: DataSourceMetrics;
+  metrics: {
+    records: number;
+    syncRate: number;
+    avgSyncTime: string;
+    lastError?: string;
+  };
+  metadata?: LocalFileMetadata & {
+    records: number;
+    syncRate: number;
+    avgSyncTime: string;
+  };
   data?: HubSpotData;
 } 

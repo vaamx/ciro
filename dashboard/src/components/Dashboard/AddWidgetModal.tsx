@@ -80,8 +80,10 @@ export const AddWidgetModal: React.FC<AddWidgetModalProps> = ({
     onAddWidget({
       title: widgetTitle,
       type: selectedTemplate,
+      widget_type: selectedTemplate,
       size: widgetSize,
       content: <div>Widget Content Placeholder</div>,
+      position: 0,
       settings: {
         refreshInterval: 0,
         showTitle: true,

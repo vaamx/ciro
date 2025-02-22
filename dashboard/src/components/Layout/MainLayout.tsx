@@ -11,11 +11,13 @@ import { Bot } from 'lucide-react';
 interface MainLayoutProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
+  dashboardManager: React.ReactNode;
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
   activeSection,
   onSectionChange,
+  dashboardManager,
 }) => {
   const [isNotificationsPanelOpen, setIsNotificationsPanelOpen] = useState(false);
   const { isDarkMode, toggleTheme } = useTheme();
@@ -50,6 +52,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             role: user.role,
             avatar: undefined
           } : undefined}
+          dashboardManager={dashboardManager}
         />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
           <Outlet />

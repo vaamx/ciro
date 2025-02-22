@@ -174,6 +174,16 @@ export const DataSourceCard: React.FC<DataSourceCardProps> = ({ dataSource, onEd
                 </div>
               </div>
 
+              {/* File Preview for local files */}
+              {dataSource.type === 'local-files' && dataSource.metadata?.preview && (
+                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 mt-4">
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">File Preview</h4>
+                  <pre className="text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto">
+                    {dataSource.metadata.preview}
+                  </pre>
+                </div>
+              )}
+
               {/* HubSpot Data */}
               {isHubSpot && dataSource.data && (
                 <div className="space-y-6">

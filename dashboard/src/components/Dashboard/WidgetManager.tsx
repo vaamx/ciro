@@ -14,12 +14,15 @@ export interface Widget {
   id: string;
   title: string;
   type: string;
+  widget_type: string; // Required for backend communication
   size: 'small' | 'medium' | 'large';
-  content: React.ReactNode | ((props: { isExpanded: boolean }) => React.ReactNode);
+  content: React.ReactNode | ((props: { isExpanded?: boolean }) => React.ReactNode);
+  position?: number;
   settings?: {
     refreshInterval?: number;
     showTitle?: boolean;
     expandable?: boolean;
+    [key: string]: any;
   };
 }
 
@@ -93,7 +96,23 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
     const [reorderedItem] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, reorderedItem);
     
-    onWidgetsChange(items);
+    // Update positions after reordering while preserving all widget properties
+    const updatedItems = items.map((item, index) => {
+      // Ensure type and widget_type are explicitly set
+      if (!item.type || !item.widget_type) {
+        console.error('Widget missing type or widget_type during reorder:', item);
+      }
+      
+      return {
+        ...item,
+        type: item.type || item.widget_type, // Use type or fallback to widget_type
+        widget_type: item.widget_type || item.type, // Use widget_type or fallback to type
+        position: index
+      };
+    });
+    
+    console.log('Reordered widgets:', updatedItems);
+    onWidgetsChange(updatedItems);
   };
 
   return (

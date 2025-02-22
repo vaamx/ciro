@@ -1,9 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 import authRoutes from './routes/auth.routes';
 import chatRoutes from './routes/chat';
 import fileRoutes from './routes/file.routes';
+import dashboardRoutes from './routes/dashboard.routes';
+import organizationRoutes from './routes/organizationRoutes';
+import dataSourceRoutes from './routes/data-source.routes';
+import automationRoutes from './routes/automation.routes';
 import {
   rateLimiter,
   speedLimiter,
@@ -14,10 +19,21 @@ import {
   errorHandler
 } from './middleware/security';
 import { config } from './config/index';
+import morgan from 'morgan';
+import helmet from 'helmet';
+import compression from 'compression';
+import { initializeUploadDirectories, UPLOAD_DIR } from './utils/upload';
 
 const app = express();
 
-// CORS configuration
+// Initialize upload directories at startup
+initializeUploadDirectories().catch(error => {
+  console.error('Failed to initialize upload directories:', error);
+  process.exit(1); // Exit if we can't set up critical directories
+});
+
+// Middleware
+app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? config.cors.origin 
@@ -35,6 +51,8 @@ app.use(cors({
   exposedHeaders: ['set-cookie'],
   maxAge: 600 // 10 minutes
 }));
+app.use(compression());
+app.use(morgan('dev'));
 
 // Cookie parser middleware
 app.use(cookieParser());
@@ -54,12 +72,28 @@ app.use(sanitizeInput);
 app.use(sqlInjectionPrevention);
 
 // Serve static files from the uploads directory
-app.use('/files', express.static('uploads'));
+app.use('/files', (req, res, next) => {
+  console.log('Static file request:', {
+    url: req.url,
+    method: req.method,
+    headers: req.headers,
+    fullPath: path.resolve(UPLOAD_DIR, req.url.replace(/^\/+/, ''))
+  });
+  next();
+}, express.static(UPLOAD_DIR, {
+  index: false,
+  fallthrough: true,
+  redirect: false
+}));
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/dashboards', dashboardRoutes);
+app.use('/api/organizations', organizationRoutes);
+app.use('/api/data-sources', dataSourceRoutes);
+app.use('/api/automations', automationRoutes);
 
 // Error handling
 app.use(errorHandler);

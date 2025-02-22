@@ -1,10 +1,5 @@
-import { Pool } from 'pg';
-import { config } from '../config';
+import knex, { Knex } from 'knex';
+import config from '../config/knexfile';
 
-export const pool = new Pool({
-  host: config.database.host,
-  port: config.database.port,
-  user: config.database.user,
-  password: config.database.password,
-  database: config.database.database
-}); 
+const environment = (process.env.NODE_ENV || 'development') as keyof typeof config;
+export const db: Knex = knex(config[environment]); 

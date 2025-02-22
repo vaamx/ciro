@@ -7,17 +7,29 @@
     "@heroicons/react": "^2.2.0",
     "@tailwindcss/typography": "^0.5.16",
     "@types/jsonwebtoken": "^9.0.8",
+    "@types/papaparse": "^5.3.15",
     "@types/react-beautiful-dnd": "^13.1.8",
+    "@types/react-dropzone": "^5.1.0",
+    "@types/xlsx": "^0.0.36",
     "axios": "^1.7.9",
     "clsx": "^2.1.1",
     "framer-motion": "^12.4.3",
     "jsonwebtoken": "^9.0.2",
     "katex": "^0.16.21",
+    "multer": "^1.4.5-lts.1",
+    "papaparse": "^5.5.2",
     "react-beautiful-dnd": "^13.1.1",
+    "react-dropzone": "^14.3.5",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "sharp": "^0.33.5",
     "tailwind-merge": "^3.0.1",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/multer": "^1.4.12",
+    "@types/sharp": "^0.32.0"
   }
 }

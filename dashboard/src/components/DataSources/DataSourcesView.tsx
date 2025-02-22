@@ -11,12 +11,17 @@ import {
   AlertCircle,
   History,
   X,
-  Loader2,
+  Loader2
 } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
-import { DataSource, DataSourceStatus } from './types';
+import { useOrganization } from '../../contexts/OrganizationContext';
+import { 
+  DataSource, 
+  DataSourceType, 
+  DataSourceStatus, 
+  LocalFileMetadata
+} from './types';
 import { AddDataSourceWizard } from './AddDataSourceWizard';
-import { mockDataSources } from './constants';
 
 const sourceCategories = [
   { id: 'all', name: 'All Sources' },
@@ -238,6 +243,48 @@ const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({
             </div>
           )}
 
+          {/* CSV Data Preview */}
+          {source.type === 'local-files' && source.metadata?.fileType === 'csv' && source.metadata?.content && (
+            <div className="space-y-4">
+              <h4 className="text-lg font-medium text-gray-900 dark:text-white">Data Preview</h4>
+              <div className="border dark:border-gray-700 rounded-lg overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-900/50">
+                    <tr>
+                      {Object.keys(source.metadata.content[0] || {}).map((header) => (
+                        <th
+                          key={header}
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+                        >
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {source.metadata.content.slice(0, 5).map((row, rowIndex) => (
+                      <tr key={rowIndex} className="hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                        {Object.values(row).map((cell: any, cellIndex) => (
+                          <td
+                            key={cellIndex}
+                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white"
+                          >
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {source.metadata.content.length > 5 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Showing 5 of {source.metadata.content.length} records
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Metrics */}
           <div>
             <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Performance Metrics</h4>
@@ -285,8 +332,10 @@ const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({
             </button>
             <button
               onClick={() => {
-                onUpdate(source.id, formData);
-                onClose();
+                if (source.id) {
+                  onUpdate(source.id, formData);
+                  onClose();
+                }
               }}
               className="btn-primary dark:bg-purple-700 dark:hover:bg-purple-600"
             >
@@ -379,41 +428,62 @@ const restoreHubSpotConnection = async () => {
 
 export const DataSourcesView: React.FC = () => {
   const { showNotification } = useNotification();
+  const { currentOrganization } = useOrganization();
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filteredSources, setFilteredSources] = useState<DataSource[]>([]);
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load data sources from local storage on initial mount
+  // Load data sources from database on initial mount or when organization changes
   useEffect(() => {
     const loadDataSources = async () => {
       try {
-        const savedSources = localStorage.getItem('dataSources');
-        if (savedSources) {
-          const parsedSources = JSON.parse(savedSources);
-          setFilteredSources(parsedSources);
-        } else {
-          setFilteredSources(mockDataSources); // Use default sources if none saved
+        if (!currentOrganization) {
+          setFilteredSources([]);
+          return;
         }
+
+        setIsLoading(true);
+        setError(null);
+
+        const response = await fetch(`http://localhost:3001/api/data-sources?organization_id=${currentOrganization.id}`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to load data sources');
+        }
+
+        const data = await response.json();
+        setFilteredSources(data);
       } catch (error) {
         console.error('Error loading data sources:', error);
-        setFilteredSources(mockDataSources);
+        setError(error instanceof Error ? error.message : 'Failed to load data sources');
+        // Don't clear sources if we already have data
+        if (filteredSources.length === 0) {
+          setFilteredSources([]);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     loadDataSources();
-  }, []);
+  }, [currentOrganization]);
 
-  // Save data sources to local storage whenever they change
+  // Save data sources to database whenever they change
   useEffect(() => {
-    if (!isLoading) {
-      localStorage.setItem('dataSources', JSON.stringify(filteredSources));
+    if (!isLoading && currentOrganization) {
+      // We don't need to save to localStorage anymore since data is persisted in the database
+      // Instead, we'll keep the state in sync with the database through our API calls
     }
-  }, [filteredSources, isLoading]);
+  }, [filteredSources, isLoading, currentOrganization]);
 
   // Filter sources based on search and category
   useEffect(() => {
@@ -512,108 +582,85 @@ export const DataSourcesView: React.FC = () => {
     restoreConnections();
   }, []);
 
-  const handleAddDataSource = async (newSource: Partial<DataSource>) => {
+  const handleAddDataSource = async (newSource: {
+    name: string;
+    type: DataSourceType;
+    status: DataSourceStatus;
+    lastSync: string;
+    description: string;
+    metadata?: LocalFileMetadata & {
+      records: number;
+      syncRate: number;
+      avgSyncTime: string;
+    };
+    metrics: {
+      records: number;
+      syncRate: number;
+      avgSyncTime: string;
+      lastError?: string;
+    };
+  }) => {
     try {
       setIsLoading(true);
       
-      // Create the data source
-      const createdSource: DataSource = {
-        id: Date.now().toString(),
-        name: newSource.name || '',
-        type: newSource.type || 'database',
-        description: newSource.description || '',
-        status: 'connected',
-        lastSync: new Date().toISOString(),
-        metrics: {
-          records: 0,
-          syncRate: 0,
-          avgSyncTime: '0s'
-        }
-      };
-
-      // If it's a HubSpot source, fetch the data
-      if (newSource.type === 'crm-hubspot') {
-        try {
-          // Fetch contacts
-          const contactsResponse = await fetch('/api/proxy/hubspot/crm/v3/objects/contacts', {
-            headers: { 'Accept': 'application/json' }
-          });
-          const contactsData = await contactsResponse.json();
-
-          // Fetch companies
-          const companiesResponse = await fetch('/api/proxy/hubspot/crm/v3/objects/companies');
-          const companiesData = await companiesResponse.json();
-
-          // Fetch deals
-          const dealsResponse = await fetch('/api/proxy/hubspot/crm/v3/objects/deals');
-          const dealsData = await dealsResponse.json();
-
-          // Create the complete source with data
-          const newSource: DataSource = {
-            ...createdSource,
-            status: 'connected' as const,
-            data: {
-              contacts: {
-                total: contactsData._metadata?.total || 0,
-                synced: contactsData.results?.length || 0,
-                lastSync: new Date().toISOString(),
-                records: contactsData.records || []
-              },
-              companies: {
-                total: companiesData._metadata?.total || 0,
-                synced: companiesData.results?.length || 0,
-                lastSync: new Date().toISOString(),
-                records: companiesData.records || []
-              },
-              deals: {
-                total: dealsData._metadata?.total || 0,
-                synced: dealsData.results?.length || 0,
-                lastSync: new Date().toISOString(),
-                records: dealsData.records || []
-              }
-            },
-            metrics: {
-              records: (contactsData._metadata?.total || 0) + 
-                      (companiesData._metadata?.total || 0) + 
-                      (dealsData._metadata?.total || 0),
-              syncRate: 100,
-              avgSyncTime: '0s'
-            }
-          };
-
-          setFilteredSources(prev => [...prev, newSource]);
-          
-          // Store the session token
-          const sessionToken = document.cookie
-            .split('; ')
-            .find(row => row.startsWith('session_token='))
-            ?.split('=')[1];
-            
-          if (sessionToken) {
-            localStorage.setItem('hubspot_session_token', sessionToken);
-          }
-        } catch (error) {
-          console.error('Error fetching HubSpot data:', error);
-          const errorSource: DataSource = {
-            ...createdSource,
-            status: 'error',
-            metrics: {
-              records: 0,
-              syncRate: 0,
-              avgSyncTime: '0s',
-              lastError: 'Failed to fetch HubSpot data'
-            }
-          };
-          setFilteredSources(prev => [...prev, errorSource]);
-        }
-      } else {
-        setFilteredSources(prev => [...prev, createdSource]);
+      if (!currentOrganization?.id) {
+        throw new Error('No organization selected');
       }
 
+      // Create the data source object
+      const createdSource: Partial<DataSource> = {
+        name: newSource.name,
+        type: newSource.type,
+        description: newSource.description,
+        status: newSource.status,
+        lastSync: newSource.lastSync,
+        metrics: newSource.metrics,
+        metadata: newSource.metadata
+      };
+
+      const requestData = {
+        ...createdSource,
+        organization_id: currentOrganization.id
+      };
+
+      console.log('Sending request to create data source:', {
+        url: '/api/data-sources',
+        method: 'POST',
+        data: requestData
+      });
+
+      // Save to database
+      const response = await fetch('http://localhost:3001/api/data-sources', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error('Server response error:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData
+        });
+        throw new Error(
+          errorData?.details || errorData?.error || `Server error: ${response.status} - ${response.statusText}`
+        );
+      }
+
+      const savedSource = await response.json();
+      console.log('Successfully created data source:', savedSource);
+      
+      // Update state with the saved source
+      setFilteredSources(prev => [...prev, savedSource]);
       showNotification('success', 'Data source added successfully');
+      setIsModalOpen(false); // Close the modal on success
     } catch (error) {
       console.error('Error adding data source:', error);
-      showNotification('error', 'Failed to add data source');
+      showNotification('error', error instanceof Error ? error.message : 'Failed to add data source');
     } finally {
       setIsLoading(false);
     }
@@ -746,6 +793,16 @@ export const DataSourcesView: React.FC = () => {
 
   return (
     <div className="space-y-6 p-6">
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-500 dark:text-red-400" />
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -888,21 +945,21 @@ export const DataSourcesView: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   {source.status === 'connected' ? (
                         <button 
-                          onClick={() => handleToggleSourceStatus(source.id)}
+                          onClick={() => source.id && handleToggleSourceStatus(source.id)}
                           className="p-1 text-gray-400 dark:text-gray-500 hover:text-orange-500 dark:hover:text-orange-400 transition-colors"
                         >
                       <Pause className="w-5 h-5" />
                     </button>
                   ) : (
                         <button 
-                          onClick={() => handleToggleSourceStatus(source.id)}
+                          onClick={() => source.id && handleToggleSourceStatus(source.id)}
                           className="p-1 text-gray-400 dark:text-gray-500 hover:text-green-500 dark:hover:text-green-400 transition-colors"
                         >
                       <Play className="w-5 h-5" />
                     </button>
                   )}
                       <button 
-                        onClick={() => handleRefreshSource(source.id)}
+                        onClick={() => source.id && handleRefreshSource(source.id)}
                         className={`p-1 text-gray-400 dark:text-gray-500 hover:text-purple-600 dark:hover:text-purple-400 transition-colors ${
                           source.status === 'syncing' ? 'animate-spin' : ''
                         }`}
@@ -910,7 +967,7 @@ export const DataSourcesView: React.FC = () => {
                         <RefreshCw className="w-5 h-5" />
                   </button>
                       <button 
-                        onClick={() => handleDeleteSource(source.id)}
+                        onClick={() => source.id && handleDeleteSource(source.id)}
                         className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                       >
                     <Trash2 className="w-5 h-5" />
@@ -938,11 +995,26 @@ export const DataSourcesView: React.FC = () => {
       </div>
 
       {/* Modals */}
-      <AddDataSourceWizard
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onAdd={handleAddDataSource}
-      />
+      {isModalOpen && (
+        <AddDataSourceWizard
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onAdd={(dataSource) => {
+            // Convert the metadata to include required fields
+            const metadata = dataSource.metadata ? {
+              ...dataSource.metadata,
+              records: dataSource.metadata.records || 0,
+              syncRate: 100,
+              avgSyncTime: '0s'
+            } : undefined;
+
+            handleAddDataSource({
+              ...dataSource,
+              metadata
+            });
+          }}
+        />
+      )}
       <SourceDetailsModal
         source={selectedSource}
         isOpen={!!selectedSource}

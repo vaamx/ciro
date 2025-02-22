@@ -1,123 +1,127 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { fileService } from '../services/file.service';
+import { FileController } from '../controllers/FileController';
+import { FileService } from '../services/FileService';
+import { db } from '../infrastructure/database';
 import { authenticate } from '../middleware/auth';
 import { rateLimiter } from '../middleware/security';
+import { BadRequestError, UnauthorizedError } from '../utils/errors';
 
-// Extend the Express Request type to include our user property
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: number;
-    email: string;
-    role: string;
-  };
-}
-
-const router = Router();
+// Configure multer storage
+const storage = multer.memoryStorage();
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage,
   limits: {
-    fileSize: fileService.getMaxFileSize(),
+    fileSize: 50 * 1024 * 1024 // 50MB
   },
   fileFilter: (req, file, cb) => {
-    if (fileService.isFileTypeAllowed(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('File type not allowed'));
+    try {
+      const fileService = new FileService(db);
+      if (fileService.isFileTypeAllowed(file.mimetype)) {
+        // Generate a unique filename
+        const timestamp = Date.now();
+        file.filename = `${timestamp}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        cb(null, true);
+      } else {
+        cb(new Error(`File type ${file.mimetype} not allowed`));
+      }
+    } catch (error) {
+      cb(error as Error);
     }
-  },
+  }
 });
 
-// Upload a file
-router.post(
-  '/upload',
-  authenticate,
-  rateLimiter,
-  upload.single('file'),
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+const fileService = new FileService(db);
+const fileController = new FileController(fileService);
 
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
+const router = Router();
 
-      const metadata = await fileService.uploadFile(req.file, req.user.id);
-      res.status(201).json(metadata);
-    } catch (error) {
-      console.error('File upload error:', error);
-      if (error instanceof Error) {
-        res.status(400).json({ error: error.message });
-      } else {
-        res.status(500).json({ error: 'Internal server error' });
-      }
-    }
+// Apply authentication middleware to all routes
+router.use(authenticate);
+
+function ensureAuthenticated(req: Request): { userId: string; organizationId: number } {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required');
   }
-);
 
-// Search files
-router.get(
-  '/search',
-  authenticate,
-  rateLimiter,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+  const userId = req.user.id;
+  const organizationId = parseInt(req.user.organizationId, 10);
 
-      const { query } = req.query;
-      
-      if (!query || typeof query !== 'string') {
-        return res.status(400).json({ error: 'Search query is required' });
-      }
-
-      const files = await fileService.searchFiles(query, req.user.id);
-      res.json(files);
-    } catch (error) {
-      console.error('File search error:', error);
-      res.status(500).json({ error: 'Failed to search files' });
-    }
+  if (!userId) {
+    throw new UnauthorizedError('Invalid user ID');
   }
-);
 
-// Download a file
-router.get('/:fileId', async (req: Request, res: Response) => {
+  if (isNaN(organizationId)) {
+    throw new BadRequestError('Invalid organization ID');
+  }
+
+  return { userId, organizationId };
+}
+
+// File routes
+router.post('/upload', upload.single('file'), fileController.uploadFile);
+router.get('/', fileController.getAllFiles);
+
+// Handle file metadata storage
+router.post('/', async (req: Request, res: Response) => {
   try {
-    const fileHandle = await fileService.getFileStream(req.params.fileId);
-    const stream = fileHandle.createReadStream();
-    
-    stream.on('end', () => {
-      fileHandle.close();
+    const { userId, organizationId } = ensureAuthenticated(req);
+    const { metadata, content } = req.body;
+
+    // Update the file metadata in the database
+    const updatedFile = await fileService.updateFileMetadata(metadata.id, {
+      metadata: {
+        ...metadata,
+        content,
+        userId,
+        organizationId
+      }
     });
 
-    stream.pipe(res);
+    res.json(updatedFile);
   } catch (error) {
-    console.error('File download error:', error);
-    res.status(404).json({ error: 'File not found' });
+    console.error('Error storing file metadata:', error);
+    res.status(500).json({ error: 'Failed to store file metadata' });
   }
 });
 
-// Delete a file
-router.delete(
-  '/:fileId',
-  authenticate,
-  rateLimiter,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-
-      await fileService.deleteFile(req.params.fileId, req.user.id);
-      res.status(204).send();
-    } catch (error) {
-      console.error('File deletion error:', error);
-      res.status(404).json({ error: 'File not found' });
+router.get('/search', rateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { organizationId } = ensureAuthenticated(req);
+    const query = req.query.q as string;
+    
+    if (!query) {
+      res.status(400).json({ error: 'Search query is required' });
+      return;
     }
+
+    const files = await fileService.searchFiles(query, organizationId);
+    res.json(files);
+  } catch (error) {
+    console.error('File search error:', error);
+    res.status(500).json({ error: 'Failed to search files' });
   }
-);
+});
+
+router.get('/:id/content', async (req: Request, res: Response) => {
+  try {
+    const { organizationId } = ensureAuthenticated(req);
+    const fileId = parseInt(req.params.id, 10);
+    
+    if (isNaN(fileId)) {
+      throw new BadRequestError('Invalid file ID');
+    }
+
+    const content = await fileService.getFileContent(fileId, organizationId);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(content);
+  } catch (error) {
+    console.error('File content retrieval error:', error);
+    res.status(404).json({ error: 'File content not found' });
+  }
+});
+
+router.get('/:id', fileController.getFileById);
+router.delete('/:id', fileController.deleteFile);
 
 export default router; 

@@ -1,0 +1,12 @@
+{
+  "watch": ["src"],
+  "ext": ".ts,.js,.json",
+  "ignore": ["src/**/*.spec.ts"],
+  "exec": "ts-node ./src/index.ts",
+  "delay": "1000",
+  "events": {
+    "restart": "kill-port 3001",
+    "crash": "kill-port 3001"
+  },
+  "signal": "SIGUSR2"
+} 
