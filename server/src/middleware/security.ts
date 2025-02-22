@@ -6,17 +6,17 @@ import { Request, Response, NextFunction } from 'express';
 // Rate limiting configuration
 export const rateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
+  max: 200, // Increased from 100 to 200 requests per windowMs
+  message: JSON.stringify({ error: 'Too many requests from this IP, please try again later.' }),
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 // Specific rate limits for sensitive endpoints
 export const authRateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // Limit each IP to 5 failed authentication attempts per hour
-  message: 'Too many failed login attempts, please try again later.',
+  windowMs: 15 * 60 * 1000, // Changed from 1 hour to 15 minutes
+  max: 20, // Increased from 5 to 20 attempts
+  message: JSON.stringify({ error: 'Too many login attempts, please try again later.' }),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -24,8 +24,8 @@ export const authRateLimiter = rateLimit({
 // Speed limiter to slow down brute force attempts
 export const speedLimiter = slowDown({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  delayAfter: 50, // Start delaying after 50 requests
-  delayMs: (hits) => hits * 100, // Add 100ms of delay for each request above delayAfter
+  delayAfter: 100, // Increased from 50 to 100
+  delayMs: (hits) => Math.min(hits * 50, 2000), // Cap delay at 2 seconds
 });
 
 // WebSocket rate limiting

@@ -83,6 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     let intervalId: number;
+    let retryCount = 0;
+    const maxRetries = 3;
     
     const restoreSession = async () => {
       try {
@@ -103,6 +105,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (!response.ok) {
+          if (response.status === 401 && retryCount < maxRetries) {
+            retryCount++;
+            // Wait before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+            return restoreSession();
+          }
           throw new Error('Session expired');
         }
 
@@ -120,27 +128,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (mounted) {
           setUser(data);
+          retryCount = 0; // Reset retry count on success
         }
       } catch (error) {
         console.error('Session restoration failed:', error);
         if (mounted) {
-          localStorage.removeItem('auth_token');
-          setUser(null);
+          if (retryCount >= maxRetries) {
+            localStorage.removeItem('auth_token');
+            setUser(null);
+          }
         }
-        throw error;
       }
     };
 
     // Initial session restore
-    restoreSession().catch(error => {
-      console.error('Initial session restoration failed:', error);
-    });
+    restoreSession();
 
     // Set up periodic session verification (every 4 minutes)
     intervalId = window.setInterval(() => {
-      restoreSession().catch(error => {
-        console.error('Periodic session restoration failed:', error);
-      });
+      restoreSession();
     }, 4 * 60 * 1000);
 
     return () => {

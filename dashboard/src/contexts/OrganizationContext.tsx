@@ -44,9 +44,14 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       setError(null);
       const token = localStorage.getItem('auth_token');
       
-      // Use AbortController for timeout
+      if (!token) {
+        setOrganizations([]);
+        setCurrentOrganization(null);
+        return;
+      }
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
       const response = await fetch('/api/organizations', {
         headers: {
@@ -59,7 +64,15 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
 
       clearTimeout(timeoutId);
 
-      if (!response.ok) throw new Error('Failed to load organizations');
+      if (!response.ok) {
+        if (response.status === 401) {
+          setOrganizations([]);
+          setCurrentOrganization(null);
+          return;
+        }
+        throw new Error('Failed to load organizations');
+      }
+
       const data = await response.json();
       setOrganizations(data);
       
@@ -70,7 +83,11 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       }
     } catch (error) {
       console.error('Error loading organizations:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load organizations');
+      if (error instanceof Error && error.name === 'AbortError') {
+        setError('Request timed out. Please try again.');
+      } else {
+        setError(error instanceof Error ? error.message : 'Failed to load organizations');
+      }
       // Don't clear organizations if we already have data
       if (organizations.length === 0) {
         setOrganizations([]);
@@ -85,7 +102,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       
       // Use AbortController for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
       const response = await fetch(`/api/organizations/${organizationId}/teams`, {
         headers: {
@@ -98,7 +115,15 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
 
       clearTimeout(timeoutId);
 
-      if (!response.ok) throw new Error('Failed to load teams');
+      if (!response.ok) {
+        if (response.status === 401) {
+          setTeams([]);
+          setCurrentTeam(null);
+          return;
+        }
+        throw new Error('Failed to load teams');
+      }
+      
       const data = await response.json();
       setTeams(data);
       
@@ -106,7 +131,11 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       setCurrentTeam(null);
     } catch (error) {
       console.error('Error loading teams:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load teams');
+      if (error instanceof Error && error.name === 'AbortError') {
+        setError('Request timed out. Please try again.');
+      } else {
+        setError(error instanceof Error ? error.message : 'Failed to load teams');
+      }
       // Don't clear teams if we already have data
       if (teams.length === 0) {
         setTeams([]);
@@ -117,11 +146,12 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   // Load organizations when user is authenticated
   useEffect(() => {
     let isMounted = true;
+    let retryTimeout: number;
 
     const initialize = async () => {
       try {
-        setIsLoading(true);
         if (isAuthenticated && user) {
+          setIsLoading(true);
           await loadOrganizations();
         } else {
           // Reset state when user is not authenticated
@@ -129,6 +159,14 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
           setCurrentOrganization(null);
           setTeams([]);
           setCurrentTeam(null);
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error('Error initializing organizations:', error);
+          // Retry after 2 seconds if it's not an abort error
+          if (!(error instanceof Error && error.name === 'AbortError')) {
+            retryTimeout = window.setTimeout(initialize, 2000);
+          }
         }
       } finally {
         if (isMounted) {
@@ -141,14 +179,41 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
 
     return () => {
       isMounted = false;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
     };
   }, [isAuthenticated, user]);
 
   // Load teams whenever the current organization changes
   useEffect(() => {
-    if (currentOrganization && isAuthenticated) {
-      loadTeams(currentOrganization.id);
-    }
+    let isMounted = true;
+    let retryTimeout: number;
+
+    const loadTeamsWithRetry = async () => {
+      if (currentOrganization && isAuthenticated) {
+        try {
+          await loadTeams(currentOrganization.id);
+        } catch (error) {
+          if (isMounted) {
+            console.error('Error loading teams:', error);
+            // Retry after 2 seconds if it's not an abort error
+            if (!(error instanceof Error && error.name === 'AbortError')) {
+              retryTimeout = window.setTimeout(() => loadTeamsWithRetry(), 2000);
+            }
+          }
+        }
+      }
+    };
+
+    loadTeamsWithRetry();
+
+    return () => {
+      isMounted = false;
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
+    };
   }, [currentOrganization, isAuthenticated]);
 
   return (
