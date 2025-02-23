@@ -1,218 +1,42 @@
-import express, { Request, Response, NextFunction } from 'express';
-import { OpenAIService } from '../infrastructure/llm/openai';
-import { produceMessage, TOPICS } from '../infrastructure/kafka';
+import express, { Request, Response, NextFunction, RequestHandler } from 'express';
+import { OpenAIService } from '../services/openai.service';
 import { db } from '../infrastructure/database';
-import { executeQuery } from '../infrastructure/connectors/factory';
 import { ChatController } from '../controllers/chat.controller';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { BadRequestError } from '../utils/errors';
 
-// Define request parameter types
-interface ChatMessageBody {
-  message: string;
-  dataSource?: string;
-}
-
 const router = express.Router();
-const openai = new OpenAIService();
-const chatController = new ChatController(db);
+const openai = OpenAIService.getInstance();
+const chatController = new ChatController(openai, db);
 
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
-// Get all conversations for the authenticated user
-router.get('/', (req: Request, res: Response, next: NextFunction) => {
-  (async () => {
-    try {
-      const authReq = req as AuthRequest;
-      if (!authReq.user) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
+// Get chat sessions for the authenticated user
+router.get('/sessions', chatController.getChatSessions.bind(chatController) as RequestHandler);
 
-      const conversations = await db('conversations')
-        .join('conversation_participants', 'conversations.id', 'conversation_participants.conversation_id')
-        .where('conversation_participants.user_id', authReq.user.id)
-        .select('conversations.*')
-        .orderBy('conversations.updated_at', 'desc');
+// Get chat messages for a session
+router.get('/sessions/:sessionId/messages', chatController.getChatMessages.bind(chatController) as RequestHandler);
 
-      res.json(conversations);
-    } catch (error) {
-      next(error);
-    }
-  })().catch(next);
-});
+// Create a new chat session
+router.post('/sessions', chatController.createChatSession.bind(chatController) as RequestHandler);
 
-// Create a new conversation
-router.post('/', (req: Request, res: Response, next: NextFunction) => {
-  (async () => {
-    try {
-      const authReq = req as AuthRequest;
-      if (!authReq.user) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
+// Update a chat session
+router.put('/sessions/:sessionId', chatController.updateChatSession.bind(chatController) as RequestHandler);
 
-      const { title, participants } = authReq.body;
+// Save chat history
+router.put('/sessions/:sessionId/history', chatController.saveChatHistory.bind(chatController) as RequestHandler);
 
-      if (!title || !participants || !Array.isArray(participants)) {
-        throw new BadRequestError('Title and participants array are required');
-      }
+// Delete a chat session
+router.delete('/sessions/:sessionId', chatController.deleteChatSession.bind(chatController) as RequestHandler);
 
-      // Start a transaction
-      await db.transaction(async (trx) => {
-        // Create conversation
-        const [conversation] = await trx('conversations')
-          .insert({
-            title,
-            created_by: authReq.user.id
-          })
-          .returning('*');
+// Send a message to a chat session
+router.post('/sessions/:sessionId/messages', chatController.sendChatMessage.bind(chatController) as RequestHandler);
 
-        // Add participants (including the creator)
-        const participantRecords = [
-          ...participants,
-          authReq.user.id
-        ].map(userId => ({
-          conversation_id: conversation.id,
-          user_id: userId
-        }));
+// Generate chat completion
+router.post('/completion', chatController.generateCompletion.bind(chatController) as RequestHandler);
 
-        await trx('conversation_participants')
-          .insert(participantRecords);
-
-        res.status(201).json(conversation);
-      });
-    } catch (error) {
-      if (error instanceof BadRequestError) {
-        res.status(400).json({ error: error.message });
-      } else {
-        next(error);
-      }
-    }
-  })().catch(next);
-});
-
-// Get conversation by ID
-router.get('/:id', (req: Request, res: Response, next: NextFunction) => {
-  (async () => {
-    try {
-      const authReq = req as AuthRequest;
-      if (!authReq.user) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-
-      const conversation = await db('conversations')
-        .join('conversation_participants', 'conversations.id', 'conversation_participants.conversation_id')
-        .where({
-          'conversations.id': req.params.id,
-          'conversation_participants.user_id': authReq.user.id
-        })
-        .select('conversations.*')
-        .first();
-
-      if (!conversation) {
-        throw new BadRequestError('Conversation not found or access denied');
-      }
-
-      res.json(conversation);
-    } catch (error) {
-      if (error instanceof BadRequestError) {
-        res.status(404).json({ error: error.message });
-      } else {
-        next(error);
-      }
-    }
-  })().catch(next);
-});
-
-// Get messages for a conversation
-router.get('/:id/messages', (req: Request, res: Response, next: NextFunction) => {
-  (async () => {
-    try {
-      const authReq = req as AuthRequest;
-      if (!authReq.user) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-
-      // Check if user is participant
-      const isParticipant = await db('conversation_participants')
-        .where({
-          conversation_id: req.params.id,
-          user_id: authReq.user.id
-        })
-        .first();
-
-      if (!isParticipant) {
-        throw new BadRequestError('Access denied');
-      }
-
-      const messages = await db('messages')
-        .where('conversation_id', req.params.id)
-        .orderBy('created_at', 'asc');
-
-      res.json(messages);
-    } catch (error) {
-      if (error instanceof BadRequestError) {
-        res.status(403).json({ error: error.message });
-      } else {
-        next(error);
-      }
-    }
-  })().catch(next);
-});
-
-// Send a message
-router.post('/:id/messages', (req: Request, res: Response, next: NextFunction) => {
-  (async () => {
-    try {
-      const authReq = req as AuthRequest;
-      if (!authReq.user) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-
-      const { content } = authReq.body;
-
-      if (!content) {
-        throw new BadRequestError('Message content is required');
-      }
-
-      // Check if user is participant
-      const isParticipant = await db('conversation_participants')
-        .where({
-          conversation_id: req.params.id,
-          user_id: authReq.user.id
-        })
-        .first();
-
-      if (!isParticipant) {
-        throw new BadRequestError('Access denied');
-      }
-
-      // Create message
-      const [message] = await db('messages')
-        .insert({
-          conversation_id: req.params.id,
-          user_id: authReq.user.id,
-          content,
-          role: 'user'
-        })
-        .returning('*');
-
-      // Update conversation last activity
-      await db('conversations')
-        .where('id', req.params.id)
-        .update({
-          updated_at: db.fn.now()
-        });
-
-      res.status(201).json(message);
-    } catch (error) {
-      if (error instanceof BadRequestError) {
-        res.status(400).json({ error: error.message });
-      } else {
-        next(error);
-      }
-    }
-  })().catch(next);
-});
+// Regenerate message
+router.post('/regenerate', chatController.regenerateMessage.bind(chatController) as RequestHandler);
 
 export default router; 
