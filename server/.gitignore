@@ -48,6 +48,19 @@ build/
 dist/
 out/
 
+# Uploads
+uploads/
+uploads/**/*
+!uploads/.gitkeep
+!uploads/temp/.gitkeep
+!uploads/thumbnails/.gitkeep
+!uploads/organizations/.gitkeep
+
+# Kafka Security
+secrets/
+secrets/**/*
+!secrets/.gitkeep
+
 # Miscellaneous
 .cache/
 .project

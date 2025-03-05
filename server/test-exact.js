@@ -1,1 +1,0 @@
-const bcrypt = require('bcrypt'); async function test() { const password = 'password123'; const storedHash = 'b0/5eA6ERhgy0qIDyqVsd/uyb/tA1hcYbEcJYz9PNRB.q6bRSij.Ce'; console.log('Testing with password:', password); console.log('Testing with hash:', storedHash); const isValid = await bcrypt.compare(password, storedHash); console.log('Verification result:', isValid); } test();

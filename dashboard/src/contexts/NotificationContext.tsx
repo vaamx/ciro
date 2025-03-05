@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import { CheckCircle2, AlertCircle, X } from 'lucide-react';
 
 export interface NotificationContextType {
@@ -18,13 +18,14 @@ export const useNotification = () => {
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Array<{ type: string; message: string; id: number }>>([]);
 
-  const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
+  // Memoize the showNotification function to prevent infinite renders
+  const showNotification = useCallback((type: 'success' | 'error' | 'info', message: string) => {
     const id = Date.now();
     setNotifications(prev => [...prev, { type, message, id }]);
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, 5000);
-  };
+  }, []);
 
   return (
     <NotificationContext.Provider value={{ showNotification }}>

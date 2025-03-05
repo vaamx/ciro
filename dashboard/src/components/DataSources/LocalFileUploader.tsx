@@ -20,7 +20,7 @@ export const LocalFileUploader: React.FC<LocalFileUploaderProps> = ({
     switch (type) {
       case 'csv':
         return { 'text/csv': ['.csv'] };
-      case 'excel':
+      case 'xlsx':
         return {
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
           'application/vnd.ms-excel': ['.xls']
@@ -29,13 +29,20 @@ export const LocalFileUploader: React.FC<LocalFileUploaderProps> = ({
         return { 'application/pdf': ['.pdf'] };
       case 'json':
         return { 'application/json': ['.json'] };
+      case 'docx':
+        return {
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+          'application/msword': ['.doc']
+        };
       default:
         return {
           'text/csv': ['.csv'],
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
           'application/vnd.ms-excel': ['.xls'],
           'application/pdf': ['.pdf'],
-          'application/json': ['.json']
+          'application/json': ['.json'],
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+          'application/msword': ['.doc']
         };
     }
   };

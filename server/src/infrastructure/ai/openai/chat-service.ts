@@ -13,8 +13,25 @@ export interface ChatOptions {
 }
 
 export class ChatService extends BaseOpenAIService {
-  private readonly DEFAULT_MODEL = 'gpt-4o';
-  private readonly MAX_TOKENS = 128000; // GPT-4o context window
+  private readonly DEFAULT_MODEL = 'gpt-4o-mini';
+  private readonly MAX_TOKENS = 128000; // GPT-4o-mini context window
+  private readonly MODEL_CONFIG = {
+    'gpt-4o-mini': {
+      model: 'gpt-4o-mini',
+      maxTokens: 128000,
+      temperature: 0.7,
+    },
+    'gpt-4o': {
+      model: 'gpt-4o',
+      maxTokens: 128000,
+      temperature: 0.7,
+    },
+    'o3-mini': {
+      model: 'o3-mini',
+      maxTokens: 200000,
+      temperature: 0.7,
+    }
+  } as const;
 
   async generateResponse(
     messages: ChatCompletionMessageParam[],

@@ -1,8 +1,0 @@
-applications:
-- name: ciro-test
-  memory: 256M
-  instances: 1
-  path: .
-  command: npm start
-  env:
-    NODE_ENV: production 

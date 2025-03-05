@@ -28,6 +28,21 @@ interface HubSpotPropertiesResponse {
   results: HubSpotProperty[];
 }
 
+interface HubSpotContactsResponse {
+  results: HubSpotContact[];
+  paging?: {
+    next?: {
+      after?: string;
+    };
+  };
+}
+
+interface HubSpotTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+}
+
 export class HubSpotService {
   private dataSourceService: DataSourceService;
   private clientId: string;
@@ -72,7 +87,7 @@ export class HubSpotService {
       });
 
       const responseText = await response.text();
-      let responseData;
+      let responseData: HubSpotTokenResponse;
       
       try {
         responseData = JSON.parse(responseText);
@@ -87,7 +102,7 @@ export class HubSpotService {
           statusText: response.statusText,
           error: responseData
         });
-        throw new Error(`HubSpot OAuth failed: ${responseData.message || response.statusText}`);
+        throw new Error(`HubSpot OAuth failed: ${response.statusText}`);
       }
 
       if (!responseData.access_token) {
@@ -110,7 +125,7 @@ export class HubSpotService {
 
   // Create or update data source for a user
   async setupDataSource(
-    userId: number,
+    userId: string,
     credentials: HubSpotCredentials
   ): Promise<void> {
     try {
@@ -213,7 +228,7 @@ export class HubSpotService {
         throw new Error('Failed to fetch contacts');
       }
 
-      const data = await response.json();
+      const data = await response.json() as HubSpotContactsResponse;
       
       // Transform and store contacts
       const records = data.results.map((contact: HubSpotContact) => ({
@@ -254,8 +269,8 @@ export class HubSpotService {
       throw new Error('Failed to refresh token');
     }
 
-    const data = await response.json();
-    
+    const data = await response.json() as HubSpotTokenResponse;
+
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,

@@ -76,3 +76,21 @@ tmp/
 # Documentation and guides
 Apache-Kafka-Guide/
 Openai-cookbook/
+
+# Kafka Security
+secrets/
+secrets/**/*
+!secrets/.gitkeep
+
+# Backups
+backups/
+backups/**/*
+!backups/.gitkeep
+
+# Miscellaneous
+.project
+.settings/
+.classpath
+*.pid
+*.seed
+*.pid.lock

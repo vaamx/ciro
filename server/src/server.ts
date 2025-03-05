@@ -3,49 +3,80 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
 import { oauthRouter } from './routes/oauth';
 import { proxyRouter } from './routes/proxy';
-import chatRouter from './routes/chat';
-import authRouter from './routes/auth.routes';
-import fileRouter from './routes/file.routes';
-import automationRouter from './routes/automation.routes';
-import dataSourceRouter from './routes/dataSource.routes';
-import organizationRouter from './routes/organizationRoutes';
 import { refreshSession } from './middleware/auth';
-import path from 'path';
+import { Server as HttpServer, createServer } from 'http';
+import { config } from './config';
+import appExpress from './app';
+import { SocketService } from './services/socket.service';
+import http from 'http';
+import { createLogger } from './utils/logger';
+import { startScheduledTasks, stopScheduledTasks } from './scheduled-tasks';
 
-const app = express();
+// Add oauth and proxy routes to the main appExpress
+appExpress.use('/api/oauth', oauthRouter);
+appExpress.use('/api/proxy', proxyRouter);
+appExpress.use(refreshSession);
 
-// Middleware
-app.use(express.json());
+// Add a direct test route to the appExpress
+appExpress.get('/direct-test', (req, res) => {
+  console.log('Direct test endpoint accessed!');
+  res.status(200).send('Direct test endpoint working!');
+});
 
-// Configure CORS
-const corsOptions = {
-  origin: true, // Allow all origins in development
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
-  exposedHeaders: ['Authorization', 'Set-Cookie'],
-  maxAge: 86400 // 24 hours
-};
+const logger = createLogger('Server');
+const port = config.port;
 
-app.use(cors(corsOptions));
-app.use(cookieParser());
-app.use(refreshSession);
+export default class Server {
+  private httpServer: http.Server;
+  private socketService: SocketService;
 
-// Static file serving
-app.use('/files', express.static(path.join(__dirname, '../uploads')));
+  constructor() {
+    this.httpServer = http.createServer(appExpress);
+    this.socketService = SocketService.getInstance();
+    
+    // Initialize Socket.IO with the HTTP server
+    this.socketService.initialize(this.httpServer);
+    
+    // Handle server errors
+    this.httpServer.on('error', (error) => {
+      logger.error('HTTP server error:', { error });
+    });
+  }
 
-// API Routes
-app.use('/api/auth', authRouter);
-app.use('/api/chat', chatRouter);
-app.use('/api/files', fileRouter);
-app.use('/api/automations', automationRouter);
-app.use('/api/data-sources', dataSourceRouter);
-app.use('/api/organizations', organizationRouter);
-app.use('/oauth', oauthRouter);
-app.use('/proxy', proxyRouter);
+  /**
+   * Start the HTTP server
+   */
+  start(): void {
+    this.httpServer.listen(port, () => {
+      logger.info(`Server listening on port ${port}`);
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      
+      // Start scheduled tasks after server is running
+      startScheduledTasks();
+    });
+  }
 
-export default app; 
+  /**
+   * Stop the HTTP server
+   */
+  async stop(): Promise<void> {
+    // Stop scheduled tasks before shutting down the server
+    stopScheduledTasks();
+    
+    return new Promise((resolve, reject) => {
+      logger.info('Stopping HTTP server...');
+      
+      this.httpServer.close((err) => {
+        if (err) {
+          logger.error('Error stopping HTTP server:', { error: err });
+          reject(err);
+        } else {
+          logger.info('HTTP server stopped successfully');
+          resolve();
+        }
+      });
+    });
+  }
+} 

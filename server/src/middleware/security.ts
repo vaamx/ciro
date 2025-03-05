@@ -6,7 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 // Rate limiting configuration
 export const rateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // Increased from 100 to 200 requests per windowMs
+  max: 200, // Limit each IP to 200 requests per windowMs
   message: JSON.stringify({ error: 'Too many requests from this IP, please try again later.' }),
   standardHeaders: true,
   legacyHeaders: false,
@@ -32,9 +32,9 @@ export const speedLimiter = slowDown({
 export const wsRateLimiter = {
   messageLimit: 50, // messages per minute
   windowMs: 60 * 1000, // 1 minute
-  userMessageCounts: new Map<number, { count: number; resetTime: number }>(),
+  userMessageCounts: new Map<string, { count: number; resetTime: number }>(),
 
-  checkLimit(userId: number): boolean {
+  checkLimit(userId: string): boolean {
     const now = Date.now();
     const userCount = this.userMessageCounts.get(userId);
 

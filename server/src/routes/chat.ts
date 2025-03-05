@@ -1,13 +1,12 @@
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
-import { OpenAIService } from '../services/openai.service';
+import { openAIService } from '../services/openai.service';
 import { db } from '../infrastructure/database';
 import { ChatController } from '../controllers/chat.controller';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { BadRequestError } from '../utils/errors';
 
 const router = express.Router();
-const openai = OpenAIService.getInstance();
-const chatController = new ChatController(openai, db);
+const chatController = new ChatController(openAIService, db);
 
 // Apply authentication middleware to all routes
 router.use(authenticate);

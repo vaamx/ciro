@@ -1,84 +1,112 @@
 import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
-import jwt from 'jsonwebtoken';
+import { createLogger } from '../utils/logger';
 import { config } from '../config';
-import { db } from '../infrastructure/database';
 
-interface User {
-  id: number;
-  email: string;
-  role: string;
-  organizationId: string;
-}
+const logger = createLogger('SocketService');
 
 export class SocketService {
-  private io: Server;
-  private static instance: SocketService | null = null;
+  private static instance: SocketService;
+  private io: Server | null = null;
 
-  private constructor(server: HttpServer) {
-    this.io = new Server(server, {
+  private constructor() {
+    // Private constructor to enforce singleton pattern
+  }
+
+  /**
+   * Get the singleton instance of SocketService
+   */
+  public static getInstance(): SocketService {
+    if (!SocketService.instance) {
+      SocketService.instance = new SocketService();
+    }
+    return SocketService.instance;
+  }
+
+  /**
+   * Initialize Socket.IO with the HTTP server
+   */
+  public initialize(httpServer: HttpServer): void {
+    if (this.io) {
+      logger.warn('Socket.IO server already initialized');
+      return;
+    }
+
+    this.io = new Server(httpServer, {
       cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: '*', // Allow all origins
         methods: ['GET', 'POST'],
         credentials: true
       }
     });
 
-    this.io.use(this.authMiddleware.bind(this));
     this.setupEventHandlers();
+    logger.info('Socket.IO server initialized');
   }
 
-  public static getInstance(server: HttpServer): SocketService {
-    if (!SocketService.instance) {
-      SocketService.instance = new SocketService(server);
+  /**
+   * Set up Socket.IO event handlers
+   */
+  private setupEventHandlers(): void {
+    if (!this.io) {
+      logger.error('Cannot setup event handlers: Socket.IO not initialized');
+      return;
     }
-    return SocketService.instance;
-  }
 
-  private async authMiddleware(socket: Socket, next: (err?: Error) => void) {
-    try {
-      const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
-
-      if (!token) {
-        return next(new Error('Authentication required'));
-      }
-
-      const decoded = jwt.verify(token, config.jwt.secret) as { id: string };
-      const user = await db('users')
-        .where({ id: decoded.id })
-        .select('id', 'email', 'role', 'organization_id')
-        .first();
-
-      if (!user) {
-        return next(new Error('User not found'));
-      }
-
-      socket.data.user = {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        organizationId: user.organization_id
-      };
-
-      next();
-    } catch (error) {
-      next(new Error('Invalid token'));
-    }
-  }
-
-  private setupEventHandlers() {
-    this.io.on('connection', (socket) => {
-      console.log('Client connected:', socket.id);
+    this.io.on('connection', (socket: Socket) => {
+      const clientId = socket.id;
+      logger.info('Client connected', { clientId });
 
       socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
+        logger.info('Client disconnected', { clientId });
       });
 
-      // Add your socket event handlers here
+      // Document processing status updates
+      socket.on('subscribe:document', (documentId: string) => {
+        socket.join(`document:${documentId}`);
+        logger.debug('Client subscribed to document updates', { clientId, documentId });
+      });
+
+      socket.on('unsubscribe:document', (documentId: string) => {
+        socket.leave(`document:${documentId}`);
+        logger.debug('Client unsubscribed from document updates', { clientId, documentId });
+      });
+
+      // Error handling for socket events
+      socket.on('error', (error) => {
+        logger.error('Socket error', { clientId, error });
+      });
+    });
+
+    this.io.on('error', (error) => {
+      logger.error('Socket.IO server error', { error });
     });
   }
 
-  public getIO(): Server {
-    return this.io;
+  /**
+   * Emit an event to all clients subscribed to a document
+   */
+  public emitDocumentUpdate(documentId: string, event: string, data: any): void {
+    if (!this.io) {
+      logger.error('Cannot emit update: Socket.IO not initialized');
+      return;
+    }
+
+    this.io.to(`document:${documentId}`).emit(event, data);
+    logger.debug('Emitted document update', { documentId, event });
+  }
+
+  /**
+   * Close the Socket.IO server
+   */
+  public close(): void {
+    if (!this.io) {
+      logger.warn('Cannot close: Socket.IO not initialized');
+      return;
+    }
+
+    this.io.close();
+    this.io = null;
+    logger.info('Socket.IO server closed');
   }
 } 

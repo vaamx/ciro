@@ -36,7 +36,7 @@ oauthRouter.post('/token', (req: Request, res: Response, next: NextFunction) => 
             console.log('Successfully exchanged code for HubSpot token');
             
             // Set up data source with the credentials
-            await hubspotService.setupDataSource(parseInt(authReq.user.id, 10), credentials);
+            await hubspotService.setupDataSource(authReq.user.id, credentials);
             console.log('Successfully set up HubSpot data source');
 
             res.json({ success: true });
@@ -88,4 +88,25 @@ export const verifySession = async (req: AuthRequest, res: Response, next: NextF
     console.error('Session verification error:', error);
     res.status(401).json({ error: 'Invalid session token' });
   }
-}; 
+};
+
+// Get all OAuth connections for the current user
+oauthRouter.get('/connections', (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  
+  (async () => {
+    try {
+      const connections = await db('oauth_tokens')
+        .select('provider', 'created_at', 'updated_at')
+        .where('user_id', authReq.user.id);
+      
+      res.json(connections);
+    } catch (error) {
+      console.error('Error fetching OAuth connections:', error);
+      res.status(500).json({ error: 'Failed to fetch OAuth connections' });
+    }
+  })().catch(error => {
+    console.error('Unexpected error in /connections route:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  });
+}); 

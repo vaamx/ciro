@@ -1,61 +1,79 @@
-import { pool } from './index';
-import * as fs from 'fs';
-import * as path from 'path';
+import path from 'path';
+import Knex from 'knex';
+import { config } from '../../config';
 
-async function runMigrations() {
-  const client = await pool.connect();
+/**
+ * Run knex migrations to ensure database schema is up to date
+ */
+export async function runMigrations(): Promise<void> {
+  console.log('Attempting to run database migrations...');
+  
+  const knexConfig = {
+    client: 'pg',
+    connection: {
+      host: config.database.host || process.env.DB_HOST || 'localhost',
+      port: Number(config.database.port || process.env.DB_PORT || 5432),
+      user: config.database.user || process.env.DB_USER || '***REMOVED***',
+      password: config.database.password || process.env.DB_PASSWORD || '***REMOVED***',
+      database: config.database.database || process.env.DB_NAME || 'ciro_db',
+    },
+    migrations: {
+      directory: path.join(__dirname, '../../../migrations'),
+      loadExtensions: ['.js', '.ts'],
+      tableName: 'knex_migrations',
+      extension: 'ts',
+    },
+    debug: false,
+  };
+
+  const knex = Knex(knexConfig);
 
   try {
-    // Create migrations table if it doesn't exist
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS migrations (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE,
-        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    // Read migration files
-    const migrationsDir = path.join(__dirname, 'migrations');
-    const migrationFiles = fs.readdirSync(migrationsDir)
-      .filter(file => file.endsWith('.sql'))
-      .sort();
-
-    // Get executed migrations
-    const { rows: executedMigrations } = await client.query(
-      'SELECT name FROM migrations'
-    );
-    const executedMigrationNames = new Set(executedMigrations.map(m => m.name));
-
-    // Run pending migrations
-    for (const file of migrationFiles) {
-      if (!executedMigrationNames.has(file)) {
-        console.log(`Running migration: ${file}`);
-        const migrationPath = path.join(migrationsDir, file);
-        const migrationSql = fs.readFileSync(migrationPath, 'utf-8');
-
-        await client.query('BEGIN');
-        try {
-          await client.query(migrationSql);
-          await client.query(
-            'INSERT INTO migrations (name) VALUES ($1)',
-            [file]
-          );
-          await client.query('COMMIT');
-          console.log(`Migration ${file} completed successfully`);
-        } catch (error) {
-          await client.query('ROLLBACK');
-          console.error(`Error running migration ${file}:`, error);
-          throw error;
-        }
-      }
+    // Check if migration table exists
+    const hasTable = await knex.schema.hasTable('knex_migrations');
+    if (!hasTable) {
+      console.log('Migration table does not exist, creating it...');
     }
 
-    console.log('All migrations completed successfully');
+    // Run pending migrations
+    console.log('Running migrations from:', knexConfig.migrations.directory);
+    const [completed, failed] = await knex.migrate.latest();
+    
+    if (!completed || completed.length === 0) {
+      console.log('No new migrations to run. Database schema is up-to-date.');
+    } else {
+      console.log(`Successfully ran ${Array.isArray(completed) ? completed.length : 'undefined'} migrations:`);
+      if (Array.isArray(completed)) {
+        completed.forEach((migration: string) => console.log(`- ${migration}`));
+      }
+    }
+    
+    if (failed && failed.length > 0) {
+      console.error('Some migrations failed:', failed);
+    }
+
+    // Get current migration status
+    const version = await knex.migrate.currentVersion();
+    console.log(`Current database version: ${version}`);
+    
+    return;
+  } catch (error) {
+    console.error('Migration failed:', error);
+    throw error;
   } finally {
-    client.release();
+    await knex.destroy();
   }
 }
 
-// Run migrations
-runMigrations().catch(console.error); 
+// Allow running from command line
+if (require.main === module) {
+  runMigrations()
+    .then(() => {
+      console.log('Migrations completed successfully');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('Migration process failed:', error);
+      process.exit(1);
+    });
+} 

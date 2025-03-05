@@ -1,45 +1,12 @@
 import dotenv from 'dotenv';
+import { Config } from '../types/config';
 
 // Load environment variables
 dotenv.config();
 
-interface DatabaseConfig {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-  database: string;
-}
-
-interface OpenAIConfig {
-  apiKey: string | undefined;
-  orgId: string | undefined;
-}
-
-interface JWTConfig {
-  secret: string;
-  expiresIn: string;
-}
-
-interface CorsConfig {
-  origin: string | string[];
-  credentials: boolean;
-  methods: string[];
-  allowedHeaders: string[];
-  exposedHeaders?: string[];
-  maxAge?: number;
-}
-
-interface Config {
-  port: string | number;
-  database: DatabaseConfig;
-  openai: OpenAIConfig;
-  jwt: JWTConfig;
-  cors: CorsConfig;
-}
-
-export const config: Config = {
+const config: Config = {
   port: process.env.PORT || 3001,
+  uploadsDir: process.env.UPLOADS_DIR || 'uploads',
   database: {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),
@@ -48,8 +15,9 @@ export const config: Config = {
     database: process.env.DB_NAME || 'ciro_db'
   },
   openai: {
-    apiKey: process.env.OPENAI_API_KEY,
-    orgId: process.env.OPENAI_ORG_ID
+    apiKey: process.env.OPENAI_API_KEY || '',
+    orgId: process.env.OPENAI_ORG_ID,
+    baseURL: process.env.OPENAI_API_BASE
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'your-secret-key',
@@ -69,5 +37,16 @@ export const config: Config = {
     ],
     exposedHeaders: ['set-cookie'],
     maxAge: 600
-  }
-}; 
+  },
+  qdrant: {
+    url: process.env.QDRANT_URL || 'http://localhost:6333',
+    apiKey: process.env.QDRANT_API_KEY,
+  },
+  tasks: {
+    summarizationInterval: process.env.SUMMARIZATION_INTERVAL ? parseInt(process.env.SUMMARIZATION_INTERVAL) : undefined,
+    cleanupInterval: process.env.CLEANUP_INTERVAL ? parseInt(process.env.CLEANUP_INTERVAL) : undefined,
+    indexingInterval: process.env.INDEXING_INTERVAL ? parseInt(process.env.INDEXING_INTERVAL) : undefined
+  },
+};
+
+export { config }; 

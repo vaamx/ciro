@@ -40,6 +40,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     setError(null);
 
+    console.log('Attempting login with:', {
+      email,
+      apiUrl: API_URL,
+      endpoint: `${API_URL}/api/auth/login`
+    });
+
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
@@ -50,8 +56,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         credentials: 'include'
       });
 
+      console.log('Login response:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+
       if (!response.ok) {
         const data = await response.json();
+        console.log('Login error response:', data);
         throw new Error(data.error || data.message || 'Failed to login');
       }
 

@@ -15,16 +15,6 @@ export interface Dashboard {
   organization_id: number;
 }
 
-// Widget type mapping between frontend and backend
-const WIDGET_TYPE_MAP = {
-  // Frontend -> Backend
-  activity: 'timeline',
-  stats: 'metrics',
-  // Backend -> Frontend
-  timeline: 'activity',
-  metrics: 'stats',
-} as const;
-
 class DashboardApiService {
   private baseUrl: string;
 
@@ -34,9 +24,14 @@ class DashboardApiService {
 
   private getHeaders() {
     const token = localStorage.getItem('auth_token');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Origin': window.location.origin
     };
   }
 
@@ -54,18 +49,31 @@ class DashboardApiService {
   }
 
   async createDashboard(dashboard: Omit<Dashboard, 'id' | 'createdAt' | 'updatedAt'>): Promise<Dashboard> {
+    const { createdBy, ...rest } = dashboard;
+    const payload = {
+      ...rest,
+      created_by: Number(createdBy), // Convert to number since users table uses integer IDs
+    };
+
     const response = await fetch(`${this.baseUrl}`, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
-      body: JSON.stringify(dashboard)
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
-      throw new Error('Failed to create dashboard');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to create dashboard');
     }
 
-    return response.json();
+    const data = await response.json();
+    return {
+      ...data,
+      createdBy: Number(data.created_by), // Convert to number when receiving from API
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
   }
 
   async updateDashboard(id: string, dashboard: Partial<Dashboard>): Promise<Dashboard> {

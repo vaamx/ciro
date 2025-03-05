@@ -1,5 +1,0 @@
-      email       |                        password_hash                         
-------------------+--------------------------------------------------------------
- test@example.com | $2b$10$3O2YlpbpvSI73DryMVxL8eGyXYmkbwwCNn4qcJhdZ1hX7alQqTc0i
-(1 row)
-

@@ -3,105 +3,66 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowPathIcon, 
   ClipboardIcon, 
-  HeartIcon,
   SparklesIcon,
 } from './icons';
 import { type ChatMessage } from '../types';
 import { MessageMarkdown } from './MessageMarkdown';
 import { formatTimestamp } from '../utils/formatTimestamp';
-import { MessageSuggestions } from './MessageSuggestions';
 
 interface TokenCount {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-  prompt_tokens_details?: any;
-  completion_tokens_details?: any;
 }
 
 interface AssistantMessageProps {
   message: ChatMessage;
   onCopy: () => void;
   onReload: () => void;
+  onDelete?: () => void;
   showMetadata?: boolean;
   showAvatar?: boolean;
-  accentColor?: string;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
+  messageAlignment?: 'left' | 'right';
 }
-
-const reactionEmojis = {
-  like: '👍',
-  love: '❤️',
-  laugh: '😄',
-  wow: '😮',
-  sad: '😢',
-  angry: '😠',
-};
 
 export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   message,
   onCopy,
   onReload,
+  onDelete,
   showMetadata = false,
   showAvatar = true,
-  accentColor = 'indigo',
   isFirstInGroup = false,
   isLastInGroup = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [selectedReaction, setSelectedReaction] = useState<string | null>(null);
-  const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [reactionHovered, setReactionHovered] = useState<string | null>(null);
-
-  const gradientClasses = {
-    indigo: 'from-purple-500 to-indigo-600',
-    blue: 'from-blue-500 to-cyan-600',
-    green: 'from-emerald-500 to-green-600',
-    purple: 'from-fuchsia-500 to-purple-600',
-  }[accentColor] || 'from-purple-500 to-indigo-600';
-
   const isTyping = message.status === 'streaming' || message.status === 'loading';
-  const hasCodeBlock = message.content.includes('```');
 
   const messageVariants = {
-    initial: { opacity: 0, y: 20, scale: 0.95 },
+    initial: { opacity: 0, y: 10 },
     animate: { 
       opacity: 1, 
-      y: 0, 
+      y: 0,
+      transition: { 
+        type: 'spring',
+        damping: 30,
+        stiffness: 400
+      }
+    },
+    exit: { opacity: 0, y: -10 }
+  };
+
+  const actionBarVariants = {
+    hidden: { opacity: 0, scale: 0.95 },
+    visible: { 
+      opacity: 1, 
       scale: 1,
       transition: { 
         type: 'spring',
         damping: 25,
-        stiffness: 300
-      }
-    },
-    exit: { opacity: 0, y: -20, scale: 0.95 }
-  };
-
-  const actionBarVariants = {
-    hidden: { opacity: 0, scale: 0.9 },
-    visible: { 
-      opacity: 1, 
-      scale: 1,
-      transition: { 
-        type: 'spring',
-        damping: 20,
-        stiffness: 300
-      }
-    }
-  };
-
-  const reactionPickerVariants = {
-    hidden: { opacity: 0, scale: 0.95, y: 10 },
-    visible: { 
-      opacity: 1, 
-      scale: 1, 
-      y: 0,
-      transition: {
-        type: 'spring',
-        damping: 20,
-        stiffness: 300
+        stiffness: 400
       }
     }
   };
@@ -115,205 +76,173 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
       className={`
-        flex items-start space-x-4 group relative
-        ${!isFirstInGroup ? 'mt-2' : 'mt-6'}
-        ${!isLastInGroup ? 'mb-2' : 'mb-6'}
+        group relative flex items-start gap-8 px-8 py-6
+        ${!isFirstInGroup ? 'mt-1' : 'mt-4'}
+        ${!isLastInGroup ? 'mb-1' : 'mb-4'}
+        bg-transparent dark:bg-transparent
+        hover:bg-gray-50/30 dark:hover:bg-gray-900/30
+        transition-all duration-200
       `}
     >
       {showAvatar && (
         <motion.div 
           className={`
-            flex-shrink-0 w-9 h-9 rounded-xl overflow-hidden
-            bg-gradient-to-br ${gradientClasses} 
+            relative flex-shrink-0 w-8 h-8 rounded-xl overflow-hidden
+            bg-gradient-to-br from-violet-500 via-indigo-500 to-purple-500
+            dark:from-violet-400 dark:via-indigo-400 dark:to-purple-400
             flex items-center justify-center
-            shadow-lg ring-2 ring-white dark:ring-gray-800
-            transform-gpu transition-transform duration-200
-            ${isFirstInGroup ? '' : 'opacity-0 invisible'}
+            shadow-lg shadow-violet-500/20 dark:shadow-violet-400/10
+            ring-1 ring-white/10 dark:ring-white/5
+            ${isFirstInGroup ? '' : 'invisible'}
+            transform-gpu transition-all duration-300
             hover:scale-110 hover:rotate-3
+            hover:shadow-xl hover:shadow-violet-500/30 dark:hover:shadow-violet-400/20
+            group-hover:translate-x-1
           `}
-          initial={{ scale: 0, rotate: -10 }}
-          animate={{ scale: 1, rotate: 0 }}
+          initial={{ scale: 0.5, rotate: -10, y: 10 }}
+          animate={{ scale: 1, rotate: 0, y: 0 }}
           transition={{ type: 'spring', damping: 20, stiffness: 300 }}
         >
-          <SparklesIcon className="w-5 h-5 text-white transform hover:scale-110 transition-transform" />
+          <SparklesIcon className="w-4 h-4 text-white/90 transform transition-transform" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
         </motion.div>
       )}
 
-      <div className="flex-1 max-w-2xl space-y-1">
-        <motion.div 
-          className={`
-            relative rounded-2xl p-4
-            ${hasCodeBlock 
-              ? 'bg-gray-50/80 dark:bg-gray-900/80' 
-              : 'bg-white/80 dark:bg-gray-800/80'}
-            shadow-sm border border-gray-200/50 dark:border-gray-700/50
-            backdrop-blur-sm
-            transform-gpu transition-all duration-200
-            ${isHovered ? 'scale-[1.01] shadow-md translate-x-1' : ''}
-            hover:border-indigo-200 dark:hover:border-indigo-800
-            ${isFirstInGroup ? 'rounded-t-2xl' : 'rounded-tr-2xl rounded-b-2xl'}
-          `}
-          whileHover={{ scale: 1.01, x: 4 }}
-          transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+      <div className="flex-1 min-w-0 max-w-3xl relative">
+        <div className="prose prose-sm dark:prose-invert max-w-none
+          prose-p:leading-relaxed prose-p:my-3 first:prose-p:mt-0 last:prose-p:mb-0
+          prose-p:text-gray-700 dark:prose-p:text-white/90
+          prose-headings:text-gray-900 dark:prose-headings:text-white
+          prose-pre:my-3 prose-pre:bg-white/50 dark:prose-pre:bg-gray-800/50 
+          prose-pre:rounded-xl prose-pre:shadow-sm prose-pre:ring-1 
+          prose-pre:ring-gray-100 dark:prose-pre:ring-gray-700/50
+          prose-code:text-gray-800 dark:prose-code:text-white/90 
+          prose-code:bg-gray-50/80 dark:prose-code:bg-gray-800/80
+          prose-code:rounded-md prose-code:px-1.5 prose-code:py-0.5
+          prose-code:text-[13px] prose-code:font-medium
+          prose-code:before:content-none prose-code:after:content-none
+          prose-a:text-violet-600 dark:prose-a:text-violet-300 
+          prose-a:no-underline hover:prose-a:underline
+          prose-strong:text-gray-900 dark:prose-strong:text-white
+          prose-em:text-gray-700 dark:prose-em:text-white/80
+          prose-ul:my-2 prose-li:my-1 
+          prose-li:text-gray-700 dark:prose-li:text-white/90
+          prose-li:marker:text-gray-400 dark:prose-li:marker:text-white/40
+          prose-blockquote:border-l-2 prose-blockquote:border-violet-200 
+          dark:prose-blockquote:border-violet-500/30
+          prose-blockquote:pl-4 prose-blockquote:my-4 
+          prose-blockquote:italic 
+          prose-blockquote:text-gray-700 dark:prose-blockquote:text-white/80
+          prose-img:rounded-xl prose-img:shadow-lg
+          [&_table]:border-collapse [&_td]:p-2 [&_th]:p-2
+          [&_table]:my-4 [&_tr]:border-b 
+          [&_tr]:border-gray-100 dark:[&_tr]:border-gray-800
+          [&_th]:text-gray-900 dark:[&_th]:text-white
+          [&_td]:text-gray-700 dark:[&_td]:text-white/90"
         >
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <MessageMarkdown content={message.content} />
+          <MessageMarkdown content={message.content} />
+        </div>
+
+        {isTyping && (
+          <div className="mt-3 flex items-center gap-2">
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+              transition={{ duration: 1.4, repeat: Infinity }}
+              className="w-1 h-1 bg-violet-500/70 dark:bg-violet-400/70 rounded-full"
+            />
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+              transition={{ duration: 1.4, repeat: Infinity, delay: 0.2 }}
+              className="w-1 h-1 bg-indigo-500/70 dark:bg-indigo-400/70 rounded-full"
+            />
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+              transition={{ duration: 1.4, repeat: Infinity, delay: 0.4 }}
+              className="w-1 h-1 bg-purple-500/70 dark:bg-purple-400/70 rounded-full"
+            />
           </div>
-          
-          {isTyping && (
-            <div className="absolute bottom-2 left-4 flex items-center space-x-1">
-              <motion.div
-                animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 1, repeat: Infinity }}
-                className="w-2 h-2 bg-indigo-500 rounded-full"
-              />
-              <motion.div
-                animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 1, repeat: Infinity, delay: 0.2 }}
-                className="w-2 h-2 bg-indigo-500 rounded-full"
-              />
-              <motion.div
-                animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 1, repeat: Infinity, delay: 0.4 }}
-                className="w-2 h-2 bg-indigo-500 rounded-full"
-              />
-            </div>
-          )}
-
-          <AnimatePresence>
-            {isHovered && (
-              <motion.div
-                initial="hidden"
-                animate="visible"
-                exit="hidden"
-                variants={actionBarVariants}
-                className="absolute -top-3 right-4 flex items-center space-x-2 
-                  bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full shadow-lg 
-                  border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-sm
-                  transform-gpu hover:scale-105 transition-transform"
-              >
-                <motion.button
-                  onClick={() => setShowReactionPicker(!showReactionPicker)}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="p-1.5 text-gray-500 hover:text-indigo-600 
-                    dark:text-gray-400 dark:hover:text-indigo-400 rounded-full 
-                    hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
-                  title="Add reaction"
-                >
-                  {selectedReaction ? (
-                    <span className="text-lg transform hover:scale-110 transition-transform">
-                      {reactionEmojis[selectedReaction as keyof typeof reactionEmojis]}
-                    </span>
-                  ) : (
-                    <HeartIcon className="w-4 h-4" />
-                  )}
-                </motion.button>
-
-                <motion.button
-                  onClick={onCopy}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="p-1.5 text-gray-500 hover:text-indigo-600 
-                    dark:text-gray-400 dark:hover:text-indigo-400 rounded-full 
-                    hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
-                  title="Copy message"
-                >
-                  <ClipboardIcon className="w-4 h-4" />
-                </motion.button>
-                
-                {onReload && (
-                  <motion.button
-                    onClick={onReload}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="p-1.5 text-gray-500 hover:text-indigo-600 
-                      dark:text-gray-400 dark:hover:text-indigo-400 rounded-full 
-                      hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
-                    title="Regenerate response"
-                  >
-                    <ArrowPathIcon className="w-4 h-4" />
-                  </motion.button>
-                )}
-              </motion.div>
-            )}
-
-            {showReactionPicker && (
-              <motion.div
-                initial="hidden"
-                animate="visible"
-                exit="hidden"
-                variants={reactionPickerVariants}
-                className="absolute -top-12 right-4 flex items-center space-x-2 
-                  bg-white/90 dark:bg-gray-800/90 px-3 py-1.5 rounded-full shadow-lg 
-                  border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-sm"
-              >
-                {Object.entries(reactionEmojis).map(([key, emoji]) => (
-                  <motion.button
-                    key={key}
-                    onClick={() => {
-                      setSelectedReaction(key);
-                      setShowReactionPicker(false);
-                    }}
-                    onHoverStart={() => setReactionHovered(key)}
-                    onHoverEnd={() => setReactionHovered(null)}
-                    whileHover={{ scale: 1.2 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="p-1.5 text-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/30 
-                      rounded-full transition-colors relative transform hover:rotate-12"
-                  >
-                    {emoji}
-                    {reactionHovered === key && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 
-                          px-2 py-1 text-xs font-medium text-white bg-gray-800 
-                          dark:bg-gray-700 rounded-md whitespace-nowrap"
-                      >
-                        {key}
-                      </motion.div>
-                    )}
-                  </motion.button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-
-        {message.metadata?.suggestions && (
-          <MessageSuggestions 
-            suggestions={message.metadata.suggestions}
-            onSuggestionClick={(suggestion) => {
-              console.log('Suggestion clicked:', suggestion);
-            }}
-          />
         )}
 
+        <AnimatePresence>
+          {isHovered && (
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
+              variants={actionBarVariants}
+              className="absolute -top-3 right-0 flex items-center gap-2
+                bg-white/80 dark:bg-gray-800/80 px-2.5 py-1.5 rounded-lg
+                shadow-sm ring-1 ring-gray-200/50 dark:ring-gray-700/50
+                opacity-0 group-hover:opacity-100 transition-opacity
+                backdrop-blur-sm"
+            >
+              <button
+                onClick={onCopy}
+                className="p-1.5 text-gray-600 hover:text-gray-900
+                  dark:text-gray-400 dark:hover:text-gray-100 rounded-md
+                  hover:bg-gray-100/70 dark:hover:bg-gray-700/70
+                  transition-colors duration-200"
+                title="Copy message"
+              >
+                <ClipboardIcon className="w-3.5 h-3.5" />
+              </button>
+              
+              <button
+                onClick={onReload}
+                className="p-1.5 text-gray-600 hover:text-gray-900
+                  dark:text-gray-400 dark:hover:text-gray-100 rounded-md
+                  hover:bg-gray-100/70 dark:hover:bg-gray-700/70
+                  transition-colors duration-200"
+                title="Regenerate response"
+              >
+                <ArrowPathIcon className="w-3.5 h-3.5" />
+              </button>
+
+              {onDelete && (
+                <button
+                  onClick={onDelete}
+                  className="p-1.5 text-gray-600 hover:text-red-600
+                    dark:text-gray-400 dark:hover:text-red-400 rounded-md
+                    hover:bg-red-100/70 dark:hover:bg-red-900/30
+                    transition-colors duration-200"
+                  title="Delete message"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {showMetadata && message.metadata && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-xs text-gray-500 dark:text-gray-400 pl-4 flex items-center space-x-2"
+          <div className="mt-3 flex items-center gap-2 text-xs
+            opacity-0 group-hover:opacity-100 transition-opacity select-none"
           >
-            <span>{formatTimestamp(message.timestamp || 0)}</span>
+            <span className="font-medium text-gray-600 dark:text-gray-300">
+              {formatTimestamp(message.timestamp || 0)}
+            </span>
             {message.metadata?.model && (
               <>
-                <span className="text-gray-300 dark:text-gray-600">•</span>
-                <span className="font-medium">{message.metadata.model}</span>
+                <span className="text-gray-400 dark:text-gray-500">•</span>
+                <span className="font-medium text-violet-600/90 dark:text-violet-400/90">
+                  {message.metadata.model}
+                </span>
               </>
             )}
             {message.metadata?.tokens && (
               <>
-                <span className="text-gray-300 dark:text-gray-600">•</span>
-                <span>
+                <span className="text-gray-400 dark:text-gray-500">•</span>
+                <span className="font-medium text-gray-600/90 dark:text-gray-300/90">
                   {typeof message.metadata.tokens === 'object' 
                     ? `${(message.metadata.tokens as TokenCount).total_tokens || 0} tokens`
                     : `${message.metadata.tokens} tokens`}
                 </span>
               </>
             )}
-          </motion.div>
+          </div>
         )}
       </div>
     </motion.div>

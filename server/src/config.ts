@@ -1,9 +1,21 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config();
 
 export const config = {
   port: process.env.PORT || 3000,
+  
+  // File uploads configuration
+  uploadsDir: process.env.UPLOADS_DIR || path.join(__dirname, '../uploads'),
+  
+  // CORS configuration
+  cors: {
+    origin: process.env.CORS_ORIGIN || '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
+  },
+  
   database: {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),

@@ -1,17 +1,19 @@
 import { Knex } from 'knex';
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
 import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from .env file
+config({ path: path.resolve(__dirname, '.env') });
 
-type Environment = 'development' | 'test' | 'production';
+// Read environment variables for DB connection with appropriate defaults
+const isInDocker = process.env.IN_DOCKER === 'true';
+const defaultHost = isInDocker ? '***REMOVED***' : 'localhost';
 
-const configurations: Record<Environment, Knex.Config> = {
+const configurations: Record<string, Knex.Config> = {
   development: {
     client: '***REMOVED***ql',
     connection: {
-      host: process.env.DB_HOST || 'localhost',
+      host: process.env.DB_HOST || defaultHost,
       port: parseInt(process.env.DB_PORT || '5432', 10),
       database: process.env.DB_NAME || 'ciro_db',
       user: process.env.DB_USER || '***REMOVED***',
@@ -23,7 +25,7 @@ const configurations: Record<Environment, Knex.Config> = {
     },
     migrations: {
       tableName: 'knex_migrations',
-      directory: path.join(__dirname, '../../migrations')
+      directory: './migrations'
     }
   },
 
@@ -67,4 +69,13 @@ const configurations: Record<Environment, Knex.Config> = {
   }
 };
 
-export default configurations; 
+// Log the connection settings for easier debugging
+const devConnection = configurations.development.connection as Record<string, any>;
+console.log(`Knex configuration: Environment=${process.env.NODE_ENV || 'development'}, Host=${devConnection.host}, Port=${devConnection.port}, InDocker=${isInDocker}`);
+
+// This is what knex CLI will use
+module.exports = configurations;
+
+// Export for ES modules usage
+export default configurations;
+export { configurations }; 

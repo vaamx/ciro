@@ -132,9 +132,16 @@ export class AuthController {
 
   public login: RequestHandler = async (req, res) => {
     try {
+      console.log('Login request received:', {
+        body: req.body,
+        headers: req.headers,
+        cookies: req.cookies
+      });
+
       const { email, password } = req.body;
 
       if (!email || !password) {
+        console.log('Missing email or password');
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
@@ -143,12 +150,23 @@ export class AuthController {
         .where({ email })
         .first();
 
+      console.log('User lookup result:', {
+        found: !!user,
+        email: email,
+        emailVerified: user?.email_verified
+      });
+
       if (!user) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
       // Verify password
       const validPassword = await bcrypt.compare(password, user.password_hash);
+      console.log('Password verification result:', {
+        valid: validPassword,
+        providedPassword: password,
+        storedHash: user.password_hash
+      });
 
       if (!validPassword) {
         return res.status(401).json({ error: 'Invalid credentials' });

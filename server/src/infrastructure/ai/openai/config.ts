@@ -1,9 +1,12 @@
 import OpenAI from 'openai';
 import { APIError, OpenAIError } from './errors';
+import { Config } from '../../../types/config';
+import { logger } from '../../../utils/logger';
 
 // Configuration types
 export interface OpenAIConfig {
   apiKey: string;
+  baseURL?: string;
   organization?: string;
   maxRetries?: number;
   timeout?: number;
@@ -12,22 +15,46 @@ export interface OpenAIConfig {
 // Default configuration values
 const DEFAULT_CONFIG: Partial<OpenAIConfig> = {
   maxRetries: 3,
-  timeout: 30000, // 30 seconds
+  timeout: 60000, // 60 seconds
+  baseURL: 'https://api.ciro.ai/v1'
 };
+
+// Create a properly typed config object from the app config
+export function createOpenAIConfigFromAppConfig(appConfig: any): OpenAIConfig {
+  logger.info(`Creating OpenAI config from app config, baseURL: ${appConfig.baseURL || 'default'}`);
+  
+  if (!appConfig.apiKey) {
+    throw new Error('OpenAI API key is required');
+  }
+
+  return {
+    apiKey: appConfig.apiKey,
+    baseURL: appConfig.baseURL,
+    organization: appConfig.organization,
+    maxRetries: appConfig.maxRetries || 3,
+    timeout: appConfig.timeout || 60000,
+  };
+}
 
 // Initialize OpenAI client with configuration
 export function createOpenAIClient(config: OpenAIConfig): OpenAI {
-  const finalConfig = { ...DEFAULT_CONFIG, ...config };
+  logger.info(`Creating OpenAI client with baseURL: ${config.baseURL || 'default OpenAI API'}`);
   
   try {
-    return new OpenAI({
-      apiKey: finalConfig.apiKey,
-      organization: finalConfig.organization,
-      maxRetries: finalConfig.maxRetries,
-      timeout: finalConfig.timeout,
+    const client = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+      organization: config.organization,
+      maxRetries: config.maxRetries || 3,
+      timeout: config.timeout || 60000,
+      dangerouslyAllowBrowser: true,
     });
+    
+    logger.info('OpenAI client created successfully');
+    return client;
   } catch (error) {
-    throw new OpenAIError('Failed to initialize OpenAI client', { cause: error });
+    logger.error(`Failed to create OpenAI client: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   }
 }
 

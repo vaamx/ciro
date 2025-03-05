@@ -1,11 +1,11 @@
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import { verifySession } from './oauth';
 import { HubSpotService } from '../infrastructure/datasource/providers/HubSpotService';
 
 const router = express.Router();
 
 // Use session verification middleware
-router.use(verifySession);
+router.use(verifySession as RequestHandler);
 
 // Proxy requests to HubSpot
 router.all('/hubspot/*', async (req: express.Request, res: express.Response) => {

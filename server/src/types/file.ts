@@ -8,7 +8,7 @@ export interface File {
   metadata: Record<string, any>;
   hasContent: boolean;
   organization_id: number;
-  uploaded_by: string;
+  uploaded_by: number;
   created_at: Date;
   updated_at: Date;
 } 

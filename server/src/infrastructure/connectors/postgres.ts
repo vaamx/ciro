@@ -1,6 +1,6 @@
 import { Pool, QueryResult } from 'pg';
 import { DataSourceConnector } from './factory';
-import { OpenAIService } from '../llm/openai';
+import { OpenAIService } from '../../services/openai.service';
 
 export class PostgresConnector implements DataSourceConnector {
   private pool: Pool;
@@ -14,7 +14,7 @@ export class PostgresConnector implements DataSourceConnector {
       password: process.env.POSTGRES_PASSWORD,
       port: Number(process.env.POSTGRES_PORT),
     });
-    this.openai = new OpenAIService();
+    this.openai = OpenAIService.getInstance();
   }
 
   async connect(): Promise<void> {
@@ -52,12 +52,15 @@ export class PostgresConnector implements DataSourceConnector {
     - Avoid complex operations that might be unsafe
     - If the query seems unsafe or unclear, return "SELECT 1"`;
 
-    const response = await this.openai.generateChatResponse(
-      [{ role: 'user', content: prompt }]
+    const completion = await this.openai.generateChatCompletion(
+      [{ role: 'user', content: prompt }], 
+      { stream: false }
     );
 
-    // Basic SQL injection prevention
-    const sql = response.trim();
+    // Handle the response as ChatCompletion type
+    const chatCompletion = completion as any; // Type assertion to handle the complex union type
+    const sql = chatCompletion.choices[0]?.message?.content?.trim() || 'SELECT 1';
+
     if (this.isSafeSQL(sql)) {
       return sql;
     }

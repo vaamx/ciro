@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, HelpCircle, ChevronDown, Building2, Plus, Sun, Moon } from 'lucide-react';
+import { Bell, HelpCircle, Building2, Plus, Sun, Moon } from 'lucide-react';
 import { UserMenu } from './UserMenu';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useNavigate } from 'react-router-dom';
@@ -59,10 +59,6 @@ const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({ onCreateNew
           <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
             {currentOrganization?.name || 'Select Organization'}
           </span>
-          <ChevronDown 
-            size={16} 
-            className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
-          />
         </div>
         {organizations.length > 0 && (
           <div className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded-full text-xs text-gray-500 dark:text-gray-400">

@@ -28,12 +28,19 @@ const storage = multer.diskStorage({
 
 // File filter to allow only certain file types
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'text/csv'];
+  const allowedTypes = [
+    'image/jpeg',
+    'image/png',
+    'application/pdf',
+    'text/csv',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel'
+  ];
   
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, PDF, and CSV files are allowed.'));
+    cb(new Error('Invalid file type. Only JPEG, PNG, PDF, CSV, and Excel files are allowed.'));
   }
 };
 

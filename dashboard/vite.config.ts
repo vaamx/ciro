@@ -13,7 +13,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://192.168.0.10:3001',
         changeOrigin: true,
         secure: false,
         configure: (proxy, _options) => {
@@ -29,7 +29,7 @@ export default defineConfig({
         }
       },
       '/files': {
-        target: 'http://localhost:3001',
+        target: 'http://192.168.0.10:3001',
         changeOrigin: true,
         secure: false
       }

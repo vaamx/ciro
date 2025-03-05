@@ -1,8 +1,30 @@
+export type DataSourceType = 'local-files' | 'crm-hubspot';
+export type DataSourceStatus = 'connected' | 'disconnected' | 'processing' | 'error' | 'syncing' | 'ready' | 'completed';
+
+export interface ProcessingProgress {
+  totalChunks: number;
+  processedChunks: number;
+  currentPhase: string;
+  startTime: string;
+  estimatedTimeRemaining?: number;
+  error?: string;
+  warnings: string[];
+  fileInfo: {
+    size: number;
+    type: string;
+    name: string;
+  };
+}
+
 export interface DataSourceMetrics {
   records: number;
   syncRate: number;
   avgSyncTime: string;
-  lastError?: string;
+  progress?: ProcessingProgress;
+  lastError?: string | {
+    message: string;
+    phase: string;
+  };
 }
 
 export interface HubSpotObjectData {
@@ -23,13 +45,20 @@ export interface HubSpotData {
   deals: HubSpotObjectData;
 }
 
+export interface DataSourceMetadata {
+  preview?: string;
+  content?: any[];
+  fileType?: string;
+  [key: string]: any;
+}
+
 export interface DataSource {
-  id: number;
+  id: string;
   name: string;
-  type: string;
-  description: string;
-  status: 'connected' | 'disconnected' | 'error' | 'syncing';
-  lastSync: string;
+  type: DataSourceType;
+  status: DataSourceStatus;
+  description?: string;
+  lastSync?: string;
+  metadata?: Record<string, any>;
   metrics: DataSourceMetrics;
-  data?: HubSpotData;
 } 

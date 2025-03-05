@@ -15,6 +15,7 @@ import { OrganizationProvider } from './contexts/OrganizationContext';
 import { TeamProvider } from './contexts/TeamContext';
 import { DataSourceProvider } from './contexts/DataSourceContext';
 import { AutomationProvider } from './contexts/AutomationContext';
+import { KnowledgeProvider } from './providers/KnowledgeProvider';
 import { LoginForm } from './Auth/LoginForm';
 import { SignupForm } from './Auth/SignupForm';
 import { VerifyEmailForm } from './Auth/VerifyEmailForm';
@@ -61,51 +62,53 @@ function App() {
               <DataSourceProvider>
                 <AutomationProvider>
                   <DashboardProvider>
-                    <Router>
-                      <Routes>
-                        {/* Auth Routes */}
-                        <Route element={<AuthLayout />}>
-                          <Route path="/login" element={<LoginForm />} />
-                          <Route path="/signup" element={<SignupForm />} />
-                          <Route path="/verify-email" element={<VerifyEmailForm />} />
-                          <Route path="/verification-pending" element={<VerificationPendingWrapper />} />
-                          <Route path="/reset-password" element={<ResetPasswordForm />} />
-                          <Route path="/forgot-password" element={<ForgotPasswordForm />} />
-                          <Route path="/getting-started" element={<GettingStarted />} />
-                        </Route>
+                    <KnowledgeProvider>
+                      <Router>
+                        <Routes>
+                          {/* Auth Routes */}
+                          <Route element={<AuthLayout />}>
+                            <Route path="/login" element={<LoginForm />} />
+                            <Route path="/signup" element={<SignupForm />} />
+                            <Route path="/verify-email" element={<VerifyEmailForm />} />
+                            <Route path="/verification-pending" element={<VerificationPendingWrapper />} />
+                            <Route path="/reset-password" element={<ResetPasswordForm />} />
+                            <Route path="/forgot-password" element={<ForgotPasswordForm />} />
+                            <Route path="/getting-started" element={<GettingStarted />} />
+                          </Route>
 
-                        {/* OAuth Callback Route */}
-                        <Route path="/oauth/callback" element={<OAuthCallback />} />
-                        
-                        {/* Protected Main App Routes */}
-                        <Route element={
-                          <ProtectedRoute>
-                            <MainLayout 
-                              activeSection={activeSection} 
-                              onSectionChange={handleSectionChange}
-                              dashboardManager={<DashboardManager />}
-                            />
-                          </ProtectedRoute>
-                        }>
-                          <Route path="/" element={<Navigate to="/overview" replace />} />
-                          <Route 
-                            path="/overview" 
-                            element={
-                              <EnhancedOverview 
-                                activeTab={activeTab}
-                                onTabChange={handleTabChange}
+                          {/* OAuth Callback Route */}
+                          <Route path="/oauth/callback" element={<OAuthCallback />} />
+                          
+                          {/* Protected Main App Routes */}
+                          <Route element={
+                            <ProtectedRoute>
+                              <MainLayout 
+                                activeSection={activeSection} 
+                                onSectionChange={handleSectionChange}
+                                dashboardManager={<DashboardManager />}
                               />
-                            } 
-                          />
-                          <Route path="/data-sources" element={<DataSourcesView />} />
-                          <Route path="/decisions" element={<DecisionsView />} />
-                          <Route path="/automations" element={<AutomationsView />} />
-                          <Route path="/communications" element={<CommunicationsView />} />
-                          <Route path="/organizations" element={<OrganizationManagement />} />
-                          <Route path="*" element={<Navigate to="/overview" replace />} />
-                        </Route>
-                      </Routes>
-                    </Router>
+                            </ProtectedRoute>
+                          }>
+                            <Route path="/" element={<Navigate to="/overview" replace />} />
+                            <Route 
+                              path="/overview" 
+                              element={
+                                <EnhancedOverview 
+                                  activeTab={activeTab}
+                                  onTabChange={handleTabChange}
+                                />
+                              } 
+                            />
+                            <Route path="/data-sources" element={<DataSourcesView />} />
+                            <Route path="/decisions" element={<DecisionsView />} />
+                            <Route path="/automations" element={<AutomationsView />} />
+                            <Route path="/communications" element={<CommunicationsView />} />
+                            <Route path="/organizations" element={<OrganizationManagement />} />
+                            <Route path="*" element={<Navigate to="/overview" replace />} />
+                          </Route>
+                        </Routes>
+                      </Router>
+                    </KnowledgeProvider>
                   </DashboardProvider>
                 </AutomationProvider>
               </DataSourceProvider>

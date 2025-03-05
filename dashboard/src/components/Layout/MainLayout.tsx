@@ -6,6 +6,7 @@ import { ChatPanel } from '../Chat';
 import { TopBar } from './TopBar';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { KnowledgeProvider } from '../../providers/KnowledgeProvider';
 import darkLogo from '../../styles/logos/darklogo.png';
 import lightLogo from '../../styles/logos/lightlogo.png';
 
@@ -119,10 +120,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       </button>
 
       {/* Chat Panel */}
-      <ChatPanel 
-        isOpen={isChatOpen}
-        onClose={handleChatClose}
-      />
+      <KnowledgeProvider>
+        <ChatPanel 
+          isOpen={isChatOpen}
+          onClose={handleChatClose}
+        />
+      </KnowledgeProvider>
 
       {/* Notifications Panel */}
       <NotificationsPanel

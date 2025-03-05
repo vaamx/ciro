@@ -1,4 +1,5 @@
-import { pool } from '../database';
+import { Knex } from 'knex';
+import { db } from '../database/knex';
 
 interface DataSourceField {
   field_name: string;
@@ -11,7 +12,7 @@ interface DataSourceField {
 
 interface DataSource {
   id: number;
-  user_id: number;
+  user_id: string;
   provider: string;
   name: string;
   status: string;
@@ -21,32 +22,41 @@ interface DataSource {
 }
 
 export class DataSourceService {
+  private readonly db: Knex;
+
+  constructor(dbInstance?: Knex) {
+    this.db = dbInstance || db;
+  }
+
   // Create a new data source
   async createDataSource(
-    userId: number,
+    userId: string,
     provider: string,
     name: string,
     credentials?: any,
     metadata?: any
   ): Promise<DataSource> {
-    const result = await pool.query(
-      `INSERT INTO data_sources (user_id, provider, name, credentials, metadata)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [userId, provider, name, credentials, metadata]
-    );
+    const [result] = await this.db('data_sources')
+      .insert({
+        user_id: userId,
+        provider,
+        name,
+        credentials,
+        metadata
+      })
+      .returning('*');
 
-    return result.rows[0];
+    return result;
   }
 
   // Update data source credentials
   async updateCredentials(id: number, credentials: any): Promise<void> {
-    await pool.query(
-      `UPDATE data_sources
-       SET credentials = $2, updated_at = NOW()
-       WHERE id = $1`,
-      [id, credentials]
-    );
+    await this.db('data_sources')
+      .where({ id })
+      .update({
+        credentials,
+        updated_at: this.db.fn.now()
+      });
   }
 
   // Add or update fields for a data source
@@ -54,45 +64,29 @@ export class DataSourceService {
     dataSourceId: number,
     fields: DataSourceField[]
   ): Promise<void> {
-    // Start a transaction
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
+    await this.db.transaction(async (trx) => {
       for (const field of fields) {
-        await client.query(
-          `INSERT INTO data_source_fields (
-            data_source_id, field_name, field_type,
-            is_required, is_array, description, metadata
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-          ON CONFLICT (data_source_id, field_name)
-          DO UPDATE SET
-            field_type = EXCLUDED.field_type,
-            is_required = EXCLUDED.is_required,
-            is_array = EXCLUDED.is_array,
-            description = EXCLUDED.description,
-            metadata = EXCLUDED.metadata,
-            updated_at = NOW()`,
-          [
-            dataSourceId,
-            field.field_name,
-            field.field_type,
-            field.is_required,
-            field.is_array,
-            field.description,
-            field.metadata
-          ]
-        );
+        await trx('data_source_fields')
+          .insert({
+            data_source_id: dataSourceId,
+            field_name: field.field_name,
+            field_type: field.field_type,
+            is_required: field.is_required,
+            is_array: field.is_array,
+            description: field.description,
+            metadata: field.metadata
+          })
+          .onConflict(['data_source_id', 'field_name'])
+          .merge({
+            field_type: field.field_type,
+            is_required: field.is_required,
+            is_array: field.is_array,
+            description: field.description,
+            metadata: field.metadata,
+            updated_at: trx.fn.now()
+          });
       }
-
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   // Store records from the data source
@@ -100,64 +94,49 @@ export class DataSourceService {
     dataSourceId: number,
     records: { external_id: string; data: any }[]
   ): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
+    await this.db.transaction(async (trx) => {
       for (const record of records) {
-        await client.query(
-          `INSERT INTO data_source_records (data_source_id, external_id, data)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (data_source_id, external_id)
-           DO UPDATE SET
-             data = EXCLUDED.data,
-             updated_at = NOW()`,
-          [dataSourceId, record.external_id, record.data]
-        );
+        await trx('data_source_records')
+          .insert({
+            data_source_id: dataSourceId,
+            external_id: record.external_id,
+            data: record.data
+          })
+          .onConflict(['data_source_id', 'external_id'])
+          .merge({
+            data: record.data,
+            updated_at: trx.fn.now()
+          });
       }
 
       // Update last sync time
-      await client.query(
-        `UPDATE data_sources
-         SET last_sync_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [dataSourceId]
-      );
-
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+      await trx('data_sources')
+        .where({ id: dataSourceId })
+        .update({
+          last_sync_at: trx.fn.now(),
+          updated_at: trx.fn.now()
+        });
+    });
   }
 
   // Get data source by ID
   async getDataSource(id: number): Promise<DataSource | null> {
-    const result = await pool.query(
-      'SELECT * FROM data_sources WHERE id = $1',
-      [id]
-    );
-    return result.rows[0] || null;
+    return this.db('data_sources')
+      .where({ id })
+      .first() || null;
   }
 
   // Get data sources for a user
-  async getUserDataSources(userId: number): Promise<DataSource[]> {
-    const result = await pool.query(
-      'SELECT * FROM data_sources WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
-    return result.rows;
+  async getUserDataSources(userId: string): Promise<DataSource[]> {
+    return this.db('data_sources')
+      .where({ user_id: userId })
+      .orderBy('created_at', 'desc');
   }
 
   // Get fields for a data source
   async getDataSourceFields(dataSourceId: number): Promise<DataSourceField[]> {
-    const result = await pool.query(
-      'SELECT * FROM data_source_fields WHERE data_source_id = $1',
-      [dataSourceId]
-    );
-    return result.rows;
+    return this.db('data_source_fields')
+      .where({ data_source_id: dataSourceId });
   }
 
   // Get records for a data source with pagination
@@ -168,37 +147,36 @@ export class DataSourceService {
   ): Promise<{ records: any[]; total: number }> {
     const offset = (page - 1) * limit;
 
-    const records = await pool.query(
-      `SELECT * FROM data_source_records
-       WHERE data_source_id = $1
-       ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [dataSourceId, limit, offset]
-    );
+    const records = await this.db('data_source_records')
+      .where({ data_source_id: dataSourceId })
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
 
-    const count = await pool.query(
-      'SELECT COUNT(*) FROM data_source_records WHERE data_source_id = $1',
-      [dataSourceId]
-    );
+    const [{ count }] = await this.db('data_source_records')
+      .where({ data_source_id: dataSourceId })
+      .count();
 
     return {
-      records: records.rows,
-      total: parseInt(count.rows[0].count)
+      records,
+      total: parseInt(count as string)
     };
   }
 
   // Delete a data source and all related data
   async deleteDataSource(id: number): Promise<void> {
-    await pool.query('DELETE FROM data_sources WHERE id = $1', [id]);
+    await this.db('data_sources')
+      .where({ id })
+      .delete();
   }
 
   // Update data source status
   async updateStatus(id: number, status: string): Promise<void> {
-    await pool.query(
-      `UPDATE data_sources
-       SET status = $2, updated_at = NOW()
-       WHERE id = $1`,
-      [id, status]
-    );
+    await this.db('data_sources')
+      .where({ id })
+      .update({
+        status,
+        updated_at: this.db.fn.now()
+      });
   }
 } 

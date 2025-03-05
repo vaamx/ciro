@@ -13,6 +13,7 @@ exports.up = function(knex) {
     table.jsonb('metadata').defaultTo('{}');
     table.binary('content');
     table.uuid('uploaded_by')
+      .nullable()
       .references('id')
       .inTable('users')
       .onDelete('SET NULL');

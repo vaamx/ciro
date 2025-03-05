@@ -4,7 +4,6 @@ import { type ChatMessage } from '../types';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
 import { ErrorMessage } from './ErrorMessage';
-import { formatTimestamp } from '../utils/formatTimestamp';
 
 interface MessageGroupProps {
   messages: ChatMessage[];
@@ -30,12 +29,9 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
   showMetadata,
   showAvatar,
   messageAlignment = 'left',
-  bubbleStyle = 'modern',
-  accentColor,
 }) => {
   const showGroupMetadata = showMetadata || isLastGroup;
   const firstMessage = messages[0];
-  const lastMessage = messages[messages.length - 1];
   const isAssistantGroup = firstMessage.role === 'assistant';
 
   const groupVariants = {
@@ -54,24 +50,19 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
   const renderMessage = (message: ChatMessage, index: number) => {
     const isFirst = index === 0;
     const isLast = index === messages.length - 1;
-    const commonProps = {
-      message,
-      showAvatar: showAvatar && isFirst,
-      showMetadata: showGroupMetadata && isLast,
-      messageAlignment,
-      bubbleStyle,
-      accentColor,
-      isFirstInGroup: isFirst,
-      isLastInGroup: isLast,
-    };
 
     if (message.role === 'assistant') {
       return (
         <AssistantMessage
           key={message.id}
-          {...commonProps}
+          message={message}
+          isFirstInGroup={isFirst}
+          isLastInGroup={isLast}
           onCopy={() => onCopy(message)}
           onReload={() => onRegenerate(message)}
+          onDelete={onDelete ? () => onDelete(message) : undefined}
+          showMetadata={showGroupMetadata && isLast}
+          showAvatar={showAvatar && isFirst}
         />
       );
     }
@@ -80,9 +71,14 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
       return (
         <UserMessage
           key={message.id}
-          {...commonProps}
-          onEdit={(content: string) => onEdit?.(message, content)}
-          onDelete={() => onDelete?.(message)}
+          message={message}
+          isFirstInGroup={isFirst}
+          isLastInGroup={isLast}
+          onEdit={onEdit ? (content) => onEdit(message, content) : undefined}
+          onDelete={onDelete ? () => onDelete(message) : undefined}
+          showMetadata={showGroupMetadata && isLast}
+          showAvatar={showAvatar && isFirst}
+          messageAlignment={messageAlignment}
         />
       );
     }
@@ -107,41 +103,51 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
       exit="exit"
       variants={groupVariants}
       className={`
-        relative py-2 first:pt-4 last:pb-4
-        ${isAssistantGroup ? 'bg-gradient-to-b from-gray-50/50 to-transparent dark:from-gray-900/30' : ''}
+        relative flex flex-col gap-2 py-4
+        ${isAssistantGroup ? 'bg-gray-50/10 dark:bg-gray-900/30' : ''}
+        transition-colors duration-200 ease-out
+        border-b border-gray-100/20 dark:border-gray-800/40
+        group
+        bg-white dark:bg-gray-950
       `}
     >
-      {messages.length > 1 && (
-        <div className={`
-          absolute top-0 left-0 w-full h-full pointer-events-none
-          ${isAssistantGroup 
-            ? 'border-l-2 border-indigo-500/20 dark:border-indigo-400/20 ml-4' 
-            : 'border-r-2 border-purple-500/20 dark:border-purple-400/20 mr-4'
-          }
-        `} />
-      )}
-
       <div className={`
-        flex flex-col
-        ${messageAlignment === 'right' ? 'items-end' : 'items-start'}
-        ${messages.length > 1 ? 'space-y-1' : ''}
+        w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8
+        flex flex-col gap-3
+        ${isAssistantGroup ? 'items-start' : 'items-end'}
+        relative
+        bg-white dark:bg-gray-950
       `}>
-        {messages.map(renderMessage)}
-
-        {showGroupMetadata && messages.length > 1 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className={`
-              text-xs text-gray-500 dark:text-gray-400 px-4
-              ${messageAlignment === 'right' ? 'text-right' : 'text-left'}
-            `}
-          >
-            {formatTimestamp(firstMessage.timestamp || 0)} - {formatTimestamp(lastMessage.timestamp || 0)}
-            <span className="mx-2">•</span>
-            {messages.length} messages
-          </motion.div>
-        )}
+        <div className="absolute inset-0 pointer-events-none">
+          {messages.length > 1 && (
+            <div className={`
+              h-full w-0.5 rounded-full
+              ${isAssistantGroup 
+                ? 'bg-gradient-to-b from-indigo-500/5 via-indigo-500/3 to-transparent dark:from-indigo-400/20 dark:via-indigo-400/10'
+                : 'bg-gradient-to-b from-purple-500/5 via-purple-500/3 to-transparent dark:from-purple-400/20 dark:via-purple-400/10'
+              }
+              ${isAssistantGroup ? 'ml-8' : 'mr-8'}
+              opacity-0 group-hover:opacity-100 transition-opacity duration-300
+            `} />
+          )}
+        </div>
+        <div className="w-full max-w-2xl space-y-2">
+          {messages.map((message, index) => (
+            <motion.div
+              key={message.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ 
+                duration: 0.3, 
+                ease: 'easeOut',
+                delay: index * 0.1 
+              }}
+              className="relative"
+            >
+              {renderMessage(message, index)}
+            </motion.div>
+          ))}
+        </div>
       </div>
     </motion.div>
   );

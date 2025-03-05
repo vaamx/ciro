@@ -1,97 +1,181 @@
-import { createServer } from 'http';
-import app from './app';
+// Main server initialization file
+import { DocumentProcessorService } from './services/document-processor.service';
 import { config } from './config';
 import { SocketService } from './services/socket.service';
 import { initializeDatabase } from './infrastructure/database/init';
+import { runMigrations } from './infrastructure/database/migrate';
+import Server from './server';
+import path from 'path';
+import knex from 'knex';
+import { createLogger } from './utils/logger';
+import { getServiceRegistry } from './services/service-registry';
+import runEnvironmentChecks from './utils/check-env';
 
-const server = createServer(app);
-const port = config.port;
+// Initialize logger
+const logger = createLogger('Server');
 
-let serverInstance: any = null;
+// Create necessary directories
+async function createMissingDirectories() {
+  const fs = require('fs');
+  const mkdirp = (dir: string) => !fs.existsSync(dir) && fs.mkdirSync(dir, { recursive: true });
+  
+  // Create uploads directory if it doesn't exist
+  const uploadsDir = path.resolve(process.cwd(), config.uploadsDir);
+  mkdirp(uploadsDir);
+  logger.info(`Uploads directory: ${uploadsDir}`);
+  
+  // Create logs directory if it doesn't exist
+  const logsDir = path.resolve(process.cwd(), 'logs');
+  mkdirp(logsDir);
+  logger.info(`Logs directory: ${logsDir}`);
+}
 
-// Initialize WebSocket service
-SocketService.getInstance(server);
-
-async function startServer() {
+// Database initialization
+async function initializePostgres() {
   try {
-    // First, initialize the database
-    await initializeDatabase();
-
-    // Create a promise that resolves when the server starts listening
-    await new Promise((resolve, reject) => {
-      serverInstance = server.listen(port, () => {
-        console.log(`Server is running on port ${port}`);
-        resolve(true);
-      });
-
-      server.on('error', (error: any) => {
-        if (error.code === 'EADDRINUSE') {
-          console.log(`Port ${port} is already in use. Attempting to close existing connection...`);
-          require('child_process').exec(`lsof -i :${port} | grep LISTEN | awk '{print $2}' | xargs kill -9`, (err: any) => {
-            if (err) {
-              console.error('Error killing process:', err);
-              reject(err);
-            } else {
-              console.log(`Successfully killed process on port ${port}`);
-              // Try starting the server again after a short delay
-              setTimeout(() => {
-                server.listen(port, () => {
-                  console.log(`Server is now running on port ${port}`);
-                  resolve(true);
-                });
-              }, 1000);
-            }
-          });
-        } else {
-          console.error('Server error:', error);
-          reject(error);
-        }
-      });
+    logger.info('Initializing PostgreSQL connection...');
+    
+    // Use the configured host and port
+    const host = config.database.host;
+    const port = config.database.port;
+    logger.info(`PostgreSQL connection settings: ${host}:${port}`);
+    
+    // Initialize Knex with the configured settings
+    const db = knex({
+      client: 'pg',
+      connection: {
+        host,
+        port,
+        user: config.database.user,
+        password: config.database.password,
+        database: config.database.database
+      }
     });
+    
+    // Test connection
+    const result = await db.raw('SELECT 1+1 as result');
+    if (result.rows[0].result === 2) {
+      logger.info('PostgreSQL connection successful!');
+      return true;
+    } else {
+      logger.error('PostgreSQL connection test failed');
+      return false;
+    }
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error('Failed to initialize PostgreSQL connection', { error });
+    return false;
+  }
+}
+
+// Run environment checks
+runEnvironmentChecks();
+
+// Check critical configuration
+console.log('Database connection configured with:');
+console.log(`- Host: ${config.database.host}`);
+console.log(`- Port: ${config.database.port}`);
+console.log(`- User: ${config.database.user}`);
+console.log(`- Database: ${config.database.database}`);
+console.log(`- Environment: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Local Development'}`);
+
+// Check OpenAI API key
+const openAiKey = process.env.OPENAI_API_KEY || (config.openai && config.openai.apiKey);
+console.log(`OpenAI API key present: ${!!openAiKey}`);
+if (openAiKey) {
+  console.log(`OpenAI API key starts with: ${openAiKey.substring(0, 12)}...`);
+  console.log(`OpenAI API base URL: ${process.env.OPENAI_API_BASE || ((config.openai as any) && (config.openai as any).baseURL) || 'https://api.openai.com/v1'}`);
+} else {
+  console.error('WARNING: OpenAI API key is missing! Embeddings and completions will not work.');
+}
+
+// Initialize Qdrant
+const qdrantUrl = (config as any).qdrant?.url || 'http://localhost:6333';
+console.log(`Qdrant URL: ${qdrantUrl}`);
+
+// Start services and server
+async function startServer() {
+  logger.info('Starting server...');
+  
+  try {
+    // Create necessary directories
+    await createMissingDirectories();
+    
+    // Initialize database connection
+    const dbInitialized = await initializePostgres();
+    if (!dbInitialized) {
+      logger.warn('Failed to initialize database. Continuing with limited functionality.');
+    }
+    
+    // Run migrations
+    try {
+      await runMigrations();
+      logger.info('Database migrations completed successfully.');
+    } catch (error) {
+      logger.error('Error running migrations', { error });
+      logger.warn('Continuing without migrations. Some features may not work correctly.');
+    }
+    
+    // Initialize services via service registry to ensure proper singleton management
+    const serviceRegistry = getServiceRegistry();
+    
+    // Pre-initialize document processor to ensure it's ready before requests come in
+    const documentProcessor = DocumentProcessorService.getInstance();
+    
+    // Initialize server
+    const server = new Server();
+    
+    // Start HTTP server
+    try {
+      server.start();
+      logger.info(`Server running on port ${config.port}`);
+
+      return true;
+    } catch (error) {
+      logger.error('Failed to start server', { error });
+      return false;
+    }
+  } catch (error) {
+    logger.error('Error starting server', { error });
+    return false;
+  }
+}
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  logger.info('Received SIGINT. Shutting down gracefully...');
+  try {
+    const server = new Server();
+    await server.stop();
+    
+    logger.info('Server and services stopped successfully');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown', { error });
     process.exit(1);
   }
-}
-
-// Handle cleanup
-async function cleanup() {
-  console.log('Shutting down server...');
-  
-  if (serverInstance) {
-    await new Promise<void>((resolve) => {
-      serverInstance.close(() => {
-        console.log('Server closed');
-        resolve();
-      });
-
-      // Force close after 5 seconds
-      setTimeout(() => {
-        console.warn('Could not close connections in time, forcefully shutting down');
-        resolve();
-      }, 5000);
-    });
-  }
-
-  process.exit(0);
-}
-
-// Handle different shutdown signals
-process.on('SIGTERM', cleanup);
-process.on('SIGINT', cleanup);
-process.on('SIGUSR2', cleanup);
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  cleanup();
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  cleanup();
+process.on('SIGTERM', async () => {
+  logger.info('Received SIGTERM. Shutting down gracefully...');
+  try {
+    const server = new Server();
+    await server.stop();
+    
+    logger.info('Server and services stopped successfully');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown', { error });
+    process.exit(1);
+  }
 });
 
 // Start the server
-startServer(); 
+startServer().then(started => {
+  if (!started) {
+    logger.error('Failed to start server');
+    process.exit(1);
+  }
+}).catch(error => {
+  logger.error('Unhandled error starting server', { error });
+  process.exit(1);
+}); 

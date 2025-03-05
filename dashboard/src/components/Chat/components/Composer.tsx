@@ -6,10 +6,18 @@ export interface ComposerProps {
   placeholder?: string;
   disabled?: boolean;
   isGenerating?: boolean;
+  streaming?: boolean;
+  suggestions?: string[];
+  mentionableUsers?: {
+    id: string;
+    name: string;
+    avatar?: string;
+  }[];
   allowAttachments?: boolean;
   allowVoiceInput?: boolean;
   maxAttachmentSize?: number;
   supportedFileTypes?: string[];
+  className?: string;
 }
 
 export const Composer: React.FC<ComposerProps> = ({
@@ -17,14 +25,21 @@ export const Composer: React.FC<ComposerProps> = ({
   disabled = false,
   placeholder = 'Type a message...',
   isGenerating = false,
+  streaming = false,
+  suggestions = [],
+  mentionableUsers = [],
   allowAttachments = false,
   allowVoiceInput = false,
   maxAttachmentSize = 5 * 1024 * 1024,
   supportedFileTypes = ['image/*', 'application/pdf'],
+  className = '',
 }) => {
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showMentions, setShowMentions] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
@@ -57,8 +72,37 @@ export const Composer: React.FC<ComposerProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      if (showSuggestions || showMentions) {
+        return; // Don't submit if suggestions or mentions are open
+      }
       handleSubmit(e);
+    } else if (e.key === '@') {
+      setShowMentions(true);
+      setShowSuggestions(false);
+    } else if (e.key === '/' && cursorPosition === 0) {
+      setShowSuggestions(true);
+      setShowMentions(false);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+      setShowMentions(false);
     }
+  };
+
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setMessage(e.target.value);
+    setCursorPosition(e.target.selectionStart);
+  };
+
+  const insertSuggestion = (suggestion: string) => {
+    setMessage(suggestion);
+    setShowSuggestions(false);
+  };
+
+  const insertMention = (user: { id: string; name: string }) => {
+    const before = message.slice(0, cursorPosition);
+    const after = message.slice(cursorPosition);
+    setMessage(`${before}@${user.name} ${after}`);
+    setShowMentions(false);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -87,7 +131,7 @@ export const Composer: React.FC<ComposerProps> = ({
     <form 
       ref={composerRef}
       onSubmit={handleSubmit} 
-      className="relative bg-white dark:bg-gray-800 rounded-lg shadow-sm"
+      className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-sm ${className}`}
     >
       <AnimatePresence>
         {attachments.length > 0 && (
@@ -123,6 +167,63 @@ export const Composer: React.FC<ComposerProps> = ({
             ))}
           </motion.div>
         )}
+
+        {/* Suggestions Dropdown */}
+        {showSuggestions && suggestions.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute bottom-full left-0 mb-2 w-full max-h-48 overflow-y-auto
+              bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 
+              dark:border-gray-700 z-10"
+          >
+            {suggestions.map((suggestion, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => insertSuggestion(suggestion)}
+                className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700
+                  text-gray-900 dark:text-white text-sm"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </motion.div>
+        )}
+
+        {/* Mentions Dropdown */}
+        {showMentions && mentionableUsers.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute bottom-full left-0 mb-2 w-full max-h-48 overflow-y-auto
+              bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 
+              dark:border-gray-700 z-10"
+          >
+            {mentionableUsers.map((user) => (
+              <button
+                key={user.id}
+                type="button"
+                onClick={() => insertMention(user)}
+                className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700
+                  flex items-center space-x-2"
+              >
+                {user.avatar ? (
+                  <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
+                    <span className="text-xs text-gray-600 dark:text-gray-300">
+                      {user.name.charAt(0)}
+                    </span>
+                  </div>
+                )}
+                <span className="text-sm text-gray-900 dark:text-white">{user.name}</span>
+              </button>
+            ))}
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <div className="relative flex items-end space-x-2 p-2">
@@ -148,12 +249,10 @@ export const Composer: React.FC<ComposerProps> = ({
           <textarea
             ref={textareaRef}
             value={message}
-            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => {
-              setMessage(e.target.value);
-            }}
+            onChange={handleChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={placeholder}
+            placeholder={streaming ? 'AI is typing...' : placeholder}
             disabled={disabled || isGenerating}
             className={`
               w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 
@@ -163,13 +262,20 @@ export const Composer: React.FC<ComposerProps> = ({
               text-gray-900 dark:text-white placeholder-gray-500 
               dark:placeholder-gray-400
               min-h-[44px] max-h-[120px] overflow-y-auto
-              ${isGenerating ? 'pr-24' : 'pr-12'}
+              ${isGenerating || streaming ? 'pr-24' : 'pr-12'}
               transition-all duration-200
             `}
             rows={1}
           />
 
           <div className="absolute right-2 bottom-2 flex items-center space-x-1">
+            {streaming && (
+              <div className="flex items-center space-x-1 mr-2">
+                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            )}
             {allowVoiceInput && (
               <motion.button
                 type="button"
@@ -185,7 +291,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 `}
               >
                 <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8 14a1 1 0 110-2 1 1 0 010 2zM12 10a1 1 0 110-2 1 1 0 010 2z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                 </svg>
               </motion.button>
             )}

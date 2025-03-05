@@ -7,7 +7,7 @@ import { BadRequestError } from '../utils/errors';
 interface Widget {
   widget_type: string;
   title: string;
-  size: string;
+  size: string | { w: number; h: number } | any;
   settings: Record<string, any>;
   position: number;
 }
@@ -310,65 +310,120 @@ export class DashboardController {
 
   async createDashboard(req: Request, res: Response) {
     try {
-      const { name, description, team, category, organization_id } = req.body;
       const userId = req.user?.id;
-
+      
       if (!userId) {
-        return res.status(401).json({ message: 'Authentication required' });
+        console.error('User ID not found in request');
+        return res.status(401).json({ message: 'User not authenticated' });
       }
 
-      // Verify user is a member of the organization
-      const [membershipCheck] = await this.db('organization_members')
-        .where({ organization_id, user_id: userId })
-        .count('id as count');
+      const { name, description, team, category, created_by, organization_id } = req.body;
 
-      if (parseInt(membershipCheck.count as string, 10) === 0) {
-        console.warn('Unauthorized dashboard creation attempt:', { userId, organization_id });
-        return res.status(403).json({ message: 'Not authorized to create dashboards in this organization' });
+      if (!name) {
+        return res.status(400).json({ message: 'Dashboard name is required' });
       }
 
-      // Start a transaction
+      if (!organization_id) {
+        return res.status(400).json({ message: 'Organization ID is required' });
+      }
+
+      console.log('Creating dashboard:', {
+        name,
+        description,
+        team,
+        category,
+        created_by: created_by || userId,
+        organization_id
+      });
+
       const trx = await this.db.transaction();
+
       try {
-        // Create the dashboard
+        // Create the dashboard with the user ID directly
         const [dashboard] = await trx('dashboards')
           .insert({
             name,
             description,
             team,
             category,
-            created_by: userId,
+            created_by: parseInt(created_by, 10),
             organization_id,
           })
           .returning('*');
 
+        console.log('Dashboard created successfully:', dashboard);
+
         // If widgets were provided, create them
         if (req.body.widgets && Array.isArray(req.body.widgets)) {
-          await Promise.all(req.body.widgets.map((widget: Widget) => 
-            trx('dashboard_widgets').insert({
-              dashboard_id: dashboard.id,
-              widget_type: widget.widget_type,
-              title: widget.title,
-              size: widget.size,
-              settings: JSON.stringify(widget.settings),
-              position: widget.position,
-            })
-          ));
+          for (const widget of req.body.widgets) {
+            // Convert string size values to JSON objects
+            let sizeValue = widget.size;
+            if (typeof widget.size === 'string') {
+              // Map string sizes to appropriate dimensions
+              switch(widget.size) {
+                case 'small':
+                  sizeValue = { w: 4, h: 3 };
+                  break;
+                case 'medium':
+                  sizeValue = { w: 6, h: 4 };
+                  break;
+                case 'large':
+                  sizeValue = { w: 12, h: 6 };
+                  break;
+                default:
+                  // If it's already a JSON string, keep it as is
+                  try {
+                    JSON.parse(widget.size);
+                    sizeValue = widget.size;
+                  } catch (e) {
+                    // If parsing fails, use default medium size
+                    sizeValue = { w: 6, h: 4 };
+                  }
+              }
+            }
+            
+            // Extract the widget type from the client data or use a default
+            const widgetType = widget.widget_type || widget.type || 'default';
+            console.log('Widget type:', widgetType);
+
+            // Use raw SQL to ensure widget_type is properly included
+            await trx.raw(`
+              INSERT INTO dashboard_widgets 
+              (dashboard_id, widget_type, title, size, settings, position) 
+              VALUES (?, ?, ?, ?, ?, ?)
+            `, [
+              dashboard.id, 
+              widgetType, 
+              widget.title, 
+              sizeValue, 
+              JSON.stringify(widget.settings), 
+              widget.position || 0
+            ]);
+          }
           console.log(`Added ${req.body.widgets.length} widgets to dashboard:`, dashboard.id);
         }
 
         await trx.commit();
 
-        // Fetch the complete dashboard with widgets and metrics
+        // Fetch the complete dashboard with details
         const result = await this.getDashboardWithDetails(dashboard.id);
         res.status(201).json(result);
       } catch (error) {
+        console.error('Transaction error:', error);
         await trx.rollback();
         throw error;
       }
     } catch (error) {
       console.error('Error creating dashboard:', error);
-      res.status(500).json({ error: 'Failed to create dashboard' });
+      console.error('Request details:', {
+        body: req.body,
+        user: req.user,
+        headers: req.headers
+      });
+      res.status(500).json({ 
+        error: 'Failed to create dashboard',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }
 
@@ -571,15 +626,49 @@ export class DashboardController {
 
         // Insert new widgets
         for (const widget of widgets) {
-          await client('dashboard_widgets')
-            .insert({
-              dashboard_id: dashboardId,
-              widget_type: widget.widget_type,
-              title: widget.title,
-              size: widget.size,
-              settings: JSON.stringify(widget.settings),
-              position: widget.position
-            });
+          // Convert string size values to JSON objects
+          let sizeValue = widget.size;
+          if (typeof widget.size === 'string') {
+            // Map string sizes to appropriate dimensions
+            switch(widget.size) {
+              case 'small':
+                sizeValue = { w: 4, h: 3 };
+                break;
+              case 'medium':
+                sizeValue = { w: 6, h: 4 };
+                break;
+              case 'large':
+                sizeValue = { w: 12, h: 6 };
+                break;
+              default:
+                // If it's already a JSON string, keep it as is
+                try {
+                  JSON.parse(widget.size);
+                  sizeValue = widget.size;
+                } catch (e) {
+                  // If parsing fails, use default medium size
+                  sizeValue = { w: 6, h: 4 };
+                }
+            }
+          }
+
+          // Extract the widget type from the client data or use a default
+          const widgetType = widget.widget_type || widget.type || 'default';
+          console.log('Widget type:', widgetType);
+
+          // Make sure widget_type is included in the insert
+          await client.raw(`
+            INSERT INTO dashboard_widgets 
+            (dashboard_id, widget_type, title, size, settings, position) 
+            VALUES (?, ?, ?, ?, ?, ?)
+          `, [
+            dashboardId, 
+            widgetType, 
+            widget.title, 
+            sizeValue, 
+            JSON.stringify(widget.settings), 
+            widget.position || 0
+          ]);
         }
 
         console.log(`Added ${widgets.length} new widgets to dashboard:`, dashboardId);

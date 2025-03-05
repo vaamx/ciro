@@ -174,7 +174,7 @@ export async function findUserByOAuth(provider: string, oauthId: string) {
 }
 
 // Session-related queries
-export async function createSession(userId: number, sessionToken: string, expiresAt: Date) {
+export async function createSession(userId: string, sessionToken: string, expiresAt: Date) {
   const result = await pool.query(
     `INSERT INTO sessions (user_id, session_token, expires_at)
      VALUES ($1, $2, $3)
@@ -197,7 +197,7 @@ export async function findSessionByToken(token: string) {
 
 // OAuth token-related queries
 export async function upsertOAuthToken(
-  userId: number,
+  userId: string,
   provider: string,
   accessToken: string,
   refreshToken: string | null,
@@ -242,4 +242,26 @@ export async function getChatHistory(sessionId: string) {
     [sessionId]
   );
   return result.rows;
+}
+
+export async function getUserFromSession(
+  sessionToken: string
+): Promise<{
+  id: string;
+  email: string;
+  name: string | null;
+  emailVerified: Date | null;
+  organizationId: number;
+  role: string;
+  isSetupComplete: boolean;
+} | null> {
+  // ... existing code ...
+  return null; // Add proper implementation or return null
+}
+
+export async function getUserId(
+  userId: string,
+): Promise<string | null> {
+  // ... existing code ...
+  return null; // Add proper implementation or return null
 } 

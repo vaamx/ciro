@@ -2,6 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import * as Icons from 'lucide-react';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOrganization } from '../../contexts/OrganizationContext';
+import { createPortal } from 'react-dom';
+import type { Widget } from './WidgetManager';
+import type { MetricCard } from './StaticMetricsCards';
 
 interface DashboardModalProps {
   isOpen: boolean;
@@ -12,6 +16,12 @@ interface DashboardModalProps {
     description?: string;
     team?: string;
     category?: string;
+    widgets: Widget[];
+    metrics: MetricCard[];
+    createdBy: number;
+    createdAt: string;
+    updatedAt: string;
+    organization_id: number;
   };
 }
 
@@ -21,6 +31,7 @@ const MAX_DESCRIPTION_LENGTH = 200;
 const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, dashboard }) => {
   const { addDashboard, updateDashboard } = useDashboard();
   const { user } = useAuth();
+  const { currentOrganization } = useOrganization();
   const [name, setName] = useState(dashboard?.name || '');
   const [description, setDescription] = useState(dashboard?.description || '');
   const [team, setTeam] = useState(dashboard?.team || '');
@@ -49,10 +60,19 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, dashbo
         description: description.trim(),
         team: team.trim(),
         category: category.trim(),
+        organization_id: currentOrganization?.id || 1,
       };
 
       if (dashboard?.id) {
-        await updateDashboard(dashboard.id, dashboardData);
+        await updateDashboard({
+          id: dashboard.id,
+          ...dashboardData,
+          widgets: dashboard.widgets,
+          metrics: dashboard.metrics,
+          createdBy: dashboard.createdBy,
+          createdAt: dashboard.createdAt,
+          updatedAt: new Date().toISOString(),
+        });
       } else {
         await addDashboard({
           ...dashboardData,
@@ -71,9 +91,10 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, dashbo
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+  return createPortal(
+    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 9999 }}>
+      <div className="fixed inset-0 bg-black/50" aria-hidden="true" />
+      <div className="relative bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-xl font-semibold mb-4 dark:text-white">
           {dashboard ? 'Edit Dashboard' : 'Create New Dashboard'}
         </h2>
@@ -147,7 +168,8 @@ const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, dashbo
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -233,10 +255,6 @@ export const DashboardManager: React.FC = () => {
             <span className="font-medium max-w-[200px] truncate text-gray-700 dark:text-gray-300">
               {currentDashboard?.name || 'Select Dashboard'}
             </span>
-            <Icons.ChevronDown 
-              size={16} 
-              className={`text-gray-500 dark:text-gray-400 transition-all duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} 
-            />
           </button>
           <button
             onClick={handleCreateNew}

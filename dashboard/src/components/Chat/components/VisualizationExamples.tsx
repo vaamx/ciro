@@ -1,8 +1,7 @@
-import React from 'react';
 import { Visualization } from '../../Visualization';
 import { motion } from 'framer-motion';
 
-export const VisualizationExamples: React.FC = () => {
+export function VisualizationExamples() {
   // Sample data for line chart (Time Series)
   const lineChartConfig = {
     data: {
@@ -186,10 +185,9 @@ export const VisualizationExamples: React.FC = () => {
 
   return (
     <div className="space-y-8 p-6">
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
         Visualization Examples
       </h2>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Line Chart */}
         <motion.div
@@ -259,4 +257,7 @@ export const VisualizationExamples: React.FC = () => {
             className="h-80"
           />
         </motion.div>
- 
+      </div>
+    </div>
+  );
+} 

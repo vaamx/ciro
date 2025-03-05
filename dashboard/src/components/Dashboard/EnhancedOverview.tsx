@@ -33,6 +33,7 @@ const defaultWidgets: Widget[] = [
     id: 'stats',
     title: 'Key Metrics',
     type: 'stats',
+    widget_type: 'stats',
     size: 'medium',
     content: ({ isExpanded }) => <StatsOverview isExpanded={isExpanded} />,
     settings: {
@@ -45,6 +46,7 @@ const defaultWidgets: Widget[] = [
     id: 'activity',
     title: 'Activity Timeline',
     type: 'activity',
+    widget_type: 'activity',
     size: 'large',
     content: <ActivityTimeline />,
     settings: {
@@ -57,6 +59,7 @@ const defaultWidgets: Widget[] = [
     id: 'performance',
     title: 'Performance Metrics',
     type: 'stats',
+    widget_type: 'stats',
     size: 'medium',
     content: <PerformanceMetrics />,
     settings: {

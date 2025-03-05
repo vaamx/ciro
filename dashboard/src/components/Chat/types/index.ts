@@ -1,5 +1,7 @@
 import { type MessageStatus as AssistantMessageStatus } from '@assistant-ui/react';
+import type { ModelType } from './models';
 
+export type { ModelType } from './models';
 export type MessageStatus = AssistantMessageStatus | 'complete' | 'error' | 'loading';
 
 export type MessageRole = 'user' | 'assistant' | 'error';
@@ -14,10 +16,18 @@ export type MessageMetadata = {
 
 export interface ChatMessage {
   id: string;
-  role: MessageRole;
+  role: 'user' | 'assistant' | 'system' | 'error';
   content: string;
-  status: MessageStatus;
-  metadata?: MessageMetadata;
+  timestamp: number;
+  status?: 'pending' | 'complete' | 'error';
+  metadata?: {
+    model?: ModelType;
+    tokens?: {
+      prompt: number;
+      completion: number;
+      total: number;
+    };
+  };
 }
 
 export interface MessageProps {
@@ -27,8 +37,17 @@ export interface MessageProps {
 }
 
 export interface ComposerProps {
-  onSubmit: (message: string) => void;
+  onSubmit: (message: string, attachments?: File[]) => void;
   placeholder?: string;
+  isGenerating?: boolean;
+  disabled?: boolean;
+  streaming?: boolean;
+  suggestions?: string[];
+  mentionableUsers?: Array<{ id: string; name: string; avatar?: string }>;
+  allowAttachments?: boolean;
+  allowVoiceInput?: boolean;
+  maxAttachmentSize?: number;
+  supportedFileTypes?: string[];
 }
 
 export interface MessagesProps {
@@ -48,4 +67,16 @@ export interface DataSource {
   icon: string;
   type: 'internal' | 'customer';
   description?: string;
+}
+
+export interface ChatSettings {
+  model: ModelType;
+  temperature?: number;
+  systemPrompt?: string;
+  stream?: boolean;
+}
+
+export interface ChatService {
+  generateResponse: (messages: ChatMessage[], settings: ChatSettings) => Promise<ChatMessage>;
+  streamResponse: (messages: ChatMessage[], settings: ChatSettings) => AsyncGenerator<ChatMessage>;
 } 

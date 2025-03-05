@@ -240,7 +240,20 @@ export const MessageMarkdown: React.FC<MessageMarkdownProps> = ({ content, metad
   };
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
+    <div className="prose prose-sm dark:prose-invert max-w-none
+      prose-p:text-gray-700 dark:prose-p:text-white/90
+      prose-headings:text-gray-900 dark:prose-headings:text-white
+      prose-strong:text-gray-900 dark:prose-strong:text-white
+      prose-em:text-gray-700 dark:prose-em:text-white/80
+      prose-code:text-gray-800 dark:prose-code:text-white/90
+      prose-pre:bg-gray-50 dark:prose-pre:bg-gray-800
+      prose-a:text-violet-600 dark:prose-a:text-violet-300
+      prose-ul:text-gray-700 dark:prose-ul:text-white/90
+      prose-ol:text-gray-700 dark:prose-ol:text-white/90
+      prose-li:text-gray-700 dark:prose-li:text-white/90
+      prose-blockquote:text-gray-700 dark:prose-blockquote:text-white/80
+      [&_table]:text-gray-700 dark:[&_table]:text-white/90"
+    >
       {visualization ? (
         <div className="my-4 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg">
           <Visualization
@@ -254,6 +267,7 @@ export const MessageMarkdown: React.FC<MessageMarkdownProps> = ({ content, metad
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
           components={components}
+          className="text-gray-700 dark:text-white/90"
         >
           {content}
         </ReactMarkdown>
