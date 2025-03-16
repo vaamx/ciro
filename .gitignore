@@ -94,3 +94,27 @@ backups/**/*
 *.pid
 *.seed
 *.pid.lock
+
+# Root-owned directories (not used for local development)
+/client/
+/qdrant_data/
+/var/
+/backup/
+
+# Additional project-specific directories
+/aws-deployment/credentials/
+/qdrant_data/
+/var/
+/.cache/
+
+# Additional environment files (if not meant for version control)
+.env.development
+.env.production
+
+# Docker
+*.env
+docker-compose.override.yml
+
+# Logs and databases (extended)
+*.sqlite-journal
+*.db-journal
