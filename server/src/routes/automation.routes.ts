@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { AutomationController } from '../controllers/automation.controller';
 import { asyncHandler } from '../utils/asyncHandler';
 

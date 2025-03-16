@@ -1,10 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { QdrantService } from './qdrant.service';
 import { DocumentProcessorService } from './document-processor.service';
 import { config } from '../config';
+import { db } from '../infrastructure/database';
+import { createServiceLogger } from '../utils/logger-factory';
+import { OpenAIService } from './openai.service';
 
 @Injectable()
 export class StartupService implements OnModuleInit {
@@ -12,10 +14,7 @@ export class StartupService implements OnModuleInit {
   private qdrantService: QdrantService;
   private documentProcessor: DocumentProcessorService;
 
-  constructor(
-    private readonly configService: ConfigService
-  ) {
-    // Initialize document processing services
+  constructor() {
     this.qdrantService = QdrantService.getInstance();
     this.documentProcessor = DocumentProcessorService.getInstance();
   }
@@ -36,7 +35,7 @@ export class StartupService implements OnModuleInit {
    * Ensure the upload directory exists
    */
   private ensureUploadDirectoryExists(): void {
-    const uploadDir = this.configService.get<string>('UPLOAD_DIR', 'uploads');
+    const uploadDir = config.uploadsDir || 'uploads';
     
     if (!fs.existsSync(uploadDir)) {
       try {

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources/chat';
+import { ExtendedOpenAI } from '../ai/openai/types';
 
 type MessageRole = 'user' | 'assistant' | 'system' | 'developer';
 
@@ -14,7 +15,7 @@ interface ChatMessage {
 }
 
 export class OpenAIService {
-  private client: OpenAI;
+  private client: ExtendedOpenAI;
   
   constructor() {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -24,7 +25,7 @@ export class OpenAIService {
     
     this.client = new OpenAI({
       apiKey: apiKey
-    });
+    }) as ExtendedOpenAI;
   }
 
   // Generate embeddings for vector search
@@ -61,32 +62,38 @@ export class OpenAIService {
     return completion.choices[0].message.content || '';
   }
 
-  // Generate visualization suggestions
+  // Suggest visualization based on data
   async suggestVisualization(data: any): Promise<{
     type: string;
     config: any;
   }> {
-    const prompt = `Analyze this data and suggest the most effective visualization: ${JSON.stringify(data)}
+    // Create a prompt for the visualization suggestion
+    const dataStr = JSON.stringify(data, null, 2);
+    const prompt = `I need a visualization suggestion for the following data:
     
-    Consider these visualization types:
-    1. Line Chart - For time series or trend data
-    2. Bar Chart - For comparing categories
-    3. Pie Chart - For showing composition
-    4. Table - For detailed data viewing
-    5. Area Chart - For cumulative values
-    6. Scatter Plot - For correlation analysis
-    7. Radar Chart - For multivariate data
-    8. Heatmap - For density or correlation matrices
+    ${dataStr}
     
-    Return a JSON object with:
-    1. type: The chosen visualization type
-    2. config: A complete configuration including:
-       - Data structure
-       - Colors (using tailwind colors)
-       - Animations
-       - Responsive settings
-       - Tooltips
-       - Legends
+    Please suggest a visualization type and configuration that would best represent this data.
+    Return your response as a JSON object with the following structure:
+    {
+      "type": "visualization_type",
+      "config": {
+        // Configuration for the visualization
+      }
+    }
+    
+    Consider the following visualization types:
+    - Bar chart
+    - Line chart
+    - Pie chart
+    - Scatter plot
+    - Heatmap
+    - Area chart
+    
+    Include in your config:
+       - Data mapping
+       - Colors
+       - Labels
        - Axes configuration
     
     Make the visualization beautiful and insightful.`;
@@ -99,49 +106,49 @@ export class OpenAIService {
       store: true
     });
 
+    const content = completion.choices[0].message.content || '';
+    
     try {
-      const suggestion = JSON.parse(completion.choices[0].message.content || '{}');
+      // Extract JSON from the response
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
+                        content.match(/```\n([\s\S]*?)\n```/) ||
+                        content.match(/{[\s\S]*?}/);
       
-      // Add default styling if not provided
-      if (suggestion.config && !suggestion.config.style) {
-        suggestion.config.style = {
-          backgroundColor: 'transparent',
-          fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: 12,
-          textColor: 'rgb(75, 85, 99)',
-          animation: {
-            duration: 750,
-            easing: 'easeInOutQuart'
-          }
-        };
-      }
-      
-      return suggestion;
+      const jsonStr = jsonMatch ? jsonMatch[0].replace(/```json\n|```\n|```/g, '') : content;
+      return JSON.parse(jsonStr);
     } catch (error) {
       console.error('Error parsing visualization suggestion:', error);
       return {
-        type: 'table',
+        type: 'bar',
         config: {
-          data,
-          style: {
-            backgroundColor: 'transparent',
-            fontFamily: 'Inter, system-ui, sans-serif',
-            fontSize: 12,
-            textColor: 'rgb(75, 85, 99)'
-          }
+          error: 'Failed to parse suggestion',
+          rawResponse: content
         }
       };
     }
   }
 
-  // Extract structured data from natural language query
+  // Parse a natural language query into structured data query
   async parseDataQuery(query: string): Promise<{
     dataSource: string;
     operation: string;
     filters?: Record<string, any>;
   }> {
-    const prompt = `Parse this query into a structured format: "${query}"
-    Return JSON with:
+    const prompt = `Parse the following natural language query into a structured data query:
+    
+    "${query}"
+    
+    Return a JSON object with the following structure:
+    {
+      "dataSource": "name of data source",
+      "operation": "operation to perform",
+      "filters": {
+        "field1": "value1",
+        "field2": "value2"
+      }
+    }
+    
+    Extract the following information:
     - dataSource: which data source to query
     - operation: what operation to perform
     - filters: any specific filters mentioned`;
@@ -154,11 +161,26 @@ export class OpenAIService {
       store: true
     });
 
+    const content = completion.choices[0].message.content || '';
+    
     try {
-      return JSON.parse(completion.choices[0].message.content || '{}');
+      // Extract JSON from the response
+      const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || 
+                        content.match(/```\n([\s\S]*?)\n```/) ||
+                        content.match(/{[\s\S]*?}/);
+      
+      const jsonStr = jsonMatch ? jsonMatch[0].replace(/```json\n|```\n|```/g, '') : content;
+      return JSON.parse(jsonStr);
     } catch (error) {
-      console.error('Error parsing query:', error);
-      throw new Error('Failed to parse query');
+      console.error('Error parsing data query:', error);
+      return {
+        dataSource: 'unknown',
+        operation: 'query',
+        filters: {
+          error: 'Failed to parse query',
+          rawQuery: query
+        }
+      };
     }
   }
 } 

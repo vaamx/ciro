@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from '../types/express-types';
 import { AuthRequest } from '../middleware/auth';
 
 type AsyncRequestHandler<T extends Request = Request> = (

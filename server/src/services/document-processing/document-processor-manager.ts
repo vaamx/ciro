@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentProcessorService } from '../../services/document-processor.service';
 import { FileType } from '../../types/file-types';
-import { createLogger } from '../../utils/logger';
+import { createServiceLogger } from '../../utils/logger-factory';
 import { db } from '../../infrastructure/database';
 
 // Define ProcessingState enum if not already defined elsewhere
@@ -41,7 +41,7 @@ export interface ProcessingJob {
 class DocumentProcessorManager {
   private jobs: Map<string, ProcessingJob>;
   private documentProcessor: DocumentProcessorService;
-  private logger = createLogger('DocumentProcessorManager');
+  private readonly logger = createServiceLogger('DocumentProcessorManager');
 
   constructor() {
     this.jobs = new Map();

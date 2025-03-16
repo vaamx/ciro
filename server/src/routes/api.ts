@@ -1,34 +1,175 @@
-import { Router, Response } from 'express';
+import express from '../types/express-types';
+import type { Response as ExpressResponse, RequestHandler } from 'express-serve-static-core';
 import { authenticate } from '../middleware/auth';
 import { DataSourceController } from '../controllers/data-source.controller';
-import type { RequestHandler } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { QdrantService } from '../services/qdrant.service';
 import { getServiceRegistry } from '../services/service-registry';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { pool } from '../config/database';
 import { OpenAIService } from '../services/openai.service';
+import { RagService } from '../services/rag.service';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
+import { Response } from '../types/express-types';
 
+// Force Node to use the actual express module, not the type definition
+// @ts-ignore
+const { Router } = require('express');
+
+// Extend AuthRequest interface to include the required properties
+declare module '../middleware/auth' {
+  interface AuthRequest {
+    params: any;
+    query: any;
+    body: any;
+    originalUrl: string;
+    organizationId?: string;
+  }
+}
+
+// Define the formatCollectionName function
+const formatCollectionName = (id: string): string => {
+  return `collection_${id}`;
+};
+
+// Create router using the explicitly imported Router
 const router = Router();
 const dataSourceController = new DataSourceController();
-const logger = createLogger('ApiRoutes');
+const logger = createServiceLogger('ApiRoutes');
 const qdrantService = QdrantService.getInstance();
 const openAIService = OpenAIService.getInstance();
 
+// Add clock data endpoint
+router.get('/qdrant/clock-data/:collection/:id', asyncHandler<AuthRequest>(async (req, res) => {
+  try {
+    const { collection, id } = req.params;
+    
+    // Validate inputs
+    if (!collection || !id) {
+      return res.status(400).json({ error: 'Collection and ID are required' });
+    }
+    
+    logger.info(`Clock data request for collection: ${collection}, id: ${id}`);
+    
+    // Define possible paths to check
+    const qdrantDataPath = process.env.QDRANT_DATA_PATH || './qdrant_data';
+    const possiblePaths = [
+      path.join(qdrantDataPath, `collections/${collection}/${id}/newest_clocks.json`),
+      path.join(qdrantDataPath, `collections/${collection}/newest_clocks.json`),
+      path.join(qdrantDataPath, `collections/newest_clocks.json`),
+      path.join(qdrantDataPath, `newest_clocks.json`)
+    ];
+    
+    // Try each path
+    let clockDataContent = null;
+    for (const filePath of possiblePaths) {
+      logger.info(`Checking for clock data at: ${filePath}`);
+      if (fs.existsSync(filePath)) {
+        try {
+          clockDataContent = fs.readFileSync(filePath, 'utf8');
+          logger.info(`Found clock data at: ${filePath}`);
+          break;
+        } catch (readError) {
+          logger.warn(`Error reading clock data from ${filePath}:`, readError);
+        }
+      }
+    }
+    
+    // If file was found and read, parse and return it
+    if (clockDataContent) {
+      try {
+        const clockData = JSON.parse(clockDataContent);
+        return res.json(clockData);
+      } catch (parseError) {
+        logger.warn(`Error parsing clock data JSON:`, parseError);
+        // Continue to mock data if parsing fails
+      }
+    }
+    
+    // Generate mock data if file doesn't exist or couldn't be parsed
+    logger.info('Using mock clock data');
+    const mockClockData = {
+      last_updated: new Date().toISOString(),
+      clocks: {
+        search: Date.now() - 5000,
+        embedding: Date.now() - 3000,
+        processing: Date.now() - 2000
+      },
+      is_mock: true
+    };
+    
+    return res.json(mockClockData);
+  } catch (error) {
+    logger.error('Error retrieving clock data:', error);
+    return res.status(500).json({ error: 'Failed to retrieve clock data' });
+  }
+}));
+
+// Create a wrapper function to handle type conversion
+const wrapController = (fn: any): RequestHandler => {
+  return (req: any, res: any, next: any) => {
+    return fn(req, res);
+  };
+};
+
 // Data Sources routes
 router.get('/data-sources', authenticate, dataSourceController.getDataSources as RequestHandler);
-router.get('/data-sources/:id', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.getDataSource(req, res)));
-router.get('/data-sources/:id/chunks', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.getDataSourceChunks(req, res)));
-router.get('/data-sources/:id/content', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.getLocalFileContent(req, res)));
-router.post('/data-sources', authenticate, dataSourceController.createDataSource as RequestHandler);
-router.put('/data-sources/:id', authenticate, dataSourceController.updateDataSource as RequestHandler);
-router.delete('/data-sources/:id', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.deleteDataSource(req, res)));
+router.get('/data-sources/:id', authenticate, wrapController((req, res) => dataSourceController.getDataSource(req, res)));
+router.get('/data-sources/:id/chunks', authenticate, wrapController((req, res) => dataSourceController.getDataSourceChunks(req, res)));
+router.get('/data-sources/:id/content', authenticate, wrapController((req, res) => dataSourceController.getLocalFileContent(req, res)));
+router.post('/data-sources', authenticate, wrapController(dataSourceController.createDataSource));
+router.put('/data-sources/:id', authenticate, wrapController(dataSourceController.updateDataSource));
+router.delete('/data-sources/:id', authenticate, wrapController((req, res) => dataSourceController.deleteDataSource(req, res)));
+
+// Add collections endpoint to list all Qdrant collections
+router.get('/collections', authenticate, asyncHandler<AuthRequest>(async (req, res: Response) => {
+  try {
+    // Get all data sources from the database
+    const query = `
+      SELECT id, name, type, metadata 
+      FROM data_sources 
+      WHERE organization_id = $1
+      ORDER BY created_at DESC
+    `;
+    
+    const organizationId = req.organizationId || 1;
+    const result = await pool.query(query, [organizationId]);
+    
+    // Map data sources to collection names using the existing formatCollectionName function
+    const collections = result.rows.map(ds => formatCollectionName(ds.id));
+    
+    // Check for existing collections on disk
+    const qdrantCollections = await qdrantService.listCollections();
+    
+    // Combine the lists, removing duplicates
+    const allCollections = [...new Set([...collections, ...qdrantCollections])];
+    
+    return res.json(allCollections);
+  } catch (error) {
+    logger.error('Error listing collections:', error);
+    return res.status(500).json({ error: 'Failed to list collections' });
+  }
+}));
 
 // Document chunks routes
-router.post('/data-sources/chunks/search', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.searchDocumentChunks(req, res)));
-router.post('/data-sources/chunks/text-search', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.textSearchDocumentChunks(req, res)));
-router.post('/data-sources/chunks', authenticate, asyncHandler<AuthRequest>((req, res) => dataSourceController.storeDocumentChunk(req, res)));
+router.post('/data-sources/chunks/search', authenticate, 
+  asyncHandler<AuthRequest>(async (req, res) => {
+    await (dataSourceController.searchDocumentChunks as any)(req, res);
+  })
+);
+router.post('/data-sources/chunks/text-search', authenticate, 
+  asyncHandler<AuthRequest>(async (req, res) => {
+    await (dataSourceController.textSearchDocumentChunks as any)(req, res);
+  })
+);
+router.post('/data-sources/chunks', authenticate, 
+  asyncHandler<AuthRequest>(async (req, res) => {
+    await (dataSourceController.storeDocumentChunk as any)(req, res);
+  })
+);
 
 // Add API key endpoint
 router.get('/config/openai-key', authenticate, async (req: AuthRequest, res: Response) => {
@@ -48,9 +189,168 @@ router.get('/config/openai-key', authenticate, async (req: AuthRequest, res: Res
     });
   } catch (error) {
     console.error('Error retrieving API key:', error);
-    return res.status(500).json({ error: 'Error retrieving API key configuration' });
   }
 });
+
+// Knowledge base search endpoint
+router.get('/knowledge/search', authenticate, asyncHandler<AuthRequest>(async (req, res) => {
+  try {
+    const { query, organization_id } = req.query;
+    
+      if (!organization_id) {
+      return res.status(400).json({ error: 'Organization ID is required' });
+    }
+
+    logger.info(`Knowledge search request: query=${query}, organization_id=${organization_id}`);
+    
+    // Get the RAG service to use its data source helpers
+    const ragService = new RagService();
+    
+    // Convert organization_id to string to ensure type safety
+    const orgId = typeof organization_id === 'string' ? organization_id : 
+                Array.isArray(organization_id) ? String(organization_id[0]) : 
+                String(organization_id);
+    
+    // Use the RAG service to list available data sources with collection status
+    const dataSources = await ragService.listDataSources(orgId);
+    
+    if (!dataSources || dataSources.length === 0) {
+      logger.info(`No data sources found for organization: ${organization_id}`);
+      return res.json([]);
+    }
+    
+    logger.info(`Found ${dataSources.length} data sources, ${dataSources.filter(ds => ds.hasCollection).length} with collections`);
+    
+    // List all available collections for logging
+    const availableCollections = await qdrantService.listCollections();
+    logger.info(`Available collections for search: ${availableCollections.join(', ')}`);
+    
+    // Get the most recent files for each data source
+    let knowledgeItems = [];
+    
+    for (const source of dataSources) {
+      try {
+        if (!source.hasCollection) {
+          logger.warn(`Skipping source ${source.id} - no collection exists`);
+          continue;
+        }
+        
+        logger.info(`Searching collection: ${source.collectionName}`);
+        
+        // If we have a query, perform a vector search
+        if (query && query !== '*' && query !== '.') {
+          const embedding = await openAIService.createEmbeddings(query as string);
+          const searchResults = await qdrantService.search(
+            source.collectionName,
+            embedding[0],
+            undefined,
+            10
+          );
+          
+          // Format results
+          const items = searchResults.map(result => ({
+            id: result.id || `item-${crypto.randomUUID()}`,
+            title: result.payload?.title || result.payload?.fileName || 'Untitled document',
+            content: result.payload?.text || result.payload?.content || '',
+            path: result.payload?.path || result.payload?.filePath || `document-${result.id}`,
+            metadata: result.payload?.metadata || {
+              lastModified: new Date(),
+              author: result.payload?.author || 'Unknown',
+              tags: result.payload?.tags || []
+            },
+            sourceId: source.id,
+            sourceName: source.name,
+            type: result.payload?.type || 'document',
+            similarity: result.score || 0,
+            created: result.payload?.created || new Date().toISOString(),
+            lastAccessed: new Date().toISOString(),
+            stats: {
+              accessCount: result.payload?.accessCount || 0,
+              lastAccessed: new Date()
+            }
+          }));
+          
+          knowledgeItems = [...knowledgeItems, ...items];
+        } else {
+          // Without query, get most recent documents
+          const points = await qdrantService.getAllPoints(source.collectionName, 10);
+          
+          // Format results
+          const items = points.map(point => ({
+            id: point.id || `item-${crypto.randomUUID()}`,
+            title: point.payload?.title || point.payload?.fileName || 'Untitled document',
+            content: point.payload?.text || point.payload?.content || '',
+            path: point.payload?.path || point.payload?.filePath || `document-${point.id}`,
+            metadata: point.payload?.metadata || {
+              lastModified: new Date(),
+              author: point.payload?.author || 'Unknown',
+              tags: point.payload?.tags || []
+            },
+            sourceId: source.id,
+            sourceName: source.name,
+            type: point.payload?.type || 'document',
+            created: point.payload?.created || new Date().toISOString(),
+            lastAccessed: new Date().toISOString(),
+            stats: {
+              accessCount: point.payload?.accessCount || 0,
+              lastAccessed: new Date()
+            }
+          }));
+          
+          knowledgeItems = [...knowledgeItems, ...items];
+        }
+      } catch (error) {
+        logger.error(`Error searching collection for source ${source.id}:`, error);
+      }
+    }
+    
+    logger.info(`Found ${knowledgeItems.length} knowledge items across all sources`);
+    
+    // Sort by relevance (if query) or recency
+    knowledgeItems.sort((a, b) => {
+      if (query && query !== '*' && query !== '.') {
+        return (b.similarity || 0) - (a.similarity || 0);
+      } else {
+        return new Date(b.created).getTime() - new Date(a.created).getTime();
+      }
+    });
+    
+    return res.json(knowledgeItems);
+  } catch (error) {
+    logger.error('Error in knowledge search:', error);
+    
+    // Provide more detailed error information
+    let errorMessage = 'Failed to search knowledge base';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      errorMessage = `${errorMessage}: ${error.message}`;
+      
+      // Add stack trace in development environments
+      if (process.env.NODE_ENV !== 'production') {
+        errorMessage += `\n${error.stack}`;
+      }
+    }
+    
+    // Check for specific error types and provide appropriate status codes
+    if (error.name === 'AuthenticationError') {
+      statusCode = 401;
+      errorMessage = 'Authentication required to search knowledge base';
+    } else if (error.name === 'ValidationError') {
+      statusCode = 400;
+      errorMessage = `Invalid search parameters: ${error.message}`;
+    } else if (error.name === 'NotFoundError') {
+      statusCode = 404;
+      errorMessage = `Resource not found: ${error.message}`;
+    }
+    
+    return res.status(statusCode).json({ 
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+      path: req.originalUrl
+    });
+  }
+}));
 
 // Add vector search endpoint
 router.post('/vector-search', authenticate, async (req: AuthRequest, res: Response) => {

@@ -1,6 +1,6 @@
 import { db } from '../infrastructure/database';
 import { OpenAIService } from './openai.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -25,7 +25,7 @@ interface FineTuningJob {
  */
 export class FineTuningService {
   private openaiService: OpenAIService;
-  private logger = createLogger('FineTuningService');
+  private readonly logger = createServiceLogger('FineTuningService');
   private readonly trainingDataDir = 'training_data';
 
   constructor() {

@@ -3,13 +3,40 @@ import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { FilePurpose } from 'openai/resources/files';
 import { config } from '../config/index';
 import { createOpenAIClient } from '../infrastructure/ai/openai/config';
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import pLimit from 'p-limit';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { LRUCache } from 'lru-cache';
+import LRUCache from 'lru-cache';
 import { Knex } from 'knex';
+
+// Define a more complete type for the OpenAI client
+interface ExtendedOpenAI extends OpenAI {
+  embeddings: {
+    create: (params: any) => Promise<any>;
+  };
+  chat: {
+    completions: {
+      create: (params: any) => Promise<any>;
+    };
+  };
+  files: {
+    create: (params: any) => Promise<any>;
+  };
+  fineTuning: {
+    jobs: {
+      create: (params: any) => Promise<any>;
+      retrieve: (jobId: string) => Promise<any>;
+      cancel: (jobId: string) => Promise<any>;
+      list: (params: any) => Promise<any>;
+      listEvents: (jobId: string, params: any) => Promise<any>;
+    };
+  };
+  models: {
+    list: () => Promise<any>;
+  };
+}
 
 // Ensure we have a valid API key
 const openaiConfig = {
@@ -38,7 +65,7 @@ export interface ChatMessage {
   };
 }
 
-type ModelName = 'gpt-4o-mini' | 'gpt-4o' | 'o3-mini' | 'o1-mini' | 'o1-preview';
+type ModelName = 'gpt-4o-mini' | 'gpt-4o' | 'o3-mini' | 'o1-mini' | 'o1-preview' | 'gpt-4-turbo' | string;
 
 interface ChatOptions {
   model?: ModelName;
@@ -95,10 +122,34 @@ export interface FineTuningJobEvent {
 }
 
 export class OpenAIService {
-  private openai: OpenAI;
-  private logger = createLogger('OpenAIService');
+  private openai: ExtendedOpenAI;
+  private logger = winston.createLogger({
+    level: process.env.LOG_LEVEL || 'info',
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf((info) => {
+        const { timestamp, level, message, ...rest } = info;
+        const formattedMessage = `${timestamp} [${level.toUpperCase()}] [OpenAIService]: ${message}`;
+        return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+      })
+    ),
+    transports: [
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp(),
+          winston.format.printf((info) => {
+            const { timestamp, level, message, ...rest } = info;
+            const formattedMessage = `${timestamp} [${level.toUpperCase()}] [OpenAIService]: ${message}`;
+            return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+          })
+        )
+      })
+    ]
+  });
+  private concurrencyLimiter = pLimit(20); // Limit concurrent API calls
   private db: Knex | null = null;
-  private readonly defaultModel: ModelName = 'gpt-4o-mini';
+  private readonly defaultModel: ModelName = 'o3-mini';
   private readonly modelConfig = {
     'gpt-4o-mini': {
       model: 'gpt-4o-mini' as const,
@@ -143,12 +194,12 @@ export class OpenAIService {
   } as const;
   
   // Enhanced rate limiting configuration
-  private readonly rateLimiter = pLimit(5); // Limit concurrent requests to 5
+  private readonly rateLimiter = pLimit(20); // Increased from 5 to 20 concurrent requests
   private readonly maxRetries = 5; // Increased from 3 to 5
   private readonly retryDelay = 1000; // 1 second
   
   // Embedding cache
-  private embeddingCache: LRUCache<string, number[]>;
+  private embeddingCache: any;
   private readonly CACHE_DIR = path.join(process.cwd(), '.cache', 'embeddings');
   private readonly CACHE_SIZE = 10000; // Cache up to 10,000 embeddings in memory
   private readonly EMBEDDING_MODEL = 'text-embedding-ada-002';
@@ -211,10 +262,8 @@ export class OpenAIService {
       try {
         this.logger.info(`Creating OpenAI client with baseURL: ${baseURL}`);
         
-        this.openai = new OpenAI({
-          apiKey: apiKey || 'placeholder-for-missing-key',
-          baseURL: baseURL
-        });
+        // Cast the OpenAI client to our ExtendedOpenAI type
+        this.openai = openai as unknown as ExtendedOpenAI;
         
         this.logger.info('OpenAI client created successfully');
         console.log('OpenAI client created successfully');
@@ -239,7 +288,7 @@ export class OpenAIService {
               }
             }
           }
-        } as unknown as OpenAI;
+        } as unknown as ExtendedOpenAI;
       }
     } else {
       // We already initialized the client, use the one from the singleton instance
@@ -254,10 +303,11 @@ export class OpenAIService {
     }
     
     // Initialize embedding cache
-    this.embeddingCache = new LRUCache<string, number[]>({
+    const cacheOptions = {
       max: this.CACHE_SIZE,
       ttl: 1000 * 60 * 60 * 24 * 7, // Cache for 7 days
-    });
+    };
+    this.embeddingCache = new LRUCache(cacheOptions);
     
     // Create cache directory if it doesn't exist and caching is enabled
     if (!this.DISABLE_CACHE) {
@@ -269,10 +319,10 @@ export class OpenAIService {
       } catch (error) {
         this.logger.warn(`Failed to create embedding cache directory: ${error instanceof Error ? error.message : String(error)}`);
       }
-      
-      // Load cache stats
-      this.loadCacheStats();
     }
+    
+    // Load cache stats
+    this.loadCacheStats();
   }
 
   /**
@@ -290,10 +340,12 @@ export class OpenAIService {
   }
 
   /**
-   * Create embeddings with optimized handling, caching, and rate limiting protection
-   * @param input Text or array of texts to embed
-   * @param options Optional configuration for embedding generation
-   * @returns Array of embedding vectors
+   * Create embeddings for one or more texts
+   * Optimized for large document sets with improved caching and batching
+   * 
+   * @param input Single string or array of strings to embed
+   * @param options Optional parameters
+   * @returns Array of embeddings as number arrays
    */
   async createEmbeddings(
     input: string | string[], 
@@ -303,282 +355,111 @@ export class OpenAIService {
       batchSize?: number;
     } = {}
   ): Promise<number[][]> {
-    const startTime = Date.now();
+    const texts = Array.isArray(input) ? input : [input];
+    
+    if (texts.length === 0) {
+      return [];
+    }
+    
     try {
-      // Convert single string to array for consistent handling
-      const inputArray = Array.isArray(input) ? input : [input];
+      // Default options
+      const skipCache = options.skipCache || this.DISABLE_CACHE;
+      const model = options.model || this.EMBEDDING_MODEL;
       
-      // Log the input size
-      this.logger.info(`Generating embeddings for ${inputArray.length} items`);
+      // Process very long texts by truncating them
+      const processedTexts = texts.map(text => this.truncateTextForEmbedding(text));
       
-      // If the input is empty, return an empty array
-      if (inputArray.length === 0) {
-        return [];
-      }
+      // Calculate optimal batch size based on text length
+      const totalChars = processedTexts.reduce((sum, text) => sum + text.length, 0);
+      const avgTextLength = totalChars / processedTexts.length;
       
-      // Determine optimal batch size based on input length
-      // Smaller batches for longer texts to avoid token limits
-      const avgLength = inputArray.reduce((sum, text) => sum + text.length, 0) / inputArray.length;
-      const dynamicBatchSize = options.batchSize || this.calculateOptimalBatchSize(avgLength);
+      // Use provided batch size or calculate optimal batch size
+      const batchSize = options.batchSize || this.calculateOptimalBatchSize(avgTextLength);
       
-      this.logger.info(`Using dynamic batch size of ${dynamicBatchSize} for average text length of ${Math.round(avgLength)} chars`);
+      // Log embedding creation
+      this.logger.info(`Creating embeddings for ${texts.length} texts (avgLength: ${Math.round(avgTextLength)} chars) using model: ${model}, batchSize: ${batchSize}`);
       
-      // Process in batches to avoid rate limits
+      // Create batches
       const batches: string[][] = [];
-      
-      // Split input into batches
-      for (let i = 0; i < inputArray.length; i += dynamicBatchSize) {
-        batches.push(inputArray.slice(i, i + dynamicBatchSize));
+      for (let i = 0; i < processedTexts.length; i += batchSize) {
+        batches.push(processedTexts.slice(i, i + batchSize));
       }
       
-      this.logger.info(`Split ${inputArray.length} inputs into ${batches.length} batches of max size ${dynamicBatchSize}`);
+      // Process each batch with optional caching
+      const allEmbeddings: number[][] = [];
       
-      // Process each batch with rate limiting and caching
+      // Process batches in parallel with concurrency control
       const batchResults = await Promise.all(
         batches.map((batch, index) => 
-          this.rateLimiter(() => this.processEmbeddingBatchWithCache(
-            batch, 
-            index, 
-            batches.length, 
-            options.skipCache || false,
-            options.model || this.EMBEDDING_MODEL
-          ))
+          this.concurrencyLimiter(() => 
+            this.processEmbeddingBatchWithCache(
+              batch, 
+              index, 
+              batches.length,
+              skipCache,
+              model
+            )
+          )
         )
       );
       
-      // Flatten the results
-      const embeddings = batchResults.flat();
+      // Combine results from all batches
+      for (const batchResult of batchResults) {
+        allEmbeddings.push(...batchResult);
+      }
       
-      const duration = (Date.now() - startTime) / 1000;
-      this.logger.info(`Generated ${embeddings.length} embeddings in ${duration.toFixed(2)}s (${(embeddings.length / duration).toFixed(2)} embeddings/sec)`);
-      
-      return embeddings;
+      return allEmbeddings;
     } catch (error) {
-      const duration = (Date.now() - startTime) / 1000;
-      this.logger.error(`Error generating embeddings after ${duration.toFixed(2)}s`, { 
-        error: error instanceof Error ? error.message : String(error) 
+      this.logger.error(`Error creating embeddings: ${error.message}`, {
+        textsCount: texts.length,
+        error
       });
       throw error;
     }
   }
   
   /**
-   * Calculate optimal batch size based on text length
+   * Calculate the optimal batch size based on average text length
+   * Adjusted to handle large document sets better
    */
   private calculateOptimalBatchSize(avgTextLength: number): number {
-    // For very short texts, use larger batches
-    if (avgTextLength < 100) return 50;
-    // For short texts, use medium batches
-    if (avgTextLength < 500) return 30;
-    // For medium texts, use standard batches
-    if (avgTextLength < 1000) return 20;
-    // For long texts, use smaller batches
-    if (avgTextLength < 2000) return 10;
-    // For very long texts, use very small batches
-    return 5;
-  }
-  
-  /**
-   * Process a batch of embeddings with caching and retry logic
-   */
-  private async processEmbeddingBatchWithCache(
-    batch: string[], 
-    batchIndex: number, 
-    totalBatches: number,
-    skipCache: boolean,
-    model: string
-  ): Promise<number[][]> {
-    // Skip cache if disabled via environment variable
-    const shouldSkipCache = skipCache || this.DISABLE_CACHE;
-    
-    // Check cache first if not skipping
-    if (!shouldSkipCache) {
-      const cachedResults = this.getCachedEmbeddings(batch);
-      const uncachedTexts = batch.filter((_, i) => !cachedResults[i]);
-      
-      // If all embeddings were in cache, return them
-      if (uncachedTexts.length === 0) {
-        this.logger.info(`Batch ${batchIndex + 1}/${totalBatches}: All ${batch.length} embeddings found in cache`);
-        return cachedResults.filter(Boolean) as number[][];
-      }
-      
-      // If some embeddings were in cache, only process the uncached ones
-      if (uncachedTexts.length < batch.length) {
-        this.logger.info(`Batch ${batchIndex + 1}/${totalBatches}: Found ${batch.length - uncachedTexts.length}/${batch.length} embeddings in cache, generating ${uncachedTexts.length} new embeddings`);
-        
-        // Process uncached texts
-        const newEmbeddings = await this.processEmbeddingBatchWithRetry(uncachedTexts, batchIndex, totalBatches, model);
-        
-        // Cache the new embeddings
-        this.cacheEmbeddings(uncachedTexts, newEmbeddings);
-        
-        // Merge cached and new embeddings in the original order
-        let uncachedIndex = 0;
-        return batch.map((text, i) => {
-          if (cachedResults[i]) return cachedResults[i];
-          return newEmbeddings[uncachedIndex++];
-        });
-      }
-    }
-    
-    // If skipping cache or no cached embeddings found, process the entire batch
-    const embeddings = await this.processEmbeddingBatchWithRetry(batch, batchIndex, totalBatches, model);
-    
-    // Cache the embeddings for future use (if caching is enabled)
-    if (!shouldSkipCache) {
-      this.cacheEmbeddings(batch, embeddings);
-    }
-    
-    return embeddings;
-  }
-  
-  /**
-   * Get cached embeddings for a batch of texts
-   */
-  private getCachedEmbeddings(texts: string[]): (number[] | null)[] {
-    return texts.map(text => {
-      const hash = this.hashText(text);
-      
-      // Check in-memory cache first
-      const cachedEmbedding = this.embeddingCache.get(hash);
-      if (cachedEmbedding) return cachedEmbedding;
-      
-      // Check disk cache
-      try {
-        const cachePath = path.join(this.CACHE_DIR, `${hash}.json`);
-        if (fs.existsSync(cachePath)) {
-          const embedding = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-          // Add to in-memory cache
-          this.embeddingCache.set(hash, embedding);
-          return embedding;
-        }
-      } catch (error) {
-        this.logger.debug(`Cache miss for text hash ${hash.substring(0, 8)}...`);
-      }
-      
-      return null;
-    });
-  }
-  
-  /**
-   * Cache embeddings for a batch of texts
-   */
-  private cacheEmbeddings(texts: string[], embeddings: number[][]): void {
-    // Skip caching if disabled
-    if (this.DISABLE_CACHE) return;
-    
-    try {
-      texts.forEach((text, i) => {
-        const hash = this.hashText(text);
-        
-        // Add to in-memory cache
-        this.embeddingCache.set(hash, embeddings[i]);
-        
-        // Write to disk cache
-        const cachePath = path.join(this.CACHE_DIR, `${hash}.json`);
-        fs.writeFileSync(cachePath, JSON.stringify(embeddings[i]));
-      });
-    } catch (error) {
-      this.logger.warn(`Failed to cache embeddings: ${error instanceof Error ? error.message : String(error)}`);
+    // Higher limit for efficiency, helps process more documents
+    if (avgTextLength > 10000) {
+      return 1; // For very long texts, process one at a time
+    } else if (avgTextLength > 5000) {
+      return 2; 
+    } else if (avgTextLength > 1000) {
+      return 5;
+    } else if (avgTextLength > 500) {
+      return 10;
+    } else if (avgTextLength > 250) {
+      return 20;
+    } else {
+      return 50; // For very short texts, process in larger batches
     }
   }
   
   /**
-   * Create a hash of text for caching
+   * Truncate text for embedding to ensure it fits within token limits
+   * More aggressive truncation to ensure we can process large documents
    */
-  private hashText(text: string): string {
-    return crypto.createHash('sha256').update(text).digest('hex');
-  }
-  
-  /**
-   * Process a batch of embeddings with enhanced retry logic
-   */
-  private async processEmbeddingBatchWithRetry(
-    batch: string[], 
-    batchIndex: number, 
-    totalBatches: number,
-    model: string
-  ): Promise<number[][]> {
-    let retries = 0;
-    let lastError: any = null;
+  private truncateTextForEmbedding(text: string): string {
+    if (!text) return '';
     
-    while (retries <= this.maxRetries) {
-      try {
-        this.logger.info(`Processing embedding batch ${batchIndex + 1}/${totalBatches} (attempt ${retries + 1}/${this.maxRetries + 1})`);
-        
-        const result = await this.openai.embeddings.create({
-          model: model,
-          input: batch
-        });
-        
-        const embeddings = result.data.map(item => item.embedding);
-        this.logger.info(`Successfully generated ${embeddings.length} embeddings in batch ${batchIndex + 1}/${totalBatches}`);
-        
-        return embeddings;
-      } catch (error: any) {
-        lastError = error;
-        
-        // Enhanced error classification
-        const isRateLimit = error.status === 429 || 
-                           (error.message && error.message.includes('rate limit'));
-        const isServerError = error.status >= 500 || 
-                             (error.message && error.message.includes('server error'));
-        const isTokenLimitError = error.message && (
-                                 error.message.includes('token limit') || 
-                                 error.message.includes('maximum context length'));
-        
-        this.logger.error(`Error in batch ${batchIndex + 1}/${totalBatches} (attempt ${retries + 1}/${this.maxRetries + 1}): ${error.message}`);
-        
-        // If we've reached max retries, throw the error
-        if (retries >= this.maxRetries) {
-          this.logger.error(`Max retries (${this.maxRetries}) reached for batch ${batchIndex + 1}. Giving up.`);
-          throw error;
-        }
-        
-        // If it's a token limit error, we need to reduce batch size and retry
-        if (isTokenLimitError && batch.length > 1) {
-          this.logger.warn(`Token limit exceeded. Splitting batch ${batchIndex + 1} into smaller chunks and retrying.`);
-          
-          // Split the batch in half and process each half separately
-          const midpoint = Math.ceil(batch.length / 2);
-          const firstHalf = batch.slice(0, midpoint);
-          const secondHalf = batch.slice(midpoint);
-          
-          // Process each half with retries
-          const firstHalfEmbeddings = await this.processEmbeddingBatchWithRetry(
-            firstHalf, 
-            batchIndex, 
-            totalBatches,
-            model
-          );
-          
-          const secondHalfEmbeddings = await this.processEmbeddingBatchWithRetry(
-            secondHalf, 
-            batchIndex, 
-            totalBatches,
-            model
-          );
-          
-          // Combine the results
-          return [...firstHalfEmbeddings, ...secondHalfEmbeddings];
-        }
-        
-        // Calculate backoff time - longer for rate limit errors
-        const backoffTime = isRateLimit 
-          ? this.retryDelay * Math.pow(2, retries) // Exponential backoff for rate limits
-          : isServerError
-            ? this.retryDelay * (retries + 1) // Linear backoff for server errors
-            : this.retryDelay; // Constant delay for other errors
-        
-        this.logger.info(`Waiting ${backoffTime / 1000} seconds before retry...`);
-        await new Promise(resolve => setTimeout(resolve, backoffTime));
-        
-        retries++;
-      }
+    // Maximum number of tokens (~8k tokens * 4 chars per token = ~32K chars)
+    const MAX_CHARS = 32000;
+    
+    if (text.length <= MAX_CHARS) {
+      return text;
     }
     
-    // This should never be reached due to the throw in the loop, but TypeScript needs it
-    throw lastError;
+    // For very long text, take beginning and end portions for more representative embedding
+    const halfLength = Math.floor(MAX_CHARS / 2);
+    const beginning = text.substring(0, halfLength);
+    const end = text.substring(text.length - halfLength);
+    
+    // Combine with a marker in between
+    return `${beginning}\n...[content truncated for embedding]...\n${end}`;
   }
 
   /**
@@ -588,59 +469,94 @@ export class OpenAIService {
    * @returns The recommended model name
    */
   public selectModelForQuery(query: string): ModelName {
-    // Check for code-related content
-    const isCodeRelated = /\bcode\b|\bfunction\b|\bclass\b|\bprogramming\b|\balgorithm\b/i.test(query);
+    const queryLength = query.length;
+    const complexityScore = this.analyzeQueryComplexity(query);
     
-    // Check for analytical content
-    const isAnalytical = /\banalyze\b|\banalysis\b|\bcompare\b|\btrend\b|\bstatistics\b|\bdata\b|\bcount\b|\bhow many\b/i.test(query);
+    this.logger.debug(`Query length: ${queryLength}, complexity score: ${complexityScore}`);
     
-    // Check for complex reasoning needs
-    const isComplexReasoning = query.length > 200 && /\bexplain\b|\breason\b|\bwhy\b|\bhow\b|\bcause\b|\beffect\b/i.test(query);
-    
-    // Check for creative content needs
-    const isCreative = /\bcreative\b|\bimagine\b|\bstory\b|\bwrite\b|\bgenerate\b|\bcreate\b/i.test(query);
-    
-    this.logger.debug(`Query characteristics: codeRelated=${isCodeRelated}, analytical=${isAnalytical}, complexReasoning=${isComplexReasoning}, creative=${isCreative}`);
-    
-    // Select model based on characteristics
-    if (isCodeRelated) {
-      return 'o1-mini'; // Best for code generation at reasonable cost
-    } else if (isAnalytical) {
-      return 'o3-mini'; // Best for analytical tasks at reasonable cost
-    } else if (isComplexReasoning && query.length > 500) {
-      return 'o1-mini'; // For very complex reasoning needs
-    } else if (isCreative) {
-      return 'gpt-4o-mini'; // Good creativity at reasonable cost
+    // For extra long or complex queries, use GPT-4o
+    if (queryLength > 1000 && complexityScore > 7) {
+      return 'gpt-4o';
     }
     
-    // Default to most cost-effective option
-    return this.defaultModel;
+    // For code-related tasks, use o1-mini
+    if (this.isCodeRelatedQuery(query)) {
+      return 'o1-mini';
+    }
+    
+    // For anything else, use o3-mini
+    return 'o3-mini'; // Good creativity at reasonable cost
   }
 
   async generateChatCompletion(messages: ChatCompletionMessageParam[], options: ChatOptions = {}) {
-    // If no model specified and this is a user query, try to select the appropriate model
-    if (!options.model && messages.length > 0 && messages[messages.length - 1].role === 'user') {
-      const userQuery = messages[messages.length - 1].content as string;
-      const suggestedModel = this.selectModelForQuery(userQuery);
-      this.logger.debug(`Auto-selected model ${suggestedModel} for query`);
-      options.model = suggestedModel;
+    try {
+      const model = options.model || this.defaultModel;
+      const modelConfig = this.modelConfig[model];
+      
+      // Add structured data handling system prompt if needed
+      if (messages.length > 0 && messages[0].role === 'system') {
+        const systemPrompt = messages[0].content as string;
+        
+        // Enhance system prompt with better structured data handling instructions
+        if (systemPrompt.includes('analyze') || systemPrompt.includes('data') || systemPrompt.includes('table')) {
+          const enhancedPrompt = `${systemPrompt}
+
+When analyzing tabular data, please follow these strict guidelines:
+1. Always present your analysis in clear, structured sections starting with a concise summary
+2. When working with tables, ALWAYS process the data completely before responding
+3. For each analytical step, show the actual data processing results, not just descriptions
+4. Include properly formatted markdown tables in each step where relevant
+5. Provide actionable insights based on the data, not generic observations
+6. Always end with a "Next Steps" section suggesting follow-up analyses
+7. Format your full response with proper headings and structure using markdown
+8. If generating charts or visualizations, be specific about what they should show
+
+Your response MUST have the following sections:
+- Summary: A concise overview of the findings
+- Steps: Detailed analytical steps WITH calculated results and data tables
+- Insights: KEY findings from the data
+- Visualization: A suggested visualization with specific data points
+- Next Steps: Suggested follow-up analyses
+
+Format structured responses as parseable JSON where appropriate.`;
+          
+          // Replace the system prompt with enhanced version
+          messages[0].content = enhancedPrompt;
+        }
+      }
+      
+      // Check if this is a Claude model (o3-mini, o1-mini, etc.)
+      const isClaudeModel = model.startsWith('o1-') || model.startsWith('o3-');
+      
+      // Create base request parameters (common for all models)
+      const requestParameters: any = {
+        model: modelConfig.model,
+        messages: messages,
+        stream: options.stream ?? false
+      };
+      
+      // Add model-specific parameters
+      if (isClaudeModel) {
+        // Claude models use max_completion_tokens and don't support temperature
+        requestParameters.max_completion_tokens = options.max_tokens ?? modelConfig.max_tokens;
+      } else {
+        // OpenAI models use max_tokens and temperature
+        requestParameters.max_tokens = options.max_tokens ?? modelConfig.max_tokens;
+        requestParameters.temperature = options.temperature ?? modelConfig.temperature;
+      }
+      
+      // Log the model being used
+      this.logger.info(`Creating chat completion with model ${model}`);
+      
+      // Send request to OpenAI
+      const response = await this.openai.chat.completions.create(requestParameters);
+      
+      this.logger.info(`Chat completion created successfully with model: ${model}`);
+      return response;
+    } catch (error) {
+      this.logger.error(`Error generating chat completion: ${error}`);
+      throw error;
     }
-    
-    const modelName = options.model || this.defaultModel;
-    const modelSettings = this.modelConfig[modelName];
-    
-    // Allow overriding max_tokens if specified
-    const max_tokens = options.max_tokens || modelSettings.max_tokens;
-    
-    this.logger.info(`Generating completion with model: ${modelName}, max_tokens: ${max_tokens}`);
-    
-    return await this.openai.chat.completions.create({
-      model: modelSettings.model,
-      temperature: options.temperature ?? modelSettings.temperature,
-      max_tokens,
-      messages,
-      stream: options.stream || false,
-    });
   }
 
   /**
@@ -979,6 +895,297 @@ export class OpenAIService {
       this.logger.error(`Error retrieving fine-tunable models: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+
+  /**
+   * Analyzes a query and returns a complexity score from 0-10
+   * Higher scores indicate more complex queries that might need more powerful models
+   */
+  private analyzeQueryComplexity(query: string): number {
+    let score = 0;
+    
+    // Length-based complexity
+    if (query.length > 200) score += 1;
+    if (query.length > 500) score += 1;
+    if (query.length > 1000) score += 1;
+    
+    // Check for complex reasoning indicators
+    const reasoningPatterns = [
+      /\bexplain\b/i,
+      /\breason\b/i, 
+      /\bwhy\b/i,
+      /\bhow\b/i,
+      /\bcause\b/i,
+      /\beffect\b/i,
+      /\brelationship\b/i,
+      /\bcorrelation\b/i,
+      /\banalyze\b/i,
+      /\bsynthesis\b/i
+    ];
+    
+    // Check for analytical indicators
+    const analyticalPatterns = [
+      /\bdata\b/i,
+      /\banalysis\b/i,
+      /\bcompare\b/i,
+      /\btrend\b/i,
+      /\bstatistics\b/i,
+      /\bcount\b/i,
+      /\bhow many\b/i,
+      /\bpercentage\b/i,
+      /\bcalculate\b/i,
+      /\bmeasure\b/i
+    ];
+    
+    // Add score for reasoning and analytical indicators
+    for (const pattern of reasoningPatterns) {
+      if (pattern.test(query)) score += 0.5;
+    }
+    
+    for (const pattern of analyticalPatterns) {
+      if (pattern.test(query)) score += 0.5;
+    }
+    
+    // Cap the score at 10
+    return Math.min(10, score);
+  }
+  
+  /**
+   * Detects if a query is related to code or programming
+   */
+  private isCodeRelatedQuery(query: string): boolean {
+    const codePatterns = [
+      /\bcode\b/i,
+      /\bfunction\b/i,
+      /\bclass\b/i,
+      /\bprogramming\b/i,
+      /\balgorithm\b/i,
+      /\bjavascript\b/i,
+      /\bpython\b/i,
+      /\bjava\b/i,
+      /\bc\+\+\b/i,
+      /\bruby\b/i,
+      /\bgolang\b/i,
+      /\brust\b/i,
+      /\bapi\b/i,
+      /\bhttp\b/i,
+      /\bhow to implement\b/i,
+      /\bwrite a\b.*\bfunction\b/i,
+      /\bcreate a\b.*\bprogram\b/i,
+      /\bdebugging\b/i,
+      /\berror\b/i,
+      /\bcompile\b/i
+    ];
+    
+    // Check if any code pattern matches
+    return codePatterns.some(pattern => pattern.test(query));
+  }
+
+  /**
+   * Process a batch of embeddings with caching and retry logic
+   */
+  private async processEmbeddingBatchWithCache(
+    batch: string[], 
+    batchIndex: number, 
+    totalBatches: number,
+    skipCache: boolean,
+    model: string
+  ): Promise<number[][]> {
+    // Skip cache if disabled
+    const shouldSkipCache = skipCache || this.DISABLE_CACHE;
+    
+    // Check cache first if not skipping
+    if (!shouldSkipCache) {
+      const cachedResults = this.getCachedEmbeddings(batch);
+      const uncachedTexts = batch.filter((_, i) => !cachedResults[i]);
+      
+      // If all embeddings were in cache, return them
+      if (uncachedTexts.length === 0) {
+        this.logger.info(`Batch ${batchIndex + 1}/${totalBatches}: All ${batch.length} embeddings found in cache`);
+        return cachedResults.filter(Boolean) as number[][];
+      }
+      
+      // If some embeddings were in cache, only process the uncached ones
+      if (uncachedTexts.length < batch.length) {
+        this.logger.info(`Batch ${batchIndex + 1}/${totalBatches}: Found ${batch.length - uncachedTexts.length}/${batch.length} embeddings in cache, generating ${uncachedTexts.length} new embeddings`);
+        
+        // Process uncached texts
+        const newEmbeddings = await this.processEmbeddingBatchWithRetry(uncachedTexts, batchIndex, totalBatches, model);
+        
+        // Cache the new embeddings
+        this.cacheEmbeddings(uncachedTexts, newEmbeddings);
+        
+        // Merge cached and new embeddings in the original order
+        let uncachedIndex = 0;
+        return batch.map((text, i) => {
+          if (cachedResults[i]) return cachedResults[i]!;
+          return newEmbeddings[uncachedIndex++];
+        });
+      }
+    }
+    
+    // If skipping cache or no cached embeddings found, process the entire batch
+    const embeddings = await this.processEmbeddingBatchWithRetry(batch, batchIndex, totalBatches, model);
+    
+    // Cache the embeddings for future use (if caching is enabled)
+    if (!shouldSkipCache) {
+      this.cacheEmbeddings(batch, embeddings);
+    }
+    
+    return embeddings;
+  }
+  
+  /**
+   * Get cached embeddings for a batch of texts
+   */
+  private getCachedEmbeddings(texts: string[]): (number[] | null)[] {
+    return texts.map(text => {
+      const hash = this.hashText(text);
+      
+      // Check in-memory cache first
+      const cachedEmbedding = this.embeddingCache.get(hash);
+      if (cachedEmbedding) return cachedEmbedding;
+      
+      // Check disk cache
+      try {
+        const cachePath = path.join(this.CACHE_DIR, `${hash}.json`);
+        if (fs.existsSync(cachePath)) {
+          const embedding = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+          // Add to in-memory cache
+          this.embeddingCache.set(hash, embedding);
+          return embedding;
+        }
+      } catch (error) {
+        this.logger.debug(`Cache miss for text hash ${hash.substring(0, 8)}...`);
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Cache embeddings for a batch of texts
+   */
+  private cacheEmbeddings(texts: string[], embeddings: number[][]): void {
+    // Skip caching if disabled
+    if (this.DISABLE_CACHE) return;
+    
+    try {
+      texts.forEach((text, i) => {
+        const hash = this.hashText(text);
+        
+        // Add to in-memory cache
+        this.embeddingCache.set(hash, embeddings[i]);
+        
+        // Write to disk cache
+        const cachePath = path.join(this.CACHE_DIR, `${hash}.json`);
+        fs.writeFileSync(cachePath, JSON.stringify(embeddings[i]));
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to cache embeddings: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  /**
+   * Create a hash of text for caching
+   */
+  private hashText(text: string): string {
+    return crypto.createHash('sha256').update(text).digest('hex');
+  }
+  
+  /**
+   * Process a batch of embeddings with retry logic
+   */
+  private async processEmbeddingBatchWithRetry(
+    batch: string[], 
+    batchIndex: number, 
+    totalBatches: number,
+    model: string
+  ): Promise<number[][]> {
+    let retries = 0;
+    let lastError: any = null;
+    
+    // Apply safety truncation to avoid token limit errors
+    const safeBatch = batch.map(text => this.truncateTextForEmbedding(text));
+    
+    while (retries <= this.maxRetries) {
+      try {
+        this.logger.info(`Processing embedding batch ${batchIndex + 1}/${totalBatches} (attempt ${retries + 1}/${this.maxRetries + 1})`);
+        
+        // Use the properly typed client
+        const result = await this.openai.embeddings.create({
+          model: model,
+          input: safeBatch
+        });
+        
+        const embeddings = result.data.map(item => item.embedding);
+        this.logger.info(`Successfully generated ${embeddings.length} embeddings in batch ${batchIndex + 1}/${totalBatches}`);
+        
+        return embeddings;
+      } catch (error: any) {
+        lastError = error;
+        
+        // Enhanced error classification
+        const isRateLimit = error.status === 429 || 
+                           (error.message && error.message.includes('rate limit'));
+        const isServerError = error.status >= 500 || 
+                             (error.message && error.message.includes('server error'));
+        const isTokenLimitError = error.message && (
+                                 error.message.includes('token limit') || 
+                                 error.message.includes('maximum context length'));
+        
+        this.logger.error(`Error in batch ${batchIndex + 1}/${totalBatches} (attempt ${retries + 1}/${this.maxRetries + 1}): ${error.message}`);
+        
+        // If we've reached max retries, throw the error
+        if (retries >= this.maxRetries) {
+          this.logger.error(`Max retries (${this.maxRetries}) reached for batch ${batchIndex + 1}. Giving up.`);
+          throw error;
+        }
+        
+        // If it's a token limit error, we need to reduce batch size and retry
+        if (isTokenLimitError && batch.length > 1) {
+          this.logger.warn(`Token limit exceeded. Splitting batch ${batchIndex + 1} into smaller chunks and retrying.`);
+          
+          // Split the batch in half and process each half separately
+          const midpoint = Math.ceil(batch.length / 2);
+          const firstHalf = batch.slice(0, midpoint);
+          const secondHalf = batch.slice(midpoint);
+          
+          // Process each half with retries
+          const firstHalfEmbeddings = await this.processEmbeddingBatchWithRetry(
+            firstHalf, 
+            batchIndex, 
+            totalBatches,
+            model
+          );
+          
+          const secondHalfEmbeddings = await this.processEmbeddingBatchWithRetry(
+            secondHalf, 
+            batchIndex, 
+            totalBatches,
+            model
+          );
+          
+          // Combine the results
+          return [...firstHalfEmbeddings, ...secondHalfEmbeddings];
+        }
+        
+        // Calculate backoff time - longer for rate limit errors
+        const backoffTime = isRateLimit 
+          ? this.retryDelay * Math.pow(2, retries) // Exponential backoff for rate limits
+          : isServerError
+            ? this.retryDelay * (retries + 1) // Linear backoff for server errors
+            : this.retryDelay; // Constant delay for other errors
+        
+        this.logger.info(`Waiting ${backoffTime / 1000} seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        
+        retries++;
+      }
+    }
+    
+    // This should never be reached due to the throw in the loop, but TypeScript needs it
+    throw lastError;
   }
 }
 

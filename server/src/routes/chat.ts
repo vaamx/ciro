@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction, RequestHandler } from 'express';
+import express, { Request, Response, NextFunction, RequestHandler } from '../types/express-types';
 import { openAIService } from '../services/openai.service';
 import { db } from '../infrastructure/database';
 import { ChatController } from '../controllers/chat.controller';

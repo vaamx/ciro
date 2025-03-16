@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { NotificationsPanel } from './NotificationsPanel';
 import { Sidebar } from './Sidebar';
@@ -6,9 +6,9 @@ import { ChatPanel } from '../Chat';
 import { TopBar } from './TopBar';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { KnowledgeProvider } from '../../providers/KnowledgeProvider';
 import darkLogo from '../../styles/logos/darklogo.png';
 import lightLogo from '../../styles/logos/lightlogo.png';
+import { X } from 'lucide-react';
 
 interface MainLayoutProps {
   activeSection: string;
@@ -25,7 +25,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const { isDarkMode, toggleTheme } = useTheme();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const { user } = useAuth();
+
+  // Close mobile sidebar when screen size changes to desktop
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsMobileSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleHelpClick = () => {
     setShowHelp(true);
@@ -35,13 +48,53 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     setIsChatOpen(false);
   };
 
+  const toggleMobileSidebar = () => {
+    setIsMobileSidebarOpen(!isMobileSidebarOpen);
+  };
+
   return (
     <div className={`flex h-screen ${isDarkMode ? 'dark' : ''}`}>
-      <Sidebar 
-        onHelpClick={handleHelpClick} 
-        activeSection={activeSection}
-        onSectionChange={onSectionChange}
-      />
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block">
+        <Sidebar 
+          onHelpClick={handleHelpClick} 
+          activeSection={activeSection}
+          onSectionChange={onSectionChange}
+          isDarkMode={isDarkMode}
+        />
+      </div>
+      
+      {/* Mobile Sidebar Overlay */}
+      {isMobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+      
+      {/* Mobile Sidebar */}
+      <div className={`fixed top-0 bottom-0 left-0 z-50 lg:hidden transition-transform duration-300 ease-in-out transform ${
+        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+        <Sidebar 
+          onHelpClick={handleHelpClick} 
+          activeSection={activeSection}
+          onSectionChange={(section) => {
+            onSectionChange(section);
+            setIsMobileSidebarOpen(false);
+          }}
+          isDarkMode={isDarkMode}
+          isMobile={true}
+        />
+        
+        {/* Close button for mobile sidebar */}
+        <button 
+          className="absolute top-4 right-4 p-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        >
+          <X size={20} />
+        </button>
+      </div>
       
       <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-gray-900">
         <TopBar 
@@ -49,6 +102,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           onHelpClick={handleHelpClick}
           isDarkMode={isDarkMode}
           onThemeChange={toggleTheme}
+          onMobileMenuClick={toggleMobileSidebar}
           user={user ? {
             name: user.name,
             role: user.role,
@@ -63,8 +117,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
       {/* Help Modal */}
       {showHelp && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
             <h2 className="text-xl font-semibold mb-4 dark:text-white">Help & Resources</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">
               Need help getting started? Here are some resources to help you make the most of Ciro AI.
@@ -120,12 +174,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       </button>
 
       {/* Chat Panel */}
-      <KnowledgeProvider>
+      <div className="fixed inset-0 pointer-events-none z-[9999]">
         <ChatPanel 
           isOpen={isChatOpen}
           onClose={handleChatClose}
         />
-      </KnowledgeProvider>
+      </div>
 
       {/* Notifications Panel */}
       <NotificationsPanel

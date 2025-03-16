@@ -1,8 +1,15 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { CheckCircle2, AlertCircle, X } from 'lucide-react';
 
+// Extend Window interface to include notificationContext
+declare global {
+  interface Window {
+    notificationContext?: NotificationContextType;
+  }
+}
+
 export interface NotificationContextType {
-  showNotification: (type: 'success' | 'error' | 'info', message: string) => void;
+  showNotification: (notification: { type: 'success' | 'error' | 'info', message: string }) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
@@ -19,7 +26,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [notifications, setNotifications] = useState<Array<{ type: string; message: string; id: number }>>([]);
 
   // Memoize the showNotification function to prevent infinite renders
-  const showNotification = useCallback((type: 'success' | 'error' | 'info', message: string) => {
+  const showNotification = useCallback((notification: { type: 'success' | 'error' | 'info', message: string }) => {
+    const { type, message } = notification;
     const id = Date.now();
     setNotifications(prev => [...prev, { type, message, id }]);
     setTimeout(() => {
@@ -27,8 +35,21 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }, 5000);
   }, []);
 
+  // Create context value
+  const contextValue = { showNotification };
+
+  // Expose notification context to window object
+  useEffect(() => {
+    window.notificationContext = contextValue;
+    
+    return () => {
+      // Clean up when component unmounts
+      delete window.notificationContext;
+    };
+  }, [contextValue]);
+
   return (
-    <NotificationContext.Provider value={{ showNotification }}>
+    <NotificationContext.Provider value={contextValue}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 space-y-2">
         {notifications.map(({ type, message, id }) => (

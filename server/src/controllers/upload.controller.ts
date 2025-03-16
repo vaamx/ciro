@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import * as multer from 'multer';
 import { diskStorage } from 'multer';
 import * as fs from 'fs';

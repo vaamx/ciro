@@ -1,7 +1,7 @@
-import express from 'express';
+import express from '../types/express-types';
 import { authenticate } from '../middleware/auth';
 import { OpenAIService } from '../services/openai.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { body, param, validationResult } from 'express-validator';
 import multer from 'multer';
 import * as path from 'path';
@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import { db } from '../infrastructure/database';
 
 const router = express.Router();
-const logger = createLogger('FineTuningRoutes');
+const logger = createServiceLogger('FineTuningRoutes');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({

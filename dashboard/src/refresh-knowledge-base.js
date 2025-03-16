@@ -3,17 +3,22 @@
 
 // Function to refresh the Knowledge Base
 function refreshKnowledgeBase(forceReload = false) {
-  console.log('Dispatching knowledgeBaseUpdate event to refresh Knowledge Base');
+  console.log('Preparing knowledgeBaseUpdate event to refresh Knowledge Base');
   
-  // Create and dispatch a custom event
+  // Create a custom event
   const event = new CustomEvent('knowledgeBaseUpdate', {
     detail: {
       // No specific source to delete or add, just trigger a refresh
+      timestamp: Date.now()
     }
   });
   
-  window.dispatchEvent(event);
-  console.log('Event dispatched successfully');
+  // Use setTimeout to dispatch the event asynchronously
+  // This prevents React state updates during rendering
+  setTimeout(() => {
+    window.dispatchEvent(event);
+    console.log('Event dispatched successfully');
+  }, 0);
 
   // If forceReload is true, reload the page after a short delay
   if (forceReload) {

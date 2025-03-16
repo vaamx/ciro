@@ -53,11 +53,12 @@ export const UserMenu: React.FC<UserMenuProps> = ({
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center space-x-3 p-2 rounded-lg 
+        className="flex items-center space-x-1 sm:space-x-3 p-1.5 sm:p-2 rounded-lg 
           hover:bg-gray-100 dark:hover:bg-gray-800/50 
+          active:bg-gray-200 dark:active:bg-gray-700/80
           transition-colors"
       >
-        <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
           {user.avatar ? (
             <img
               src={user.avatar}
@@ -65,10 +66,10 @@ export const UserMenu: React.FC<UserMenuProps> = ({
               className="w-full h-full rounded-full object-cover"
             />
           ) : (
-            <User className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+            <User className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600 dark:text-purple-400" />
           )}
         </div>
-        <div className="text-left">
+        <div className="hidden sm:block text-left">
           <p className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400">{user.role}</p>
         </div>
@@ -79,10 +80,11 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl 
+        <div className="absolute right-0 mt-2 w-60 sm:w-72 bg-white dark:bg-gray-800 rounded-xl 
           shadow-lg dark:shadow-gray-900/50 
           border border-gray-200 dark:border-gray-700/50 
-          py-2 z-50">
+          py-2 z-[45]
+          max-h-[80vh] overflow-y-auto">
           {/* User Info Section */}
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700/50">
             <div className="flex items-center space-x-3">
@@ -107,28 +109,32 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 
           {/* Menu Items */}
           <div className="py-2">
-            <button className="w-full px-4 py-2 flex items-center space-x-3 
+            <button className="w-full px-4 py-2.5 flex items-center space-x-3 
               hover:bg-gray-50 dark:hover:bg-gray-700/50 
+              active:bg-gray-100 dark:active:bg-gray-600/50
               transition-colors">
               <Settings className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               <span className="text-sm text-gray-700 dark:text-gray-300">Settings</span>
             </button>
-            <button className="w-full px-4 py-2 flex items-center space-x-3 
+            <button className="w-full px-4 py-2.5 flex items-center space-x-3 
               hover:bg-gray-50 dark:hover:bg-gray-700/50 
+              active:bg-gray-100 dark:active:bg-gray-600/50
               transition-colors">
               <Shield className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               <span className="text-sm text-gray-700 dark:text-gray-300">Privacy</span>
             </button>
-            <button className="w-full px-4 py-2 flex items-center space-x-3 
+            <button className="w-full px-4 py-2.5 flex items-center space-x-3 
               hover:bg-gray-50 dark:hover:bg-gray-700/50 
+              active:bg-gray-100 dark:active:bg-gray-600/50
               transition-colors">
               <Key className="w-4 h-4 text-gray-400 dark:text-gray-500" />
               <span className="text-sm text-gray-700 dark:text-gray-300">Security</span>
             </button>
             <button
               onClick={onThemeChange}
-              className="w-full px-4 py-2 flex items-center space-x-3 
+              className="w-full px-4 py-2.5 flex items-center space-x-3 
                 hover:bg-gray-50 dark:hover:bg-gray-700/50 
+                active:bg-gray-100 dark:active:bg-gray-600/50
                 transition-colors"
             >
               {isDarkMode ? (
@@ -146,9 +152,10 @@ export const UserMenu: React.FC<UserMenuProps> = ({
           <div className="border-t border-gray-100 dark:border-gray-700/50 pt-2 mt-2">
             <button 
               onClick={handleSignOut}
-              className="w-full px-4 py-2 flex items-center space-x-3 
+              className="w-full px-4 py-2.5 flex items-center space-x-3 
                 text-red-600 dark:text-red-400 
                 hover:bg-red-50 dark:hover:bg-red-900/20 
+                active:bg-red-100 dark:active:bg-red-900/30
                 transition-colors"
             >
               <LogOut className="w-4 h-4" />

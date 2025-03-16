@@ -13,7 +13,7 @@ import { ConfigService } from '../config.service';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as Tesseract from 'tesseract.js';
 import * as pdfPoppler from 'pdf-poppler';
-import { createLogger } from '../../utils/logger';
+import { createServiceLogger } from '../../utils/logger-factory';
 import { execSync } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../../infrastructure/database';
@@ -25,7 +25,7 @@ import { WebSocketService } from '../websocket.service';
  */
 @Injectable()
 export class CustomPdfProcessorService extends BaseDocumentProcessor {
-    protected readonly logger = createLogger('CustomPdfProcessorService');
+    protected readonly logger = createServiceLogger('CustomPdfProcessorService');
     private chunkingService: ChunkingService;
     private pdfExtract: PDFExtract;
     private openaiService: any; // Will be initialized in constructor if needed

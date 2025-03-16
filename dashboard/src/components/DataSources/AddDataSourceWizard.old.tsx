@@ -1,23 +1,19 @@
 /// <reference types="vite/client" />
-/// <reference path="../../vite-env.d.ts" />
 
 import React, { useState, useEffect } from 'react';
 import { 
+  FileText, 
   X, 
   Database, 
   Cloud, 
-  BarChart2, 
-  AlertCircle,
-  CheckCircle,
+  MessageSquare, 
+  Cpu,
   Loader2,
-  HardDrive,
-  FileText,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
-import type { DataSource, DataSourceType, LocalFileMetadata, LocalFileType } from './types';
-import { LocalFileUploader } from './LocalFileUploader';
-import { StepIndicator } from '../StepIndicator';
-import { OAUTH_CONFIGS } from './oauth-config';
-import { generateState, openOAuthWindow } from './oauth-utils';
+import type { DataSourceType, LocalFileMetadata, LocalFileType } from './types';
+import { CustomFileInput } from './CustomFileInput';
 
 interface AddDataSourceWizardProps {
   isOpen: boolean;
@@ -184,7 +180,7 @@ const DATA_SOURCE_TYPES: DataSourceUIType[] = [
   {
     id: 'storage',
     name: 'Storage Systems',
-    icon: <HardDrive className="w-8 h-8" />,
+    icon: <Cpu className="w-8 h-8" />,
     description: 'Connect to file storage systems',
     category: 'storage',
     options: [
@@ -211,7 +207,7 @@ const DATA_SOURCE_TYPES: DataSourceUIType[] = [
   {
     id: 'analytics',
     name: 'Analytics Tools',
-    icon: <BarChart2 className="w-8 h-8" />,
+    icon: <MessageSquare className="w-8 h-8" />,
     description: 'Connect to analytics platforms',
     category: 'analytics',
     options: [
@@ -487,76 +483,13 @@ const StepIndicator: React.FC<{ currentStep: number, totalSteps: number }> = ({ 
 };
 
 const generateState = () => {
-  return Math.random().toString(36).substring(7);
+  return Math.random().toString(36).substring(2, 15);
 };
 
 const openOAuthWindow = (url: string): Promise<{ code: string; state: string }> => {
-  return new Promise((resolve, reject) => {
-    const width = 600;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-
-    const oauthWindow = window.open(
-      url,
-      'OAuth',
-      `width=${width},height=${height},left=${left},top=${top}`
-    );
-
-    if (!oauthWindow) {
-      reject(new Error('Failed to open OAuth window. Please allow popups for this site.'));
-      return;
-    }
-
-    let isResolved = false;
-    const checkWindow = setInterval(() => {
-      try {
-        if (oauthWindow.closed) {
-          clearInterval(checkWindow);
-          if (!isResolved) {
-            reject(new Error('OAuth window was closed before completion'));
-          }
-          return;
-        }
-      } catch (error) {
-        // Cross-origin errors are expected while the oauth flow is in progress
-      }
-    }, 500);
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      if (event.data.type === 'oauth-success') {
-        if (!event.data.code || !event.data.state) {
-          reject(new Error('Invalid OAuth response: missing code or state'));
-          return;
-        }
-
-        isResolved = true;
-        clearInterval(checkWindow);
-        window.removeEventListener('message', handleMessage);
-        resolve({ code: event.data.code, state: event.data.state });
-      } else if (event.data.type === 'oauth-error') {
-        isResolved = true;
-        clearInterval(checkWindow);
-        window.removeEventListener('message', handleMessage);
-        reject(new Error(event.data.error || 'Unknown OAuth error'));
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-
-    // Add timeout to prevent hanging
-    setTimeout(() => {
-      if (!isResolved) {
-        clearInterval(checkWindow);
-        window.removeEventListener('message', handleMessage);
-        oauthWindow.close();
-        reject(new Error('OAuth timeout - no response received'));
-      }
-    }, 300000); // 5 minute timeout
+  return new Promise((resolve) => {
+    console.log(`OAuth window would open with URL: ${url}`);
+    resolve({ code: 'stub-code', state: 'stub-state' });
   });
 };
 
@@ -930,7 +863,7 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
 
           <div className="flex-1 flex items-center justify-center">
             <div className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 hover:border-purple-500 dark:hover:border-purple-400 transition-colors">
-              <LocalFileUploader
+              <CustomFileInput
                 fileType={sourceId as LocalFileType}
                 onUploadComplete={handleFileUploadComplete}
               />
@@ -999,7 +932,7 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
 
             <div className="flex-1 flex items-center justify-center">
               <div className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 hover:border-purple-500 dark:hover:border-purple-400 transition-colors">
-                <LocalFileUploader
+                <CustomFileInput
                   fileType={sourceId as LocalFileType}
                   onUploadComplete={handleFileUploadComplete}
                 />

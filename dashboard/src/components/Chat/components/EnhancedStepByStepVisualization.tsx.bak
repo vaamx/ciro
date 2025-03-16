@@ -1,0 +1,1307 @@
+import React, { useState, useEffect, Suspense, useRef, useMemo, useCallback } from 'react';
+import { motion } from 'framer-motion';
+import { DataProcessingService } from '../../../services/DataProcessingService';
+import { useNotification } from '../../../contexts/NotificationContext';
+import { LazyVisualizationWrapper } from '../../../components/shared/LazyVisualization';
+import { MessageMarkdown } from './MessageMarkdown';
+import { TableFormatter } from '../../../services/TableFormatter';
+import { TableVisualization } from '../../../Visualization/tables/TableVisualization';
+
+// Helper function to map our internal chart types to the expected chart types
+function mapChartType(type: string): string {
+  // Normalize the input type by removing underscores and converting to lowercase
+  const normalizedType = type.toLowerCase().replace(/_/g, '').replace(/chart$/, '');
+  
+  // Debug log for chart type mapping
+  console.debug(`[Chart Type Mapping] Original: "${type}", Normalized: "${normalizedType}"`);
+  
+  const typeMap: Record<string, string> = {
+    'bar': 'bar',
+    'barchart': 'bar',
+    'bar_chart': 'bar',
+    'line': 'line',
+    'linechart': 'line',
+    'line_chart': 'line',
+    'pie': 'pie',
+    'piechart': 'pie',
+    'pie_chart': 'pie',
+    'area': 'area',
+    'areachart': 'area',
+    'area_chart': 'area',
+    'scatter': 'scatter',
+    'scatterchart': 'scatter',
+    'scatter_chart': 'scatter',
+    'composed': 'composed',
+    'composedchart': 'composed',
+    'composed_chart': 'composed',
+    'heatmap': 'heatmap',
+    'heatmapchart': 'heatmap',
+    'radar': 'radar',
+    'radarchart': 'radar',
+    'radar_chart': 'radar',
+    'funnel': 'funnel',
+    'funnelchart': 'funnel',
+    'funnel_chart': 'funnel',
+    'treemap': 'treemap',
+    'treemapchart': 'treemap',
+    'treemap_chart': 'treemap',
+    'network': 'network',
+    'networkgraph': 'network',
+    'network_graph': 'network',
+    'geospatial': 'geospatial',
+    'geospatialmap': 'geospatial',
+    'geospatial_map': 'geospatial',
+    'sankey': 'sankey',
+    'sankeydiagram': 'sankey',
+    'sankey_diagram': 'sankey',
+    'table': 'table'
+  };
+  
+  // Try to match the normalized type first
+  if (typeMap[normalizedType]) {
+    const result = typeMap[normalizedType];
+    console.debug(`[Chart Type Mapping] Matched normalized type: "${normalizedType}" → "${result}"`);
+    return result;
+  }
+  
+  // If no match with normalized type, try the original type
+  const result = typeMap[type] || type || 'bar';
+  console.debug(`[Chart Type Mapping] Final result: "${result}"`);
+  return result;
+}
+
+// Helper function specifically for series types - returns the narrowed type
+function mapSeriesType(type: string): string {
+  // Normalize the input type
+  const normalizedType = type.toLowerCase().replace(/_/g, '').replace(/chart$/, '');
+  
+  const typeMap: Record<string, string> = {
+    'bar': 'bar',
+    'barchart': 'bar',
+    'bar_chart': 'bar',
+    'line': 'line',
+    'linechart': 'line',
+    'line_chart': 'line',
+    'area': 'area',
+    'areachart': 'area',
+    'area_chart': 'area',
+    'scatter': 'scatter',
+    'scatterchart': 'scatter',
+    'scatter_chart': 'scatter',
+    'pie': 'pie',
+    'piechart': 'pie',
+    'pie_chart': 'pie'
+  };
+  
+  // Try to match the normalized type first
+  if (typeMap[normalizedType]) {
+    return typeMap[normalizedType];
+  }
+  
+  // If no match with normalized type, try the original type
+  return typeMap[type] || 'bar';
+}
+
+// Helper function to validate and normalize visualization types
+function validateVisualizationType(type: string | undefined): string {
+  if (!type) return 'bar'; // Default to bar if no type provided
+  
+  // Get the mapped type
+  const mappedType = mapChartType(type);
+  
+  // List of all supported visualization types from the Visualization directory
+  const supportedTypes = [
+    'bar', 'line', 'pie', 'area', 'scatter', 'composed', 
+    'heatmap', 'radar', 'funnel', 'treemap', 'network', 
+    'geospatial', 'sankey', 'table'
+  ];
+  
+  // Check if the mapped type is supported
+  if (supportedTypes.includes(mappedType)) {
+    console.debug(`[Visualization Type] Valid type: "${mappedType}"`);
+    return mappedType;
+  }
+  
+  // If not supported, log a warning and return a default
+  console.warn(`[Visualization Type] Unsupported type: "${type}" (mapped to "${mappedType}"). Falling back to "bar".`);
+  return 'bar';
+}
+
+// Helper function to validate and normalize series types
+function validateSeriesType(type: string | undefined): string {
+  if (!type) return 'bar'; // Default to bar if no type provided
+  
+  // Get the mapped series type
+  const mappedType = mapSeriesType(type);
+  
+  // List of supported series types
+  const supportedSeriesTypes = ['bar', 'line', 'area', 'scatter', 'pie'];
+  
+  // Check if the mapped type is supported
+  if (supportedSeriesTypes.includes(mappedType)) {
+    return mappedType;
+  }
+  
+  // If not supported, return a default
+  return 'bar';
+}
+
+// Loading placeholder for lazy-loaded components
+const VisualizationLoader = () => (
+  <div className="animate-pulse rounded-lg overflow-hidden">
+    <div className="h-64 bg-gray-200 dark:bg-gray-700"></div>
+    <div className="h-4 mt-3 bg-gray-200 dark:bg-gray-700 w-3/4 rounded"></div>
+    <div className="h-3 mt-2 bg-gray-200 dark:bg-gray-700 w-1/2 rounded"></div>
+  </div>
+);
+
+// Updated color palette with better transparency to match the reference image
+const vibrantColors = [
+  'rgba(255, 99, 132, 0.7)',   // Pink/Red
+  'rgba(54, 162, 235, 0.7)',   // Blue
+  'rgba(255, 206, 86, 0.7)',   // Yellow
+  'rgba(75, 192, 192, 0.7)',   // Teal
+  'rgba(153, 102, 255, 0.7)',  // Purple
+  'rgba(255, 159, 64, 0.7)',   // Orange
+  'rgba(46, 204, 113, 0.7)',   // Green
+  'rgba(52, 73, 94, 0.7)'      // Dark Blue
+];
+
+const vibrantBorderColors = [
+  'rgba(255, 99, 132, 0.9)',
+  'rgba(54, 162, 235, 0.9)',
+  'rgba(255, 206, 86, 0.9)',
+  'rgba(75, 192, 192, 0.9)',
+  'rgba(153, 102, 255, 0.9)',
+  'rgba(255, 159, 64, 0.9)',
+  'rgba(46, 204, 113, 0.9)',
+  'rgba(52, 73, 94, 0.9)'
+];
+
+// Icons
+// Step type icons imported from AnalyticalStep
+const ChartBarIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+  </svg>
+);
+
+const FilterIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+  </svg>
+);
+
+const AggregateIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+  </svg>
+);
+
+const SortIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12" />
+  </svg>
+);
+
+const GroupIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
+  </svg>
+);
+
+const InsightIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
+  </svg>
+);
+
+const CompareIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+  </svg>
+);
+
+const TableIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0 1 12 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+  </svg>
+);
+
+export interface AnalyticalStep {
+  id: string;
+  type: string;
+  description: string;
+  order: number;
+  data?: any;
+  content?: string;
+  code?: string;
+  insights?: string[];
+  metrics?: Array<{label: string, value: string | number}>;
+  visualization?: {
+    type: string;
+    config: {
+      data?: any[];
+      xKey?: string;
+      yKey?: string;
+      series?: Array<{ dataKey: string; name?: string; color?: string; type?: string }>;
+      labels?: { title?: string; xAxis?: string; yAxis?: string };
+      options?: Record<string, any>;
+    };
+  };
+}
+
+interface EnhancedStepByStepVisualizationProps {
+  steps: AnalyticalStep[];
+  autoPlay?: boolean;
+  autoPlayDelay?: number;
+  onComplete?: () => void;
+  onStepChange?: (stepIndex: number) => void;
+  initialStep?: number;
+  dataSourceType?: string;
+  insights?: string[];
+  summary?: string;
+  visualizationData?: {
+    data: any[];
+    type: string;
+    xKey?: string;
+    yKey?: string;
+    series?: Array<{ dataKey: string; name?: string; color?: string; type?: string }>;
+    title?: string;
+    xAxisLabel?: string;
+    yAxisLabel?: string;
+  } | null;
+}
+
+// Define a context for steps data to be used by child components
+interface StepContextType {
+  dataSourceType: string;
+  steps: AnalyticalStep[];
+}
+
+const StepContext = React.createContext<StepContextType | null>(null);
+
+export const EnhancedStepByStepVisualization: React.FC<EnhancedStepByStepVisualizationProps> = ({
+  steps: initialSteps,
+  autoPlay = false,
+  autoPlayDelay = 3000,
+  onComplete,
+  onStepChange,
+  initialStep = 0,
+  dataSourceType = 'unknown',
+  insights = [],
+  summary = '',
+  visualizationData = null
+}) => {
+  const [currentStep, setCurrentStep] = useState<number>(initialStep);
+  const [isComplete, setIsComplete] = useState<boolean>(false);
+  const [expandedSteps, setExpandedSteps] = useState<string[]>([]);
+  const [addingToDashboard, setAddingToDashboard] = useState<string | null>(null);
+  const { showNotification } = useNotification();
+  const [steps, setSteps] = useState<AnalyticalStep[]>(initialSteps);
+  const [showMockData, setShowMockData] = useState<boolean>(false); 
+  
+  // Completely disable mock data generation
+  const generateSampleData = (): any[] => {
+    console.log('Mock data generation is disabled');
+    return []; // Always return empty array
+  };
+  
+  // Normalize data source type for consistent handling
+  const normalizedDataSourceType = useMemo(() => {
+    const type = (dataSourceType || '').toLowerCase();
+    
+    // Enhanced data source type detection with Qdrant prioritization
+    if (type.includes('qdrant') || type.includes('vector') || type.includes('collection')) return 'qdrant';
+    if (type.includes('pdf') || type.includes('document')) return 'pdf';
+    if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return 'excel';
+    if (type.includes('database') || type.includes('sql')) return 'database';
+    if (type.includes('local-files')) return 'qdrant'; // Treat local-files as Qdrant
+    
+    return type || 'qdrant'; // Default to Qdrant rather than unknown
+  }, [dataSourceType]);
+  
+  // Force disable mock data completely
+  useEffect(() => {
+    setShowMockData(false);
+  }, []);
+  
+  // Log important props for debugging
+  useEffect(() => {
+    console.log('EnhancedStepByStepVisualization - Props received:', {
+      stepsCount: initialSteps.length,
+      dataSourceType,
+      normalizedDataSourceType,
+      hasInsights: insights.length > 0,
+      hasSummary: !!summary,
+      hasVisualizationData: !!visualizationData
+    });
+    
+    // Log more detailed information about the data source type
+    console.log(`Data source type received: "${dataSourceType}"`);
+    console.log(`Normalized data source type: "${normalizedDataSourceType}"`);
+    
+    if (normalizedDataSourceType === 'unknown' || normalizedDataSourceType === '') {
+      console.warn('Non-specific data source type detected. This may affect RAG functionality.');
+    }
+  }, [initialSteps, dataSourceType, normalizedDataSourceType, insights, summary, visualizationData]);
+  
+  // Create context value for steps
+  const contextValue = useMemo<StepContextType>(() => ({
+    dataSourceType: normalizedDataSourceType,
+    steps
+  }), [normalizedDataSourceType, steps]);
+  
+  // Add ref to track previous visualization data
+  const visualizationDataRef = useRef<string | null>(null);
+  
+  // Update steps when initialSteps changes
+  useEffect(() => {
+    setSteps(initialSteps);
+  }, [initialSteps]);
+  
+  // Create default steps if none are provided but summary is available
+  useEffect(() => {
+    if (initialSteps.length === 0 && summary && summary.length > 0) {
+      console.log('Creating default step from summary content');
+      
+      // Create a simple default step without mock data
+      const defaultSteps = [{
+        id: 'default-step',
+        type: 'info',
+        description: 'Search Results',
+        order: 1,
+        content: summary,
+        // Use empty data array - no mock data
+        data: []
+      }];
+      
+      setSteps(defaultSteps);
+    }
+  }, [initialSteps, summary]);
+  
+  // Add visualization step if visualization data is provided
+  useEffect(() => {
+    if (visualizationData && 
+        visualizationData.data && 
+        Array.isArray(visualizationData.data) && 
+        visualizationData.data.length > 0 && 
+        visualizationData.type) {
+      
+      // Check if this visualization data already exists in steps
+      const dataString = JSON.stringify(visualizationData.data);
+      const prevDataString = visualizationDataRef.current;
+      
+      // Only add a new step if the data has changed
+      if (dataString !== prevDataString) {
+        visualizationDataRef.current = dataString;
+        
+        // Check if the step already exists
+        const existingStep = steps.find(step => 
+          step.visualization && 
+          JSON.stringify(step.visualization.config.data) === dataString
+        );
+        
+        if (!existingStep) {
+          // Create a new step with proper visualization
+          const newStep: AnalyticalStep = {
+            id: `viz-${Date.now()}`,
+            type: 'visualization',
+            description: `${visualizationData.type.charAt(0).toUpperCase() + visualizationData.type.slice(1)} Visualization`,
+            order: steps.length + 1,
+            content: `## ${visualizationData.type.charAt(0).toUpperCase() + visualizationData.type.slice(1)} Visualization\n\n` +
+                    `This visualization shows the data in a ${visualizationData.type} format.\n\n` +
+                    '```json\n' + 
+                    JSON.stringify(visualizationData.data, null, 2) + 
+                    '\n```',
+            visualization: {
+              type: visualizationData.type,
+              config: {
+                data: visualizationData.data,
+                xKey: visualizationData.xKey || (visualizationData.data[0] ? Object.keys(visualizationData.data[0])[0] : undefined),
+                yKey: visualizationData.yKey || (visualizationData.data[0] ? Object.keys(visualizationData.data[0])[1] : undefined),
+                series: visualizationData.series || [
+                  {
+                    dataKey: visualizationData.yKey || (visualizationData.data[0] ? Object.keys(visualizationData.data[0])[1] : 'value'),
+                    name: 'Value'
+                  }
+                ],
+                labels: {
+                  title: visualizationData.title || `${visualizationData.type.charAt(0).toUpperCase() + visualizationData.type.slice(1)} Chart`,
+                  xAxis: visualizationData.xAxisLabel || (visualizationData.data[0] ? Object.keys(visualizationData.data[0])[0] : 'Category'),
+                  yAxis: visualizationData.yAxisLabel || (visualizationData.data[0] ? Object.keys(visualizationData.data[0])[1] : 'Value')
+                },
+                options: {
+                  useDirectColorAssignment: visualizationData.type.toLowerCase() === 'bar' || visualizationData.type.toLowerCase() === 'pie',
+                  useMultipleColors: visualizationData.type.toLowerCase() === 'bar' || visualizationData.type.toLowerCase() === 'pie',
+                  theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+                }
+              }
+            }
+          };
+          
+          // Add the new step to the steps array
+          setSteps(prevSteps => [...prevSteps, newStep]);
+          
+          // Auto-expand the new step
+          setExpandedSteps(prev => [...prev, newStep.id]);
+        }
+      }
+    }
+  }, [visualizationData, steps]);
+  
+  // Handle auto-advancing with useEffect
+  useEffect(() => {
+    // Only continue if autoplay is enabled and we're not at the end
+    if (autoPlay && !isComplete && currentStep < steps.length - 1) {
+      const timer = setTimeout(() => {
+        setCurrentStep(prev => prev + 1);
+      }, autoPlayDelay);
+      
+      return () => clearTimeout(timer);
+    }
+    
+    // If we've reached the end, call onComplete
+    if (currentStep === steps.length - 1 && !isComplete) {
+      setIsComplete(true);
+      if (onComplete) {
+        onComplete();
+      }
+    }
+    
+    // Notify about step change
+    if (onStepChange) {
+      onStepChange(currentStep);
+    }
+  }, [currentStep, steps.length, autoPlay, isComplete, autoPlayDelay, onComplete, onStepChange]);
+  
+  // Toggle step expansion
+  const toggleStepExpand = (stepId: string) => {
+    setExpandedSteps(prev => 
+      prev.includes(stepId) 
+        ? prev.filter(id => id !== stepId) 
+        : [...prev, stepId]
+    );
+  };
+
+  // Helper function to safely render cell values
+  const renderCellValue = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  };
+  
+  // Add visualization to dashboard
+  const handleAddToDashboard = useCallback(async (visualization: any, stepId: string) => {
+    if (!visualization || addingToDashboard) return;
+
+    try {
+      setAddingToDashboard(stepId);
+      
+      console.log('Visualization data being sent to dashboard:', JSON.stringify(visualization, null, 2));
+      
+      // Create instance and call addToDashboard method
+      const dataProcessingService = DataProcessingService.getInstance();
+      const success = await dataProcessingService.addToDashboard(visualization);
+      
+      if (success) {
+        showNotification({
+          type: 'success',
+          message: 'Visualization added to dashboard!'
+        });
+      } else {
+        showNotification({
+          type: 'error',
+          message: 'Failed to add visualization to dashboard'
+        });
+      }
+    } catch (error) {
+      console.error('Error adding to dashboard:', error);
+      showNotification({
+        type: 'error',
+        message: 'An error occurred while adding to dashboard'
+      });
+    } finally {
+      setAddingToDashboard(null);
+    }
+  }, [addingToDashboard, showNotification]);
+  
+  // Get appropriate icon for step type
+  const getStepIcon = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'filtering':
+        return <FilterIcon />;
+      case 'aggregation':
+        return <AggregateIcon />;
+      case 'grouping':
+        return <GroupIcon />;
+      case 'sorting':
+        return <SortIcon />;
+      case 'visualization':
+        return <ChartBarIcon />;
+      case 'comparative':
+        return <CompareIcon />;
+      case 'insights':
+        return <InsightIcon />;
+      case 'table':
+        return <TableIcon />;
+      default:
+        return <TableIcon />;
+    }
+  };
+  
+  // Get background color based on step type
+  const getStepBgColor = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'filtering':
+        return 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/30';
+      case 'aggregation':
+        return 'border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-900/30';
+      case 'grouping':
+        return 'border-purple-300 bg-purple-50 dark:border-purple-700 dark:bg-purple-900/30';
+      case 'sorting':
+        return 'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-900/30';
+      case 'visualization':
+        return 'border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-900/30';
+      case 'comparative':
+        return 'border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-900/30';
+      case 'insights':
+        return 'border-pink-300 bg-pink-50 dark:border-pink-700 dark:bg-pink-900/30';
+      case 'table':
+        return 'border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-800';
+      default:
+        return 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800';
+    }
+  };
+  
+  // Enhanced function to extract and process step data from Qdrant
+  const processStepData = (step: AnalyticalStep) => {
+    if (!step.data && !step.content) {
+      return { hasData: false, tableData: null as any[] | null, processed: step.content || '', tables: [] };
+    }
+    
+    try {
+      // Initialize an array to store extracted tables
+      const tables: Array<{title: string, data: any[], content: string}> = [];
+      
+      // Get the processed content (use content if available, otherwise use description)
+      let processed = step.content || step.description || '';
+      
+      // Check if content has actual table data structures (arrays of objects)
+      let tableData: any[] | null = null;
+      
+      // Handle data directly from Qdrant if available
+      if (step.data) {
+        // If data is a string, try to parse it as JSON
+        if (typeof step.data === 'string') {
+          try {
+            const parsedData = JSON.parse(step.data);
+            if (Array.isArray(parsedData) && parsedData.length > 0) {
+              tableData = parsedData;
+            }
+          } catch (e) {
+            console.log('Data is not valid JSON, using as text', step.data);
+            // If it's not valid JSON, append it to the processed content
+            processed += '\n\n' + step.data;
+          }
+        } 
+        // If data is an array, use it directly
+        else if (Array.isArray(step.data)) {
+          tableData = step.data;
+        } 
+        // If data is an object, convert to array with single item
+        else if (typeof step.data === 'object' && step.data !== null) {
+          tableData = [step.data];
+        }
+      }
+      
+      // Search for markdown tables in the content
+      const markdownTables = TableFormatter.extractTablesFromMarkdown(processed);
+      if (markdownTables && markdownTables.length > 0) {
+        // If we found markdown tables and don't already have tableData, use the first one
+        if (!tableData && markdownTables[0].length > 0) {
+          tableData = markdownTables[0];
+        }
+        
+        // Add all markdown tables to our tables array
+        markdownTables.forEach((tableRows, index) => {
+          if (tableRows.length > 0) {
+            tables.push({
+              title: `Table ${index + 1}`,
+              data: tableRows,
+              content: TableFormatter.toMarkdownTable(tableRows)
+            });
+          }
+        });
+      }
+      
+      return { 
+        hasData: tableData !== null || tables.length > 0, 
+        tableData, 
+        processed, 
+        tables 
+      };
+    } catch (e) {
+      console.error('Error processing step data:', e);
+      return { 
+        hasData: false, 
+        tableData: null, 
+        processed: step.content || step.description || '', 
+        tables: [] 
+      };
+    }
+  };
+  
+  // Enhance the renderStep function to properly display tables
+  const renderStep = useCallback((step: AnalyticalStep, index: number) => {
+    const isExpanded = expandedSteps.includes(step.id);
+    const stepIcon = getStepIcon(step.type);
+    const stepBgColor = getStepBgColor(step.type);
+    
+    // Process the step data to extract tables and format content
+    const { processed } = processStepData(step);
+    
+    // Format the step type to lowercase for display
+    const displayType = step.type.toLowerCase();
+    
+    // Clean up the description text by removing all numbering, markdown, and type prefixes
+    let cleanDescription = step.description
+      .replace(/^\d+\.\s*/, '') // Remove leading numbers like "1. "
+      .replace(/^\d+\.\s*\d+\.\s*/, '') // Remove double numbering like "1. 1. "
+      .replace(/\*\*([^*]+)\*\*:?\s*/g, '') // Remove markdown bold patterns with colon like "**AGGREGATION:** "
+      .replace(new RegExp(`^${step.type}:\\s*`, 'i'), '') // Remove type prefix like "TYPE: " (case insensitive)
+      .replace(new RegExp(`^${displayType}:\\s*`, 'i'), '') // Remove lowercase type prefix
+      .replace(new RegExp(`^${displayType.toUpperCase()}:\\s*`, 'i'), '') // Remove uppercase type
+      .trim();
+    
+    // Remove any duplicate content between type and description
+    if (cleanDescription.startsWith('First, I reviewed')) {
+      // If it starts with a common pattern, ensure it's only shown once
+      cleanDescription = cleanDescription.replace(/^\d+\.\s*/, ''); // Remove any remaining numbers
+    }
+    
+    // Extract the original text from the processed content for the results section
+    const originalText = processed || step.description;
+    
+    return (
+      <motion.div 
+        key={step.id}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className={`mb-6 border rounded-xl overflow-hidden bg-white dark:bg-gray-800/50 shadow-sm
+                   ${isExpanded ? 'transition-all duration-500 ease-in-out' : 'hover:shadow-md transition-all'}`}
+      >
+        <div 
+          className="px-5 py-4 flex justify-between items-center cursor-pointer"
+          onClick={() => toggleStepExpand(step.id)}
+        >
+          <div className="flex items-center space-x-3">
+            <div className={`p-2 rounded-lg ${stepBgColor} text-white flex items-center justify-center`}>
+              {stepIcon}
+            </div>
+            <div>
+              <div className="font-medium text-gray-900 dark:text-white">
+                <span className="text-lg font-bold">{index + 1}.</span> <span className="text-purple-600 dark:text-purple-400 font-medium">{displayType}:</span> {cleanDescription}
+              </div>
+              {!isExpanded && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 max-w-[500px] truncate">
+                  {processed?.substring(0, 100)}
+                  {processed && processed.length > 100 ? '...' : ''}
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <button
+              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleStepExpand(step.id);
+              }}
+            >
+              {isExpanded ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+        
+        {isExpanded && (
+          <div className="px-5 pb-5 pt-3">
+            <div>
+              <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <h3 className="text-md font-medium mb-3 text-gray-800 dark:text-gray-200">Analysis Details</h3>
+                
+                <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
+                  This {displayType} analysis examines relationships and patterns in the data to extract meaningful business insights.
+                </p>
+                
+                <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg border border-purple-100 dark:border-purple-800 mb-4">
+                  <p className="text-sm text-purple-700 dark:text-purple-300">
+                    <span className="font-medium">{displayType} Results:</span> {index + 1}. {originalText.includes("**") ? originalText : `**${step.type.toUpperCase()}:** ${cleanDescription}`}
+                  </p>
+                </div>
+                
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">Data Preview</h4>
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <TableVisualization 
+                      data={step.data && Array.isArray(step.data) && step.data.length > 0 ? step.data : generateSampleData()}
+                      title=""
+                      maxHeight="250px"
+                      pagination={false}
+                      pageSize={5}
+                      responsive={true}
+                      className="w-full"
+                      style={{ fontSize: '0.875rem' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+  }, [expandedSteps, toggleStepExpand, getStepIcon, getStepBgColor, handleAddToDashboard, addingToDashboard]);
+  
+  // Memoize the rendering of steps to prevent unnecessary re-renders
+  const renderSteps = useMemo(() => {
+    return steps.map((step, index) => renderStep(step, index));
+  }, [steps, expandedSteps, renderStep]);
+
+  // Use useCallback for renderSummary to prevent circular dependencies
+  const renderSummary = useCallback(() => {
+    // Don't render summary for PDF documents as it would duplicate content
+    if (normalizedDataSourceType === 'pdf') {
+      return null;
+    }
+    
+    return (
+      <div className="bg-white dark:bg-gray-800/90 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700/80 p-5 backdrop-blur-sm">
+        <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:text-gray-800 dark:prose-headings:text-gray-100 prose-p:text-gray-700 dark:prose-p:text-gray-200 text-gray-800 dark:text-gray-200 prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base prose-h2:mt-6 prose-h2:mb-4 prose-h3:mt-4 prose-h3:mb-2 prose-hr:my-5 prose-hr:border-gray-200 dark:prose-hr:border-gray-700">
+          <MessageMarkdown content={summary} />
+        </div>
+      </div>
+    );
+  }, [summary, normalizedDataSourceType]);
+  
+  // Memoize summary rendering with proper function reference
+  const renderedSummary = useMemo(() => {
+    return renderSummary();
+  }, [renderSummary]);
+  
+  // If no steps, show placeholder
+  if ((!steps || steps.length === 0) && insights.length === 0 && !summary) {
+    return (
+      <div className="text-center text-gray-500 dark:text-gray-400 p-4">
+        No analysis available
+      </div>
+    );
+  }
+  
+  return (
+    <StepContext.Provider value={contextValue}>
+      <div className={`step-by-step-visualization ${isComplete ? 'is-complete' : ''}`}>
+        {/* No data message */}
+        {initialSteps.length === 0 && !summary && !visualizationData && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+            <div className="flex flex-col items-center justify-center text-center">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-gray-400 mb-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-200">No Data Found</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                No relevant data was found for your query in the selected {normalizedDataSourceType || 'data source'}. 
+                Please try a different query or select another data source.
+              </p>
+              <div className="flex flex-col space-y-3">
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                  <strong>Troubleshooting tips:</strong>
+                  <ul className="list-disc list-inside mt-1">
+                    <li>Make sure your query is related to the content in the {normalizedDataSourceType || 'data source'}</li>
+                    {normalizedDataSourceType === 'pdf' && (
+                      <>
+                        <li>Try using specific terms that appear in the PDF document</li>
+                        <li>Ask about specific sections, pages, or topics in the document</li>
+                      </>
+                    )}
+                    {normalizedDataSourceType === 'excel' && (
+                      <>
+                        <li>Try referring to specific columns or data categories in the spreadsheet</li>
+                        <li>Ask for specific calculations or data summaries</li>
+                      </>
+                    )}
+                    {normalizedDataSourceType === 'database' && (
+                      <>
+                        <li>Try using more specific database terminology in your query</li>
+                        <li>Ask about specific tables, records, or fields</li>
+                      </>
+                    )}
+                    {normalizedDataSourceType === 'qdrant' && (
+                      <>
+                        <li>Try using more specific semantic search terms</li>
+                        <li>Ask about concepts rather than exact matches</li>
+                      </>
+                    )}
+                    <li>Check if the data source was properly indexed</li>
+                    <li>Verify that the data source type is correctly identified (current: {normalizedDataSourceType || 'unknown'})</li>
+                  </ul>
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  Data source: {normalizedDataSourceType || 'unknown'}
+                </div>
+                <button 
+                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+                  onClick={() => setShowMockData(true)}
+                >
+                  Show Example Data
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Summary section - always show if available */}
+        {/* Commenting out the initial summary section that appears at the top */}
+        {summary && (
+          // Return null to hide the initial summary section
+          null
+        )}
+        
+        {/* Analysis steps section */}
+        {(steps.length > 0 || (showMockData && !summary && !visualizationData)) && (
+          <div className="section mb-6">
+            <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-100 flex items-center">
+              <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 w-7 h-7 rounded-full flex items-center justify-center mr-2 text-sm">
+                1
+              </span>
+              Analysis Steps
+            </h3>
+            {renderSteps}
+          </div>
+        )}
+        
+        {/* Summary section */}
+        {(summary || (showMockData && !initialSteps.length && !visualizationData)) && (
+          <div className="section mb-6">
+            <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-100 flex items-center">
+              <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 w-7 h-7 rounded-full flex items-center justify-center mr-2 text-sm">
+                {(() => {
+                  const hasSteps = initialSteps.length > 0;
+                  const hasSummary = true;
+                  const hasVisualization = !!visualizationData;
+                  
+                  let stepNumber = 1;
+                  if (hasSteps) stepNumber++;
+                  if (hasSummary) stepNumber++;
+                  if (hasVisualization) stepNumber++;
+                  
+                  return stepNumber.toString();
+                })()}
+              </span>
+              Summary & Insights
+            </h3>
+            {summary ? renderedSummary : (
+              <div className="bg-white dark:bg-gray-800/90 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700/80 p-5 backdrop-blur-sm">
+                <p className="text-gray-700 dark:text-gray-300">
+                  I couldn't find relevant information to answer your question. Please try rephrasing your query or specifying more details.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Visualization section */}
+        {(visualizationData || (showMockData && !initialSteps.length && !summary)) && (
+          <div className="section mb-8">
+            <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-100 flex items-center">
+              <span className="step-badge w-6 h-6 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-semibold mr-2 shadow-sm dark:shadow-blue-500/20">
+                {/* Update step numbering logic for visualization section */}
+                {(() => {
+                  const hasSteps = steps.length > 0;
+                  const hasSummaryInsights = summary ? true : false;
+                  
+                  if (hasSteps && hasSummaryInsights) {
+                    return '3';
+                  } else if (hasSteps || hasSummaryInsights) {
+                    return '2';
+                  } else {
+                    return '1';
+                  }
+                })()}
+              </span>
+              Visualization
+            </h3>
+            
+            <div className="visualization-container bg-white dark:bg-gray-800/90 rounded-lg p-5 border border-gray-200 dark:border-gray-700/80 my-4 shadow-sm">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="text-md font-medium text-gray-800 dark:text-gray-200">
+                  {visualizationData?.title || (visualizationData ? `${visualizationData.xKey || 'Category'} vs ${visualizationData.yKey || 'Value'}` : 'Data Visualization')}
+                </h4>
+                <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  {validateVisualizationType(visualizationData?.type)}
+                </div>
+              </div>
+              
+              {/* Chart area */}
+              <div className="h-96 w-full">
+                <Suspense fallback={<VisualizationLoader />}>
+                  <LazyVisualizationWrapper
+                    config={{
+                      type: validateVisualizationType(visualizationData?.type),
+                      data: visualizationData?.data || [],
+                      xKey: visualizationData?.xKey || 'Segment',
+                      yKey: visualizationData?.yKey || 'Sales',
+                      series: (visualizationData?.data && visualizationData.data.length > 0) ? [{
+                        dataKey: visualizationData.yKey || 'Sales',
+                        name: visualizationData.yKey || 'Sales',
+                        type: validateSeriesType(visualizationData.type || 'bar')
+                      }] : [],
+                      labels: {
+                        title: visualizationData?.title || 'Chart',
+                        xAxis: visualizationData?.xAxisLabel || (visualizationData?.data && visualizationData.data[0] ? Object.keys(visualizationData.data[0])[0] : 'Category'),
+                        yAxis: visualizationData?.yAxisLabel || (visualizationData?.data && visualizationData.data[0] ? Object.keys(visualizationData.data[0])[1] : 'Value')
+                      },
+                      options: {
+                        colors: vibrantColors,
+                        borderColors: vibrantBorderColors,
+                        grid: true,
+                        animation: true,
+                        barPercentage: 0.8,
+                        categoryPercentage: 0.7,
+                        borderRadius: 4,
+                        hoverEffect: true,
+                        useDirectColorAssignment: true,
+                        useMultipleColors: true,
+                        maintainAspectRatio: false,
+                        spacing: {
+                          padding: { top: 20, right: 20, bottom: 20, left: 40 }
+                        },
+                        plugins: {
+                          legend: {
+                            display: true,
+                            position: 'bottom'
+                          }
+                        }
+                      }
+                    }}
+                    height={380}
+                    theme={document.documentElement.classList.contains('dark') ? 'dark' : 'light'}
+                    interactive={true}
+                  />
+                </Suspense>
+              </div>
+              
+              {/* Data table */}
+              {visualizationData && visualizationData.data && visualizationData.data.length > 0 && (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="min-w-full text-sm text-gray-700 dark:text-gray-200">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-800/50 text-left">
+                        <th className="px-4 py-3 font-medium">{renderCellValue(visualizationData?.xKey || 'Segment')}</th>
+                        <th className="px-4 py-3 font-medium">{renderCellValue(visualizationData?.yKey || 'Sales')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {visualizationData.data.map((item, index) => {
+                        return (
+                          <tr key={index} className={index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/50'}>
+                            <td className="px-4 py-3">{renderCellValue(item[visualizationData?.xKey || 'Segment'])}</td>
+                            <td className="px-4 py-3">{renderCellValue(item[visualizationData?.yKey || 'Sales'])}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              
+              <div className="flex justify-end mt-5">
+                <button
+                  className="px-3 py-2 text-sm rounded-md bg-blue-500 hover:bg-blue-600 text-white flex items-center gap-2 dark:bg-blue-600 dark:hover:bg-blue-700 transition-colors"
+                  onClick={() => {
+                    // Only proceed if visualizationData exists
+                    if (!visualizationData) {
+                      console.error('Cannot add to dashboard: visualizationData is null');
+                      return;
+                    }
+                    
+                    // Format the visualization data to match what the dashboard widget expects
+                    // Map the visualization type to a supported type
+                    const mapToSupportedType = (type: string): string => {
+                      // Use the same comprehensive mapping as mapChartType for consistency
+                      return validateVisualizationType(type);
+                    };
+                    
+                    const formattedVisualization = {
+                      type: mapToSupportedType(visualizationData.type || '') || 'bar',
+                      config: {
+                        data: [...(visualizationData.data || [])], // Create a copy of the data array
+                        xKey: visualizationData.xKey || 'Segment',
+                        yKey: visualizationData.yKey || 'Sales',
+                        series: visualizationData.series || [
+                          {
+                            dataKey: visualizationData.yKey || 'Sales',
+                            name: visualizationData.yAxisLabel || visualizationData.yKey || 'Value',
+                            color: '#4f46e5'
+                          }
+                        ],
+                        labels: {
+                          title: visualizationData.title || 'Analysis Visualization',
+                          xAxis: visualizationData.xAxisLabel || visualizationData.xKey || 'Segment',
+                          yAxis: visualizationData.yAxisLabel || visualizationData.yKey || 'Sales'
+                        },
+                        options: {
+                          useMultipleColors: true,
+                          theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+                        }
+                      }
+                    };
+                    
+                    // Log the formatted visualization data
+                    console.log('Formatted visualization data:', JSON.stringify(formattedVisualization, null, 2));
+                    
+                    handleAddToDashboard(formattedVisualization, 'visualization');
+                  }}
+                  disabled={addingToDashboard === 'visualization'}
+                >
+                  {addingToDashboard === 'visualization' ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-1"></div>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                    </svg>
+                  )}
+                  {addingToDashboard === 'visualization' ? 'Adding...' : 'Add to Dashboard'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Call to Action section - Only show if we have meaningful data to act on 
+            and it's not a PDF document (PDF documents handle this separately) */}
+        {(initialSteps.length > 0 || summary || (visualizationData && visualizationData.data && visualizationData.data.length > 0)) && 
+         normalizedDataSourceType !== 'pdf' && (
+          <div className="section mb-6">
+            <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-100 flex items-center">
+              <span className="step-badge w-6 h-6 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-semibold mr-2 shadow-sm dark:shadow-blue-500/20">
+                {/* Determine step number based on which sections are visible */}
+                {(() => {
+                  const hasSteps = initialSteps.length > 0;
+                  const hasSummary = !!summary;
+                  const hasVisualization = !!(visualizationData && visualizationData.data && visualizationData.data.length > 0);
+                  
+                  if (hasSteps && hasSummary && hasVisualization) {
+                    return '3';
+                  } else if ((hasSteps && hasSummary) || (hasSteps && hasVisualization) || (hasSummary && hasVisualization)) {
+                    return '2';
+                  } else {
+                    return '1';
+                  }
+                })()}
+              </span>
+              Explore Further
+            </h3>
+            
+            <div className="cta-container bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800/50 dark:to-indigo-900/20 rounded-lg p-5 border border-blue-100 dark:border-indigo-900/30">
+              <p className="text-gray-700 dark:text-gray-200 mb-3">Would you like me to provide additional insights based on this data?</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Dynamic CTA buttons based on data source type */}
+                {normalizedDataSourceType === 'excel' || normalizedDataSourceType === 'csv' ? (
+                  <>
+                    <button 
+                      className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                      onClick={() => alert('Performing trend analysis')}
+                    >
+                      Perform trend analysis
+                    </button>
+                    <button 
+                      className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                      onClick={() => alert('Finding correlations between columns')}
+                    >
+                      Find correlations
+                    </button>
+                    <button 
+                      className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                      onClick={() => alert('Creating summary statistics')}
+                    >
+                      Generate summary statistics
+                    </button>
+                    <button 
+                      className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                      onClick={() => alert('Visualizing data with charts')}
+                    >
+                      Visualize with charts
+                    </button>
+                  </>
+                ) : normalizedDataSourceType === 'database' ? (
+                  <>
+                    <button 
+                    className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                    onClick={() => alert('Querying related tables')}
+                  >
+                    Query related tables
+                  </button>
+                  <button 
+                    className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                    onClick={() => alert('Analyzing database structure')}
+                  >
+                    Analyze database structure
+                  </button>
+                  </>
+                ) : (
+                  <>
+                    <button 
+                      className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                      onClick={() => alert('Exploring deeper insights')}
+                    >
+                      Explore deeper insights
+                    </button>
+                    <button 
+                      className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                      onClick={() => alert('Finding related information')}
+                    >
+                      Find related information
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Special section for PDF documents only - appears at the end of the document */}
+        {normalizedDataSourceType === 'pdf' && (
+          <div className="section mb-6">
+            <h3 className="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-100 flex items-center">
+              <span className="step-badge w-6 h-6 flex items-center justify-center rounded-full bg-blue-500 text-white text-xs font-semibold mr-2 shadow-sm dark:shadow-blue-500/20">
+                3
+              </span>
+              Explore Further
+            </h3>
+            
+            <div className="cta-container bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800/50 dark:to-indigo-900/20 rounded-lg p-5 border border-blue-100 dark:border-indigo-900/30">
+              <p className="text-gray-700 dark:text-gray-200 mb-3">Would you like me to provide additional insights based on this document?</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* PDF-specific buttons */}
+                <button 
+                  className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                  onClick={() => alert('Extracting key information from the document')}
+                >
+                  Extract key information
+                </button>
+                <button 
+                  className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                  onClick={() => alert('Summarizing document sections')}
+                >
+                  Summarize document sections
+                </button>
+                <button 
+                  className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                  onClick={() => alert('Finding related documents')}
+                >
+                  Find related documents
+                </button>
+                <button 
+                  className="text-left px-4 py-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-2 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/70"
+                  onClick={() => alert('Creating detailed document analysis')}
+                >
+                  Create document analysis
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Data source indicator - only show if there's a data source */}
+      {normalizedDataSourceType !== 'unknown' && (
+      <div className="data-source-indicator mt-4 text-xs text-right text-gray-400 dark:text-gray-500">
+          Data source: <span className="font-semibold text-blue-500">{normalizedDataSourceType}</span>
+      </div>
+      )}
+      
+      {/* Add loading spinner styles using plain style tag */}
+      <style>
+        {`
+        .loading-spinner {
+          display: inline-block;
+          width: 16px;
+          height: 16px;
+          border: 2px solid rgba(0, 0, 0, 0.1);
+          border-top-color: #3B82F6;
+          border-radius: 50%;
+          animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        
+        @media (prefers-color-scheme: dark) {
+          .loading-spinner {
+            border-color: rgba(255, 255, 255, 0.1);
+            border-top-color: #93C5FD;
+          }
+        }
+        `}
+      </style>
+    </StepContext.Provider>
+  );
+};
+
+export function createSampleAnalysisSteps(): AnalyticalStep[] {
+  return [
+    {
+      id: '1',
+      type: 'info',
+      description: 'First, I reviewed the \'Sales\' column to determine the total sales for each segment.',
+      order: 1,
+      content: 'I aggregated the data by segment to calculate total sales. This allowed me to understand the overall performance of each business segment and regional market.',
+      insights: [
+        'Consumer segment leads with 41% of total sales',
+        'North America region accounts for 52% of all sales',
+        'Q4 sales were 32% higher than Q3 across all segments'
+      ],
+      metrics: [
+        {label: 'Total Sales', value: '$7.8M'},
+        {label: 'Top Segment', value: 'Consumer'},
+        {label: 'YoY Growth', value: '+12.3%'}
+      ],
+      data: [
+        {segment: 'Consumer', sales: '$3,200,000', percentage: '41%', growth: '+15.3%'},
+        {segment: 'Corporate', sales: '$2,700,000', percentage: '35%', growth: '+10.1%'},
+        {segment: 'Small Business', sales: '$1,900,000', percentage: '24%', growth: '+8.7%'}
+      ],
+      visualization: {
+        type: 'pie',
+        config: {
+          data: [
+            {name: 'Consumer', value: 41},
+            {name: 'Corporate', value: 35},
+            {name: 'Small Business', value: 24}
+          ],
+          series: [
+            {dataKey: 'value', name: 'Percentage'}
+          ],
+          labels: {
+            title: 'Sales Distribution by Segment',
+            xAxis: 'Segment',
+            yAxis: 'Sales (%)'
+          }
+        }
+      }
+    }
+  ];
+} 

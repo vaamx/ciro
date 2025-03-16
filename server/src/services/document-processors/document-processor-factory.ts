@@ -3,7 +3,8 @@ import { CustomPdfProcessorService } from './custom-pdf-processor.service';
 import { CustomDocxProcessorService } from './custom-docx-processor.service';
 import { EnhancedExcelProcessorService } from './enhanced-excel-processor.service';
 import { CsvProcessorService } from './csv-processor.service';
-import { createLogger } from '../../utils/logger';
+import { EnhancedCsvProcessorService } from './enhanced-csv-processor.service';
+import * as winston from 'winston';
 import { OpenAIService } from '../openai.service';
 import { ChunkingService } from '../chunking.service';
 import { configService } from '../config.service';
@@ -23,7 +24,30 @@ import { shouldLogInitialization } from '../../utils/logger-config';
 @Injectable()
 export class DocumentProcessorFactory {
   private processors = new Map<string, BaseDocumentProcessor>();
-  private readonly logger = createLogger('DocumentProcessorFactory');
+  private readonly logger = winston.createLogger({
+    level: process.env.LOG_LEVEL || 'info',
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf((info) => {
+        const { timestamp, level, message, ...rest } = info;
+        const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DocumentProcessorFactory]: ${message}`;
+        return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+      })
+    ),
+    transports: [
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp(),
+          winston.format.printf((info) => {
+            const { timestamp, level, message, ...rest } = info;
+            const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DocumentProcessorFactory]: ${message}`;
+            return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+          })
+        )
+      })
+    ]
+  });
   private readonly openAIService: OpenAIService;
   private readonly chunkingService: ChunkingService;
   private readonly websocketService: WebSocketService;
@@ -89,7 +113,8 @@ export class DocumentProcessorFactory {
         const excelProcessor = new EnhancedExcelProcessorService(
           configService,
           chunkingService,
-          qdrantService
+          qdrantService,
+          this.websocketService
         );
         // Register with multiple keys to ensure it's found regardless of how it's referenced
         this.registerProcessor(['.xlsx', '.xls', '.ods', 'excel', 'xlsx', 'xls', 'ods', 'excel-processor'], excelProcessor);
@@ -129,17 +154,17 @@ export class DocumentProcessorFactory {
       
       // Initialize CSV processor and register under multiple keys
       try {
-        this.logger.debug('Initializing CSV Processor');
-        const csvProcessor = new CsvProcessorService(
+        this.logger.debug('Initializing Enhanced CSV Processor');
+        const csvProcessor = new EnhancedCsvProcessorService(
           configService,
           chunkingService,
           qdrantService,
           this.websocketService
         );
         this.registerProcessor(['.csv', 'csv', 'csv-processor'], csvProcessor);
-        this.logger.info('CSV Processor registered successfully');
+        this.logger.info('Enhanced CSV Processor registered successfully');
       } catch (err) {
-        this.logger.error(`Failed to initialize CSV Processor: ${err}`);
+        this.logger.error(`Failed to initialize Enhanced CSV Processor: ${err}`);
       }
       
       // Register 'auto' processor strategy that will detect file type and use appropriate processor

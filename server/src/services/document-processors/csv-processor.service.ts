@@ -10,8 +10,8 @@ import { parse } from 'csv-parse/sync';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocketService } from '../websocket.service';
 import { OpenAIService } from '../openai.service';
-import { createLogger } from '../../utils/logger';
-import { OpenAI } from 'openai';
+import { createServiceLogger } from '../../utils/logger-factory';
+import OpenAI from 'openai';
 
 // Define ParseConfig type interface to match csv-parse options
 interface ParseConfig {
@@ -27,8 +27,8 @@ interface ParseConfig {
  */
 @injectable()
 export class CsvProcessorService extends BaseDocumentProcessor {
-  public processorName: string;
-  protected logger = createLogger('CsvProcessorService');
+  public processorName = 'CSV Processor';
+  protected logger = createServiceLogger('CsvProcessorService');
   private batchSize = 50; // Default batch size for processing
   private openaiService: OpenAIService;
 
@@ -39,7 +39,6 @@ export class CsvProcessorService extends BaseDocumentProcessor {
     private readonly websocketService: WebSocketService
   ) {
     super('CsvProcessorService');
-    this.processorName = 'CSV Processor';
     this.openaiService = OpenAIService.getInstance();
     this.logger.info('CSV Processor Service initialized');
   }

@@ -1,17 +1,14 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction } from '../types/express-types';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { HubSpotService } from '../infrastructure/datasource/providers/HubSpotService';
 import { db } from '../infrastructure/database';
 
-declare module 'express' {
-  interface Request {
-    user?: {
-      id: string;
-      email: string;
-      role: string;
-      organizationId: string;
-    };
-  }
+// Define a type for the user object structure we expect
+interface OAuthUser {
+  id: string;
+  email: string;
+  role: string;
+  organizationId: string;
 }
 
 export const oauthRouter = express.Router();
@@ -36,7 +33,8 @@ oauthRouter.post('/token', (req: Request, res: Response, next: NextFunction) => 
             console.log('Successfully exchanged code for HubSpot token');
             
             // Set up data source with the credentials
-            await hubspotService.setupDataSource(authReq.user.id, credentials);
+            const user = authReq.user as OAuthUser;
+            await hubspotService.setupDataSource(user.id, credentials);
             console.log('Successfully set up HubSpot data source');
 
             res.json({ success: true });
@@ -96,9 +94,10 @@ oauthRouter.get('/connections', (req: Request, res: Response) => {
   
   (async () => {
     try {
+      const user = authReq.user as OAuthUser;
       const connections = await db('oauth_tokens')
         .select('provider', 'created_at', 'updated_at')
-        .where('user_id', authReq.user.id);
+        .where('user_id', user.id);
       
       res.json(connections);
     } catch (error) {

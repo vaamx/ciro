@@ -1,11 +1,13 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response } from '../types/express-types';
 import { QdrantService } from '../services/qdrant.service';
 import { authenticate } from '../middleware/auth';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { OpenAIService } from '../services/openai.service';
+import path from 'path';
+import fs from 'fs';
 
 const router = express.Router();
-const logger = createLogger('QdrantRoutes');
+const logger = createServiceLogger('QdrantRoutes');
 const qdrantService = QdrantService.getInstance();
 const openaiService = OpenAIService.getInstance();
 
@@ -167,6 +169,74 @@ router.get('/collections/:collection/analyze', authenticate, async (req, res) =>
   } catch (error) {
     logger.error('Error analyzing document structure:', error);
     res.status(500).json({ error: 'Failed to analyze document structure' });
+  }
+});
+
+/**
+ * Endpoint to get clock data for a collection
+ */
+router.get('/clock-data/:collection/:id', async (req, res) => {
+  try {
+    const { collection, id } = req.params;
+    
+    // Validate inputs
+    if (!collection || !id) {
+      return res.status(400).json({ error: 'Collection and ID are required' });
+    }
+    
+    logger.info(`Clock data request for collection: ${collection}, id: ${id}`);
+    
+    // Define possible paths to check
+    const qdrantDataPath = process.env.QDRANT_DATA_PATH || './qdrant_data';
+    const possiblePaths = [
+      path.join(qdrantDataPath, `collections/${collection}/${id}/newest_clocks.json`),
+      path.join(qdrantDataPath, `collections/${collection}/newest_clocks.json`),
+      path.join(qdrantDataPath, `collections/newest_clocks.json`),
+      path.join(qdrantDataPath, `newest_clocks.json`)
+    ];
+    
+    // Try each path
+    let clockDataContent = null;
+    for (const filePath of possiblePaths) {
+      logger.info(`Checking for clock data at: ${filePath}`);
+      if (fs.existsSync(filePath)) {
+        try {
+          clockDataContent = fs.readFileSync(filePath, 'utf8');
+          logger.info(`Found clock data at: ${filePath}`);
+          break;
+        } catch (readError) {
+          logger.warn(`Error reading clock data from ${filePath}:`, readError);
+        }
+      }
+    }
+    
+    // If file was found and read, parse and return it
+    if (clockDataContent) {
+      try {
+        const clockData = JSON.parse(clockDataContent);
+        return res.json(clockData);
+      } catch (parseError) {
+        logger.warn(`Error parsing clock data JSON:`, parseError);
+        // Continue to mock data if parsing fails
+      }
+    }
+    
+    // Generate mock data if file doesn't exist or couldn't be parsed
+    logger.info('Using mock clock data');
+    const mockClockData = {
+      last_updated: new Date().toISOString(),
+      clocks: {
+        search: Date.now() - 5000,
+        embedding: Date.now() - 3000,
+        processing: Date.now() - 2000
+      },
+      is_mock: true
+    };
+    
+    return res.json(mockClockData);
+  } catch (error) {
+    logger.error('Error retrieving clock data:', error);
+    return res.status(500).json({ error: 'Failed to retrieve clock data' });
   }
 });
 

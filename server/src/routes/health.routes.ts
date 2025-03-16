@@ -1,13 +1,13 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { QdrantService } from '../services/qdrant.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { asyncHandler } from '../utils/asyncHandler';
 import { Pool } from 'pg';
 import { config } from '../config';
 import { configService } from '../services/config.service';
 
 const router = Router();
-const logger = createLogger('HealthRoutes');
+const logger = createServiceLogger('HealthRoutes');
 const qdrantService = QdrantService.getInstance();
 
 // Create a pool for health check only

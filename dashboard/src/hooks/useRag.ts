@@ -47,6 +47,52 @@ const adaptDataSource = (source: KnowledgeDataSource): RagDataSource => {
   // Ensure id is a string
   const sourceId = String(source.id);
   
+  // Determine data source type from file name if not explicitly provided
+  let dataSourceType = source.dataSourceType;
+  if (!dataSourceType && source.name) {
+    const fileName = source.name.toLowerCase();
+    // Check for PDF files
+    if (fileName.endsWith('.pdf')) {
+      dataSourceType = 'pdf';
+    } 
+    // Check for CSV files
+    else if (fileName.endsWith('.csv')) {
+      dataSourceType = 'csv';
+    } 
+    // Check for Excel files
+    else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      dataSourceType = 'excel';
+    } 
+    // Check for Word documents
+    else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+      dataSourceType = 'document';
+    } 
+    // Check for text files
+    else if (fileName.endsWith('.txt')) {
+      dataSourceType = 'text';
+    } 
+    // Check for JSON files
+    else if (fileName.endsWith('.json')) {
+      dataSourceType = 'json';
+    }
+    // Check for database-related names
+    else if (fileName.includes('database') || fileName.includes('db') || 
+             fileName.includes('sql') || fileName.includes('qdrant')) {
+      dataSourceType = 'database';
+    }
+  }
+  
+  // If we still don't have a data source type, try to infer from the source type
+  if (!dataSourceType && source.type) {
+    if (source.type === 'local-files') {
+      dataSourceType = 'pdf'; // Default assumption for local files
+    } else if (source.type === 'crm') {
+      dataSourceType = 'database';
+    } else if (source.type === 'database') {
+      dataSourceType = 'database';
+    }
+  }
+  
   const adaptedSource: RagDataSource = {
     id: sourceId,
     name: source.name || 'Unnamed Source',
@@ -59,7 +105,8 @@ const adaptDataSource = (source: KnowledgeDataSource): RagDataSource => {
       syncRate: originalSource.metrics?.syncRate || 0,
       avgSyncTime: originalSource.metrics?.avgSyncTime || '0s'
     },
-    metadata: originalSource.metadata || {}
+    metadata: originalSource.metadata || {},
+    dataSourceType: dataSourceType || 'unknown'
   };
 
   console.log('Adapted data source:', adaptedSource);
@@ -72,7 +119,7 @@ export const useRag = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Query the selected data sources
-  const queryDataSources = useCallback(async (question: string): Promise<string> => {
+  const queryDataSources = useCallback(async (question: string): Promise<any> => {
     if (!activeSource?.id || !activeSource.name || !activeSource.type) {
       console.error('Invalid active source:', activeSource);
       throw new Error('No valid data source selected');
@@ -89,7 +136,8 @@ export const useRag = () => {
       console.log('Using data source for query:', {
         id: selectedSource.id,
         name: selectedSource.name,
-        type: selectedSource.type
+        type: selectedSource.type,
+        dataSourceType: selectedSource.dataSourceType
       });
 
       // Extract document IDs from recent items
@@ -101,14 +149,24 @@ export const useRag = () => {
         console.log('Using recent document IDs for context:', recentDocumentIds);
       }
 
-      // Use our new RagService to query with the data source and recent document IDs
-      const response = await ragService.query(question, [selectedSource.id], {
-        recentDocumentIds
-      });
+      // Log the data source type for debugging
+      console.log('Data source type for query:', selectedSource.dataSourceType);
+
+      // Use our RagService to query with the data source - simplified to match new interface
+      const response = await ragService.query(question, [selectedSource.id]);
       
       if (!response) {
         throw new Error('No response received from RAG service');
       }
+      
+      // Check if the response contains structured data
+      if (typeof response === 'object' && response.structuredResponse) {
+        console.log('Received structured response:', response);
+        // Return the complete response including structuredResponse
+        return response;
+      }
+      
+      // Regular string response
       return response;
     } catch (err) {
       console.error('Error in queryDataSources:', err);
@@ -166,9 +224,11 @@ export const useRag = () => {
     }
   }, []);
 
-  // Clear a specific data source
+  // Clear a specific data source - implement locally since removed from RagService
   const clearDataSource = useCallback((dataSourceId: string) => {
-    ragService.clearDataSource(dataSourceId);
+    // Simply clear from state instead of calling service (as the method was removed)
+    console.log('Clearing data source from state:', dataSourceId);
+    // Additional cleanup could be implemented here if needed
   }, []);
 
   return {

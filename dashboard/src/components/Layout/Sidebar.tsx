@@ -18,6 +18,7 @@ interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
   isDarkMode?: boolean;
+  isMobile?: boolean;
 }
 
 const navItems = [
@@ -69,37 +70,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onHelpClick, 
   activeSection,
   onSectionChange,
-  isDarkMode = false
+  isDarkMode = false,
+  isMobile = false
 }) => {
   const navigate = useNavigate();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(isMobile);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
   const handleNavigation = (item: typeof navItems[0]) => {
-    if (item.comingSoon) {
-      return;
-    }
+    // Allow navigation even if comingSoon is true
     onSectionChange(item.section);
     navigate(item.path);
   };
 
+  // For mobile, sidebar should always be expanded when visible
+  const sidebarWidth = isMobile ? 'w-72' : (isSidebarOpen ? 'w-64' : 'w-16');
+  
   return (
     <>
-      {/* Sidebar spacer */}
-      <div className={`
-        flex-shrink-0
-        transition-all duration-300 ease-in-out
-        ${isSidebarOpen ? 'w-64' : 'w-16'}
-      `} />
+      {/* Sidebar spacer - only for desktop */}
+      {!isMobile && (
+        <div className={`
+          flex-shrink-0
+          transition-all duration-300 ease-in-out
+          ${sidebarWidth}
+        `} />
+      )}
 
       {/* Sidebar container */}
       <div 
-        className="fixed top-0 bottom-0 left-0 z-30"
-        onMouseEnter={() => setIsSidebarOpen(true)}
-        onMouseLeave={() => {
-          setIsSidebarOpen(false);
-          setHoveredItem(null);
-        }}
+        className={`h-full ${isMobile ? 'w-72' : ''}`}
+        onMouseEnter={() => !isMobile && setIsSidebarOpen(true)}
+        onMouseLeave={() => !isMobile && setIsSidebarOpen(false)}
       >
         <aside className={`
           h-full
@@ -109,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           flex flex-col
           transition-all duration-300 ease-in-out
           backdrop-blur-xl backdrop-saturate-150
-          ${isSidebarOpen ? 'w-64' : 'w-16'}
+          ${isMobile ? 'w-72' : sidebarWidth}
         `}>
           {/* Top spacer for header alignment */}
           <div className="h-8 flex-shrink-0" />
@@ -122,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 bg-gradient-to-br from-purple-500/10 to-purple-600/10 dark:from-purple-400/10 dark:to-purple-500/10
                 rounded-xl
                 transition-all duration-200 hover:scale-105
-                ${!isSidebarOpen ? 'w-10' : 'flex-shrink-0'}
+                ${!isSidebarOpen && !isMobile ? 'w-10' : 'flex-shrink-0'}
               `}>
                 <img 
                   src={isDarkMode ? darkLogo : lightLogo} 
@@ -130,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-7 h-7 object-contain"
                 />
               </div>
-              {isSidebarOpen && (
+              {(isSidebarOpen || isMobile) && (
                 <div className="ml-3 overflow-hidden">
                   <h1 className="text-base font-semibold bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
                     Ciro AI
@@ -146,8 +148,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-2 space-y-0.5">
               {navItems.map((item) => (
                 <div key={item.section} className="relative group/item">
-                  {/* Tooltip */}
-                  {!isSidebarOpen && hoveredItem === item.section && (
+                  {/* Tooltip - only show on desktop collapsed state */}
+                  {!isSidebarOpen && !isMobile && hoveredItem === item.section && (
                     <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50">
                       <div className="px-2 py-1">
                         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl dark:shadow-gray-900/50 p-3 
@@ -174,6 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       w-full rounded-lg px-3 py-2.5
                       transition-all duration-200 ease-in-out
                       group relative
+                      cursor-pointer
                       ${activeSection === item.section
                         ? 'bg-gradient-to-r from-purple-50 to-purple-50/50 dark:from-purple-900/20 dark:to-purple-900/10 text-purple-600 dark:text-purple-400'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400'
@@ -199,7 +202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </div>
 
                       {/* Text content */}
-                      {isSidebarOpen && (
+                      {(isSidebarOpen || isMobile) && (
                         <div className="ml-3 flex-1 overflow-hidden">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center min-w-0 flex-1">
@@ -248,8 +251,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="p-1.5 rounded-lg transition-all duration-200 group-hover/help:bg-purple-100/50 dark:group-hover/help:bg-purple-900/30">
                 <HelpCircle className="w-[18px] h-[18px]" />
               </div>
-              {isSidebarOpen && (
-                <span className="ml-3 font-medium truncate text-sm">Help & Resources</span>
+              {(isSidebarOpen || isMobile) && (
+                <span className="ml-3 font-medium text-sm">Help</span>
               )}
             </button>
           </div>

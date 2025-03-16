@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { RagService } from '../services/rag/RagService';
 import { hasOpenAIApiKey, setOpenAIApiKey, fetchApiKeyFromServer } from '../utils/set-api-key';
 import { testApiKey } from '../utils/test-api-key';
 import { ApiKeyDiagnostics } from './ApiKeyDiagnostics';
@@ -40,13 +39,13 @@ export const ApiKeyForm: React.FC<ApiKeyFormProps> = ({ onSuccess }) => {
         } else {
           setServerKeyAvailable(false);
           // Fall back to checking local storage
-          setHasKey(hasOpenAIApiKey() || RagService.hasApiKey());
+          setHasKey(hasOpenAIApiKey());
         }
       } catch (error) {
         console.error('Error fetching server API key:', error);
         setServerKeyAvailable(false);
         // Fall back to checking local storage
-        setHasKey(hasOpenAIApiKey() || RagService.hasApiKey());
+        setHasKey(hasOpenAIApiKey());
       } finally {
         setIsLoading(false);
       }

@@ -1,4 +1,4 @@
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { db } from '../infrastructure/database';
 import { RagService } from './rag.service';
 import { QdrantService } from './qdrant.service';
@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
  * Specializes in large multi-sheet Excel files and enhancing RAG for manufacturing data
  */
 export class ManufacturingDataService {
-  private logger = createLogger('ManufacturingDataService');
+  private readonly logger = createServiceLogger('ManufacturingDataService');
   private ragService: RagService;
   private qdrantService: QdrantService;
   private openaiService: OpenAIService;

@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { authenticate } from '../middleware/auth';
 import { db } from '../infrastructure/database';
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 
 const router = Router();
 

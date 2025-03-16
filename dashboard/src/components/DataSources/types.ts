@@ -1,5 +1,5 @@
-export type DataSourceType = 'database' | 'crm' | 'storage' | 'analytics' | 'sap' | 'local-files' | 'custom' | 'crm-hubspot' | 'warehouse';
-export type DataSourceStatus = 'connected' | 'disconnected' | 'error' | 'syncing' | 'processing' | 'ready';
+export type DataSourceType = 'database' | 'crm' | 'storage' | 'analytics' | 'sap' | 'local-files' | 'custom' | 'crm-hubspot' | 'warehouse' | 'snowflake';
+export type DataSourceStatus = 'connected' | 'disconnected' | 'processing' | 'error' | 'syncing' | 'ready' | 'completed';
 
 export interface DataSourceMetrics {
   records: number;
@@ -115,6 +115,7 @@ export interface FileChunk {
 export interface LocalFileMetadata {
   id: string;
   filename: string;
+  originalFilename?: string;
   fileType: LocalFileType;
   size: number;
   uploadedAt: Date;

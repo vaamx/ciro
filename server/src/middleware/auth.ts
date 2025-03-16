@@ -1,21 +1,27 @@
-import { Request, Response, NextFunction } from 'express';
+import express from '../types/express-types';
+import type { Request, Response, NextFunction } from 'express-serve-static-core';
 import jwt from 'jsonwebtoken';
 import { db } from '../infrastructure/database';
 import { config } from '../config';
 import { UnauthorizedError } from '../utils/errors';
-import { User } from '../types/express';
 
-// Extend Express Request type to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: User;
-    }
-  }
+// Define User interface
+export interface User {
+  id: string;
+  email: string;
+  role: string;
+  organizationId: string;
 }
+
+// Instead of extending the global namespace, we'll use type assertions
 
 export interface AuthRequest extends Request {
   user: User;
+  params: any;
+  query: any;
+  body: any;
+  originalUrl: string;
+  organizationId?: string;
 }
 
 // Middleware to check if user is authenticated
@@ -65,8 +71,8 @@ export const authenticate = async (
     } else {
       console.log('No Authorization header found');
       // Check if we have a JWT in the cookies as fallback
-      if (req.cookies && req.cookies.jwt) {
-        token = req.cookies.jwt;
+      if (req.cookies && req.cookies.auth_token) {
+        token = req.cookies.auth_token;
         console.log('Token found in cookies');
       } else {
         console.log('No token found in cookies either');

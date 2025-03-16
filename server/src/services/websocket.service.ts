@@ -1,4 +1,4 @@
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import { Server as SocketIOServer } from 'socket.io';
 import http from 'http';
 import { injectable } from 'inversify';
@@ -11,7 +11,30 @@ import { SocketService } from './socket.service';
 @injectable()
 export class WebSocketService {
   private io: SocketIOServer | null = null;
-  private readonly logger = createLogger('WebSocketService');
+  private readonly logger = winston.createLogger({
+    level: process.env.LOG_LEVEL || 'info',
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf((info) => {
+        const { timestamp, level, message, ...rest } = info;
+        const formattedMessage = `${timestamp} [${level.toUpperCase()}] [WebSocketService]: ${message}`;
+        return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+      })
+    ),
+    transports: [
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp(),
+          winston.format.printf((info) => {
+            const { timestamp, level, message, ...rest } = info;
+            const formattedMessage = `${timestamp} [${level.toUpperCase()}] [WebSocketService]: ${message}`;
+            return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+          })
+        )
+      })
+    ]
+  });
   private wss: WebSocket.Server | null = null;
   private connections: Map<string, WebSocket> = new Map();
   private isInitialized: boolean = false;
@@ -21,7 +44,7 @@ export class WebSocketService {
     // Try to get the singleton SocketService
     try {
       this.socketService = SocketService.getInstance();
-      this.logger.debug('Successfully connected to SocketService singleton');
+      this.logger.info('Successfully connected to SocketService singleton');
     } catch (error) {
       this.logger.warn('Could not initialize SocketService connection', error);
     }
@@ -35,15 +58,22 @@ export class WebSocketService {
     try {
       // Avoid re-initializing if already done
       if (this.isInitialized) {
-        this.logger.debug('WebSocketService already initialized');
+        this.logger.info('WebSocketService already initialized');
         return;
       }
 
+      // Improved CORS configuration for Socket.io
       this.io = new SocketIOServer(server, {
         cors: {
-          origin: '*',
-          methods: ['GET', 'POST']
-        }
+          origin: process.env.NODE_ENV === 'production' 
+            ? process.env.CORS_ORIGIN || '*'
+            : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', '*'],
+          methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+          credentials: true,
+          allowedHeaders: ['Content-Type', 'Authorization']
+        },
+        transports: ['websocket', 'polling'],
+        allowEIO3: true
       });
 
       this.io.on('connection', (socket) => {
@@ -54,7 +84,11 @@ export class WebSocketService {
         });
       });
 
-      this.wss = new WebSocket.Server({ server });
+      this.wss = new WebSocket.Server({ 
+        server,
+        // Add proper WebSocket server options
+        perMessageDeflate: false
+      });
       this.logger.info('WebSocket server initialized');
 
       this.wss.on('connection', (ws: WebSocket) => {
@@ -129,68 +163,93 @@ export class WebSocketService {
 
   /**
    * Broadcast a data source update to all connected clients
-   * @param dataSourceId - Data source ID
+   * @param dataSourceId - Data source ID (can be UUID or numeric ID)
    * @param status - New status
    * @param metadata - Additional metadata
    */
-  broadcastDataSourceUpdate(dataSourceId: number, status: string, metadata: any = {}): void {
+  broadcastDataSourceUpdate(dataSourceId: number | string, status: string, metadata: any = {}): void {
     try {
       this.logger.info(`Broadcasting data source update: ${dataSourceId} - ${status}`);
+      
+      // Ensure dataSourceId is treated as a string for consistency
+      const dataSourceIdStr = String(dataSourceId);
+      
+      // Prepare the data to broadcast
+      const data = {
+        id: dataSourceId,
+        status: status,
+        ...metadata,
+        timestamp: new Date().toISOString()
+      };
+      
+      const knowledgeBaseData = {
+        action: 'update',
+        source: {
+          id: dataSourceId,
+          status,
+          ...metadata
+        },
+        timestamp: new Date().toISOString()
+      };
       
       // Try to use direct Socket.IO if possible
       if (this.io) {
         try {
-          const data = {
-            id: dataSourceId,
-            status: status,
-            ...metadata,
-            timestamp: new Date().toISOString()
-          };
-          
           // Emit directly using our Socket.IO instance
           this.io.emit('dataSourceUpdate', data);
-          this.io.emit('knowledgeBaseUpdated', {
-            action: 'update',
-            source: {
-              id: dataSourceId,
-              status,
-              ...metadata
-            },
-            timestamp: new Date().toISOString()
-          });
+          this.io.emit('knowledgeBaseUpdated', knowledgeBaseData);
           
           this.logger.debug(`Update sent via Socket.IO: ${dataSourceId} - ${status}`);
           return;
         } catch (socketError) {
-          this.logger.warn(`Socket.IO emission failed, falling back to WebSocket: ${socketError}`);
+          this.logger.warn(`Socket.IO emission failed, falling back to WebSocket: ${socketError instanceof Error ? socketError.message : String(socketError)}`);
         }
       }
       
       // Fall back to WebSocket if Socket.IO failed or isn't available
       if (!this.isInitialized) {
+        // Try to use the SocketService singleton as a fallback
+        try {
+          if (this.socketService && this.socketService.isInitialized()) {
+            // Use the singleton to broadcast the update
+            this.socketService.emit('dataSourceUpdate', data);
+            this.socketService.emit('knowledgeBaseUpdated', knowledgeBaseData);
+            
+            this.logger.info(`Broadcast via SocketService singleton: ${dataSourceId} - ${status}`);
+            return;
+          } else {
+            // Try to get the SocketService dynamically
+            const SocketService = require('./socket.service').SocketService;
+            if (SocketService && typeof SocketService.getInstance === 'function') {
+              const socketService = SocketService.getInstance();
+              if (socketService && socketService.io) {
+                // Use the singleton to broadcast the update
+                socketService.io.emit('dataSourceUpdate', data);
+                socketService.io.emit('knowledgeBaseUpdated', knowledgeBaseData);
+                
+                this.logger.info(`Broadcast via SocketService singleton: ${dataSourceId} - ${status}`);
+                return;
+              }
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to use SocketService singleton: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        
         this.logger.warn(`Cannot broadcast, WebSocket server not initialized - Update for dataSource ${dataSourceId} will not be sent`);
         return;
       }
       
       // Use WebSocket broadcast if available
       if (this.wss) {
-        this.broadcast('dataSourceUpdate', {
-          id: dataSourceId,
-          status,
-          metadata,
-          timestamp: new Date().toISOString()
-        });
+        this.broadcast('dataSourceUpdate', data);
         
         // Additionally broadcast a knowledge base update
-        this.broadcast('knowledgeBaseUpdated', {
-          action: 'update',
-          source: {
-            id: dataSourceId,
-            status,
-            metadata
-          },
-          timestamp: new Date().toISOString()
-        });
+        this.broadcast('knowledgeBaseUpdated', knowledgeBaseData);
+        
+        this.logger.debug(`Broadcasted via WebSocket: ${dataSourceId} - ${status}`);
+      } else {
+        this.logger.warn(`No WebSocket server available for broadcasting update for dataSource ${dataSourceId}`);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

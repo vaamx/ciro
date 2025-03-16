@@ -5,6 +5,13 @@ import type { MetricCard } from '../components/Dashboard/StaticMetricsCards';
 import { useAuth } from './AuthContext';
 import { useOrganization } from './OrganizationContext';
 
+// Extend Window interface to include dashboardContext
+declare global {
+  interface Window {
+    dashboardContext?: DashboardContextType;
+  }
+}
+
 interface DashboardContextType {
   dashboards: Dashboard[];
   currentDashboard: Dashboard | null;
@@ -230,19 +237,32 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  // Create the context value object
+  const contextValue: DashboardContextType = {
+    dashboards,
+    currentDashboard,
+    addDashboard,
+    switchDashboard,
+    updateDashboard,
+    deleteDashboard,
+    updateWidgets,
+    updateMetrics,
+    isLoading,
+    error
+  };
+
+  // Expose the dashboard context to the window object
+  useEffect(() => {
+    window.dashboardContext = contextValue;
+    
+    return () => {
+      // Clean up when component unmounts
+      delete window.dashboardContext;
+    };
+  }, [contextValue]);
+
   return (
-    <DashboardContext.Provider value={{
-      dashboards,
-      currentDashboard,
-      addDashboard,
-      switchDashboard,
-      updateDashboard,
-      deleteDashboard,
-      updateWidgets,
-      updateMetrics,
-      isLoading,
-      error,
-    }}>
+    <DashboardContext.Provider value={contextValue}>
       {children}
     </DashboardContext.Provider>
   );

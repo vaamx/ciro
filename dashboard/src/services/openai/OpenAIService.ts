@@ -1,13 +1,20 @@
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { DataSourceType } from '../processors/UniversalDataProcessor';
+import { PromptTemplates } from './PromptTemplates';
+import { AnalyticalOperationType } from '../ServerAnalyticsService';
 
 /**
  * Service for interacting with OpenAI API
  */
 export class OpenAIService {
-  private openai: OpenAI | null = null;
-  private apiKey: string | null = null;
-  private useMockResponses = false;
+  // OpenAI Configuration
+  private openai: any | null = null; // OpenAI client instance
+  private apiKey: string = ''; // Default empty string, will be set in constructor
+  private organization: string | undefined;
+  private useMockResponses: boolean = true; // Default to mock for dev/safety
+  private embeddingModel: string = 'text-embedding-ada-002'; // Default embedding model
+  private promptTemplates: PromptTemplates;
 
   /**
    * Check if an API key is available
@@ -21,6 +28,7 @@ export class OpenAIService {
    */
   constructor() {
     this.initializeApiKey();
+    this.promptTemplates = new PromptTemplates();
   }
 
   private initializeApiKey(): void {
@@ -54,33 +62,58 @@ export class OpenAIService {
 
     this.openai = new OpenAI({
       apiKey: this.apiKey,
+      organization: this.organization,
       dangerouslyAllowBrowser: true
     });
   }
 
-  public async createEmbedding(text: string): Promise<number[]> {
-    // If we're using mock responses, return a mock embedding
-    if (this.useMockResponses) {
-      return this.getMockEmbedding(text);
-    }
-
-    if (!this.openai) {
-      throw new Error('OpenAI API not initialized');
-    }
-
+  /**
+   * Create embedding for a text query with enhanced error handling
+   */
+  async createEmbedding(text: string): Promise<number[]> {
     try {
-      const response = await this.openai.embeddings.create({
-        model: 'text-embedding-ada-002',
-        input: text
+      // If we're using mock responses, return a mock embedding
+      if (this.useMockResponses) {
+        console.log('Using mock embedding due to mock responses being enabled');
+        return this.getMockEmbedding(text);
+      }
+      
+      console.log(`Creating embedding for text (${text.length} chars): "${text.substring(0, 50)}..."`);
+      
+      // First check if text is valid
+      if (!text || text.trim().length === 0) {
+        console.error('Cannot create embedding for empty text');
+        throw new Error('Empty text provided for embedding');
+      }
+      
+      // Maximum context length for embeddings
+      const MAX_CONTEXT_LENGTH = 8191;
+      if (text.length > MAX_CONTEXT_LENGTH) {
+        console.warn(`Text length exceeds maximum context, truncating from ${text.length} to ${MAX_CONTEXT_LENGTH} characters`);
+        text = text.substring(0, MAX_CONTEXT_LENGTH);
+      }
+      
+      // Call the OpenAI API to create the embedding
+      const response = await this.openai!.embeddings.create({
+        model: this.embeddingModel,
+        input: text,
       });
-
-      return response.data[0].embedding;
+      
+      // Check if we have valid data
+      if (!response || !response.data || response.data.length === 0) {
+        console.error('No embedding data returned from API');
+        throw new Error('No embedding data returned');
+      }
+      
+      // Log success info
+      const embedding = response.data[0].embedding;
+      console.log(`Successfully created embedding of length ${embedding.length}`);
+      
+      return embedding;
     } catch (error) {
       console.error('Error creating embedding:', error);
-      
-      // If any error occurs, fall back to mock responses
-      console.warn('Falling back to mock responses due to error');
-      this.useMockResponses = true;
+      // Use our mock embedding generator for a more deterministic fallback
+      console.warn('Using mock embedding generator as fallback');
       return this.getMockEmbedding(text);
     }
   }
@@ -143,6 +176,7 @@ export class OpenAIService {
       temperature?: number;
       model?: string;
       max_tokens?: number;
+      max_completion_tokens?: number;
     } = {}
   ): Promise<string> {
     if (!this.openai) {
@@ -151,7 +185,7 @@ export class OpenAIService {
 
     // Set default options
     const model = options.model || import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini';
-    const max_tokens = options.max_tokens || 1024;
+    const max_tokens = options.max_completion_tokens || options.max_tokens || 1024;
     
     // Check if this is an o1 model
     const isO1Model = this.isO1Model(model);
@@ -201,8 +235,23 @@ export class OpenAIService {
           message_count: preparedMessages.length,
           max_tokens: Math.min(max_tokens, 4096)
         }));
+      } else if (model.startsWith('o3')) {
+        // For o3 models like o3-mini, use max_completion_tokens
+        requestBody = {
+          model,
+          messages: preparedMessages,
+          temperature: options.temperature || 0.7,
+          max_completion_tokens: max_tokens
+        };
+        
+        console.log('Request for o3 model:', JSON.stringify({
+          model,
+          message_count: preparedMessages.length,
+          temperature: options.temperature || 0.7,
+          max_completion_tokens: max_tokens
+        }));
       } else {
-        // Standard parameters for other models
+        // Standard parameters for other models (like gpt-4o)
         requestBody = {
           model,
           messages: preparedMessages,
@@ -272,7 +321,7 @@ export class OpenAIService {
         // If we get an authentication error, clear the API key and use mock responses
         if (response.status === 401) {
           console.warn('Authentication error with OpenAI API, clearing API key');
-          this.apiKey = null;
+          this.apiKey = ''; // Use empty string instead of null
           this.useMockResponses = true;
           return this.getMockChatCompletion(messages, model);
         }
@@ -492,7 +541,7 @@ export class OpenAIService {
     // For entity-specific queries
     if (modelName === 'gpt-4o-mini' || 
         lastUserContent.toLowerCase().includes('entity') || 
-        lastUserContent.toLowerCase().includes('find') || 
+        lastUserContent.includes('find') || 
         lastUserContent.toLowerCase().includes('information about')) {
       
       // Try to extract potential entity name from the query
@@ -511,6 +560,7 @@ export class OpenAIService {
 
   /**
    * Generate a mock embedding for development/testing
+   * @deprecated This method is kept for potential future use
    */
   private getMockEmbedding(text: string): number[] {
     console.log('Generating mock embedding');
@@ -535,5 +585,165 @@ export class OpenAIService {
     // Normalize the embedding
     const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
     return embedding.map(val => val / magnitude);
+  }
+
+  /**
+   * Process data with the universal structured response approach
+   * @param query The user's query
+   * @param data The data to analyze (any format)
+   * @param dataSourceType The type of data source
+   * @param analyticalOperations Optional list of analytical operations to include
+   * @returns The structured response from the model
+   */
+  public async processStructuredDataResponse(
+    query: string,
+    data: any,
+    dataSourceType: DataSourceType,
+    analyticalOperations?: AnalyticalOperationType[]
+  ): Promise<string> {
+    console.log(`Processing ${dataSourceType} data with structured response`);
+    
+    try {
+      // Get the appropriate universal structured prompt
+      const systemPrompt = await this.promptTemplates.getUniversalStructuredPrompt(
+        dataSourceType,
+        query,
+        analyticalOperations
+      );
+      
+      // Format data appropriately
+      const formattedData = this.formatDataForPrompt(data, dataSourceType);
+      
+      // Prepare messages
+      const messages: ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        { 
+          role: 'user', 
+          content: `Here is my ${dataSourceType.toLowerCase()} data:\n${formattedData}\n\nMy question is: ${query}` 
+        }
+      ];
+      
+      // Get completion from the model
+      const response = await this.createChatCompletion(
+        messages,
+        {
+          model: 'gpt-4o',
+          temperature: 0.0,
+          max_tokens: 3000
+        }
+      );
+      
+      return response;
+    } catch (error) {
+      console.error('Error processing structured data response:', error);
+      return `I encountered an error while analyzing your ${dataSourceType.toLowerCase()} data: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  }
+  
+  /**
+   * Process data with enhanced analytical prompt
+   * @param query The user's query
+   * @param data The data to analyze (any format)
+   * @param dataSourceType The type of data source
+   * @returns The analytical response from the model
+   */
+  public async processAnalyticalDataResponse(
+    query: string,
+    data: any,
+    dataSourceType: DataSourceType
+  ): Promise<string> {
+    console.log(`Processing ${dataSourceType} data with analytical response`);
+    
+    try {
+      // Get the enhanced analytical prompt
+      const systemPrompt = await this.promptTemplates.getEnhancedAnalyticalPrompt(
+        dataSourceType,
+        query
+      );
+      
+      // Format data appropriately
+      const formattedData = this.formatDataForPrompt(data, dataSourceType);
+      
+      // Prepare messages
+      const messages: ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        { 
+          role: 'user', 
+          content: `Here is my ${dataSourceType.toLowerCase()} data:\n${formattedData}\n\nMy question is: ${query}` 
+        }
+      ];
+      
+      // Get completion from the model
+      const response = await this.createChatCompletion(
+        messages,
+        {
+          model: 'gpt-4o',
+          temperature: 0.1,
+          max_tokens: 2500
+        }
+      );
+      
+      return response;
+    } catch (error) {
+      console.error('Error processing analytical data response:', error);
+      return `I encountered an error while analyzing your ${dataSourceType.toLowerCase()} data: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  }
+  
+  /**
+   * Format data appropriately based on its type
+   * @param data The data to format
+   * @param dataSourceType The type of data
+   * @returns Formatted data as a string
+   */
+  private formatDataForPrompt(data: any, dataSourceType: DataSourceType): string {
+    switch (dataSourceType) {
+      case DataSourceType.EXCEL:
+      case DataSourceType.JSON:
+      case DataSourceType.TABLE:
+        // For structured data, stringify as JSON
+        return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        
+      case DataSourceType.CSV:
+        // For CSV, keep as a string or format as table
+        return typeof data === 'string' ? data : 
+               (Array.isArray(data) ? this.formatArrayAsTable(data) : JSON.stringify(data, null, 2));
+        
+      case DataSourceType.PDF:
+      case DataSourceType.DOC:
+      case DataSourceType.TEXT:
+        // For text-based documents, keep as a string
+        return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        
+      default:
+        // Default to JSON stringification
+        return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    }
+  }
+  
+  /**
+   * Format an array of objects as a text table for display
+   */
+  private formatArrayAsTable(data: any[]): string {
+    if (!Array.isArray(data) || data.length === 0) {
+      return JSON.stringify(data, null, 2);
+    }
+    
+    // Extract headers from the first object
+    const headers = Object.keys(data[0]);
+    
+    // Create a header row
+    const headerRow = headers.join('\t');
+    
+    // Create data rows
+    const rows = data.map(item => {
+      return headers.map(header => {
+        const value = item[header];
+        return value === null || value === undefined ? '' : String(value);
+      }).join('\t');
+    });
+    
+    // Combine header and rows
+    return [headerRow, ...rows].join('\n');
   }
 } 

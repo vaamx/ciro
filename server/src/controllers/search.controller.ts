@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import { BadRequestError } from '../utils/errors';
 import { AuthRequest } from '../middleware/auth';
 import { pool } from '../config/database';

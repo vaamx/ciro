@@ -5,9 +5,35 @@
  * and formatting of logs throughout the application.
  */
 
-import { createLogger } from './logger';
+import * as winston from 'winston';
 
-const logger = createLogger('LoggerConfig');
+// Create a direct logger for this module to avoid circular dependencies
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf((info) => {
+      const { timestamp, level, message, ...rest } = info;
+      const formattedMessage = `${timestamp} [${level.toUpperCase()}] [LoggerConfig]: ${message}`;
+      return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+    })
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.printf((info) => {
+            const { timestamp, level, message, ...rest } = info;
+            const formattedMessage = `${timestamp} [${level.toUpperCase()}] [LoggerConfig]: ${message}`;
+            return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+          })
+        )
+      )
+    })
+  ]
+});
 
 // Get environment
 const NODE_ENV = process.env.NODE_ENV || 'development';

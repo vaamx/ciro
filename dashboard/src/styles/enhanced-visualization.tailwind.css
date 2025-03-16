@@ -1,0 +1,186 @@
+/* 
+ * Enhanced Visualization Styles - Tailwind CSS
+ * 
+ * This file uses Tailwind CSS @apply directives which require PostCSS processing.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Main container */
+  .enhanced-step-by-step-visualization {
+    @apply bg-white dark:bg-gray-900 rounded-lg overflow-hidden;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  }
+
+  /* Tab navigation */
+  .enhanced-step-by-step-visualization .tabs-navigation {
+    @apply bg-white dark:bg-gray-900 flex border-b border-gray-200 dark:border-gray-700;
+  }
+
+  .enhanced-step-by-step-visualization .tabs-navigation button {
+    @apply px-4 py-2 text-sm font-medium transition-colors;
+  }
+
+  .enhanced-step-by-step-visualization .tabs-navigation button:hover {
+    @apply text-blue-600 dark:text-blue-400;
+  }
+
+  /* Step items */
+  .enhanced-step-by-step-visualization .step-item {
+    @apply border-b border-gray-200 dark:border-gray-700 last:border-b-0;
+  }
+
+  .enhanced-step-by-step-visualization .step-header {
+    @apply flex items-center p-4 cursor-pointer;
+  }
+
+  .enhanced-step-by-step-visualization .step-number {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium mr-3;
+  }
+
+  /* Step content */
+  .enhanced-step-by-step-visualization .step-content {
+    @apply px-4 pb-4 pt-0;
+  }
+
+  .enhanced-step-by-step-visualization .step-text {
+    @apply text-gray-700 dark:text-gray-300 mb-3;
+  }
+
+  .enhanced-step-by-step-visualization .step-text p {
+    @apply mb-2;
+  }
+
+  .enhanced-step-by-step-visualization .step-data {
+    @apply mb-3;
+  }
+
+  .enhanced-step-by-step-visualization .step-code {
+    @apply bg-gray-100 dark:bg-gray-800 p-3 rounded-lg text-sm mb-3 overflow-x-auto;
+  }
+
+  .enhanced-step-by-step-visualization .step-table {
+    @apply w-full mb-4 overflow-x-auto;
+  }
+
+  .enhanced-step-by-step-visualization .step-visualization {
+    @apply mt-4 mb-2;
+  }
+
+  /* Summary and insights */
+  .enhanced-step-by-step-visualization .summary-container,
+  .enhanced-step-by-step-visualization .insights-container {
+    @apply p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-4;
+  }
+
+  .enhanced-step-by-step-visualization .summary-container h3,
+  .enhanced-step-by-step-visualization .insights-container h3 {
+    @apply text-lg font-medium text-blue-800 dark:text-blue-400 mb-2;
+  }
+
+  .enhanced-step-by-step-visualization .summary-container p {
+    @apply text-blue-700 dark:text-blue-300;
+  }
+
+  .enhanced-step-by-step-visualization .insights-container ul {
+    @apply list-disc pl-5;
+  }
+
+  .enhanced-step-by-step-visualization .insights-container li {
+    @apply text-blue-700 dark:text-blue-300 mb-1;
+  }
+
+  /* Navigation */
+  .enhanced-step-by-step-visualization .step-indicator {
+    @apply flex justify-center gap-1 mt-4 mb-2;
+  }
+
+  .enhanced-step-by-step-visualization .steps-navigation {
+    @apply flex justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700;
+  }
+
+  .enhanced-step-by-step-visualization .steps-navigation button {
+    @apply px-4 py-2 rounded bg-gray-100 dark:bg-gray-800 text-sm;
+  }
+
+  /* Visualization container */
+  .enhanced-step-by-step-visualization .visualization-container .add-to-dashboard-btn {
+    @apply text-right mt-1;
+  }
+
+  .enhanced-step-by-step-visualization .visualization-container .add-to-dashboard-btn button {
+    @apply text-xs text-blue-600 dark:text-blue-400;
+  }
+
+  /* Loading spinner */
+  .loading-spinner {
+    border: 3px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top: 3px solid #3498db;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .loading-spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top: 3px solid #3498db;
+    }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  /* Step type specific styles */
+  .step-type-filtering {
+    @apply bg-blue-500;
+  }
+
+  .step-type-aggregation {
+    @apply bg-purple-500;
+  }
+
+  .step-type-grouping {
+    @apply bg-green-500;
+  }
+
+  .step-type-sorting {
+    @apply bg-yellow-500;
+  }
+
+  .step-type-visualization {
+    @apply bg-pink-500;
+  }
+
+  .step-type-comparative {
+    @apply bg-indigo-500;
+  }
+
+  .step-type-insights {
+    @apply bg-red-500;
+  }
+
+  .step-type-table {
+    @apply bg-teal-500;
+  }
+
+  /* Data source indicator */
+  .data-source-indicator {
+    @apply mt-4 text-xs text-right text-gray-400 dark:text-gray-500;
+  }
+} 

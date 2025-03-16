@@ -6,7 +6,7 @@
  * container pattern to manage service lifecycle and dependencies.
  */
 
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { QdrantService } from './qdrant.service';
 import { ConfigService } from './config.service';
 import { ChunkingService } from './chunking.service';
@@ -19,7 +19,7 @@ import { shouldLogServiceRegistration } from '../utils/logger-config';
 // import { ChunkingService } from './chunking.service';
 // etc.
 
-const logger = createLogger('ServiceRegistry');
+const logger = createServiceLogger('ServiceRegistry');
 
 /**
  * ServiceRegistry - Manages all service instances in the application

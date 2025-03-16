@@ -1,10 +1,19 @@
-import { forwardRef, useEffect, useState, useRef, useCallback } from 'react';
+import React, { forwardRef, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import type { ChatMessage, ChatUIConfig } from '../types';
 import { useInView } from 'react-intersection-observer';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Composer, MessageGroup } from '.';
 import { KnowledgeSidebar } from '../../knowledge/KnowledgeSidebar';
 import { KnowledgeItem } from '../../../types/knowledge';
+import { 
+  Trash2 as TrashIcon, 
+  BookOpen, 
+  Plus, 
+  ChevronLeft, 
+  MoreVertical, 
+  Clipboard, 
+  X 
+} from 'lucide-react';
 
 export interface ThreadProps {
   messages: ChatMessage[];
@@ -40,42 +49,588 @@ export interface ThreadProps {
   onRetry?: () => void;
   onNewChat?: () => void;
   onKnowledgeItemSelect?: (item: KnowledgeItem) => void;
+  isKnowledgeBaseVisible?: boolean;
+  onKnowledgeBaseToggle?: () => void;
+  onLoadMoreMessages?: () => void;
+  hasMoreMessages?: boolean;
+  onForceEndLoading?: () => void;
+  onSkipLoadingAndStartNewChat?: () => void;
+  showWelcomeScreen?: boolean;
+  welcomeScreenRenderer?: () => React.ReactNode;
+  onDeleteSession?: (sessionId: string) => Promise<void>;
+  isMobile?: boolean;
 }
 
 // Group messages helper function
-const groupMessages = (msgs: ChatMessage[]) => {
-  const groups: ChatMessage[][] = [];
-  let currentGroup: ChatMessage[] = [];
-  
-  msgs.forEach((message, index) => {
-    if (index === 0) {
-      currentGroup.push(message);
-      return;
-    }
+const groupMessages = (msgs: ChatMessage[]): ChatMessage[][] => {
+  // Log the number of messages being grouped
+  console.log(`Grouping ${msgs?.length || 0} messages`);
 
-    const prevMessage = msgs[index - 1];
-    const timeDiff = message.timestamp && prevMessage.timestamp
-      ? message.timestamp - prevMessage.timestamp
-      : 0;
-    
-    if (
-      message.role === prevMessage.role &&
-      timeDiff < 2 * 60 * 1000 // 2 minutes
-    ) {
-      currentGroup.push(message);
-    } else {
-      if (currentGroup.length > 0) {
-        groups.push([...currentGroup]);
-      }
-      currentGroup = [message];
-    }
-  });
-
-  if (currentGroup.length > 0) {
-    groups.push(currentGroup);
+  // Handle edge cases
+  if (!msgs || msgs.length === 0) {
+    console.log('No messages to group');
+    return [];
   }
 
-  return groups;
+  try {
+    // Filter out temporary welcome messages if there are other messages
+    const hasRealMessages = msgs.some(m => !m.id.includes('welcome-'));
+    let filteredMsgs = hasRealMessages 
+      ? msgs.filter(m => !m.id.includes('welcome-')) 
+      : msgs;
+
+    // Log filtered messages
+    console.log(`After filtering welcome messages: ${filteredMsgs.length} messages remain`);
+
+    // Deduplicate messages - keep the last message with the same ID
+    const uniqueMessages = filteredMsgs.reduce((acc, curr) => {
+      acc[curr.id] = curr;
+      return acc;
+    }, {} as Record<string, ChatMessage>);
+    
+    // Enhance message validation with better error logging
+    const validMessages = Object.values(uniqueMessages).filter(msg => {
+      if (!msg) {
+        console.warn('Filtering out null/undefined message');
+        return false;
+      }
+      if (!msg.role) {
+        console.warn(`Message missing role, id: ${msg.id}`);
+        return false;
+      }
+      // Add default status if missing
+      if (!msg.status) {
+        msg.status = 'complete';
+      }
+      return true;
+    });
+
+    // Log valid messages
+    console.log(`After validation: ${validMessages.length} valid messages`);
+
+    // Sort messages by timestamp
+    const sortedMessages = validMessages.sort((a, b) => 
+      (a.timestamp || 0) - (b.timestamp || 0)
+    );
+
+    // Group messages by role and time proximity
+    const groups: ChatMessage[][] = [];
+    let currentGroup: ChatMessage[] = [];
+
+    sortedMessages.forEach((message, index) => {
+      const prevMessage = index > 0 ? sortedMessages[index - 1] : null;
+      
+      // Start a new group if:
+      // 1. This is the first message
+      // 2. The role changed from the previous message
+      // 3. There's a significant time gap (> 5 minutes) between messages of the same role
+      const timeGap = prevMessage ? (message.timestamp || 0) - (prevMessage.timestamp || 0) : 0;
+      const shouldStartNewGroup = 
+        !prevMessage || 
+        prevMessage.role !== message.role || 
+        (timeGap > 5 * 60 * 1000); // 5 minutes in milliseconds
+      
+      if (shouldStartNewGroup && currentGroup.length > 0) {
+        groups.push([...currentGroup]);
+        currentGroup = [];
+      }
+      
+      currentGroup.push(message);
+    });
+
+    // Add the last group if it's not empty
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
+    }
+
+    console.log(`Grouped into ${groups.length} message groups`);
+    
+    // Log the first message of each group for debugging
+    groups.forEach((group, i) => {
+      if (group.length > 0) {
+        console.log(`Group ${i+1}: ${group.length} messages, first message role: ${group[0].role}`);
+      }
+    });
+    
+    return groups;
+  } catch (error) {
+    console.error('Error grouping messages:', error);
+    // Fallback: return all messages individually
+    return msgs.map(msg => [msg]);
+  }
+};
+
+// Update the ChatHistoryDropdown component to fix session display issues
+const ChatHistoryDropdown: React.FC<{
+  sessions?: {
+    id: string;
+    title: string;
+    last_message: string;
+    updated_at: string;
+    message_count: number;
+  }[];
+  activeSessionId: string | null;
+  onSessionSelect: (sessionId: string) => void;
+  onNewChat?: () => void;
+  isLoadingSessions?: boolean;
+  onRetry?: () => void;
+  onDeleteSession?: (sessionId: string) => void;
+}> = ({
+  sessions,
+  activeSessionId,
+  onSessionSelect,
+  onNewChat,
+  isLoadingSessions,
+  onRetry,
+  onDeleteSession
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+
+  // Log sessions for debugging
+  useEffect(() => {
+    console.log('ChatHistoryDropdown - Available Sessions:', sessions);
+    console.log('ChatHistoryDropdown - Active Session ID:', activeSessionId);
+  }, [sessions, activeSessionId]);
+
+  // Handle clicking outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  // Handle session deletion with loading state
+  const handleDeleteSession = async (sessionId: string) => {
+    if (deletingSessionId) {
+      // Already deleting a session, prevent multiple clicks
+      return;
+    }
+    
+    try {
+      setDeletingSessionId(sessionId);
+      if (onDeleteSession) {
+        await onDeleteSession(sessionId);
+      }
+    } finally {
+      setDeletingSessionId(null);
+    }
+  };
+
+  // Get current session title
+  const currentSessionTitle = useMemo(() => {
+    if (!activeSessionId || !sessions) return 'New Chat';
+    
+    const activeSession = sessions.find(s => s.id === activeSessionId);
+    if (!activeSession) return 'New Chat';
+    
+    // Use the session title, or fallback to 'Untitled Chat' if empty
+    return activeSession.title || 'Untitled Chat';
+  }, [activeSessionId, sessions]);
+
+  // Log title changes for debugging
+  useEffect(() => {
+    console.log('Current session title:', currentSessionTitle);
+  }, [currentSessionTitle]);
+
+  // Force the history dropdown to open if we have sessions but not showing them
+  useEffect(() => {
+    if (sessions && sessions.length > 0 && !isOpen && !isLoadingSessions) {
+      console.log('Sessions are available but dropdown is closed');
+    }
+  }, [sessions, isOpen, isLoadingSessions]);
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      {/* Chat history dropdown button */}
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 text-left px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group"
+      >
+        <span className="text-lg font-semibold text-gray-900 dark:text-white truncate max-w-[180px]">
+          {currentSessionTitle}
+        </span>
+        <svg 
+          xmlns="http://www.w3.org/2000/svg" 
+          className={`h-4 w-4 text-gray-500 transition-transform duration-200 group-hover:text-gray-700 dark:group-hover:text-gray-300 ${isOpen ? 'rotate-180' : ''}`} 
+          fill="none" 
+          viewBox="0 0 24 24" 
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Dropdown menu */}
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.15 }}
+          className="absolute left-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 overflow-hidden"
+        >
+          {/* New Chat Button */}
+          {onNewChat && (
+            <button
+              onClick={() => {
+                onNewChat();
+                // Don't close the dropdown after creating a new chat
+                // so user can see it appear in the list
+              }}
+              className="flex items-center gap-2 w-full px-4 py-3 text-left font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-700"
+            >
+              <Plus className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+              <span>New Chat</span>
+            </button>
+          )}
+
+          {/* Sessions list */}
+          <div className="max-h-80 overflow-y-auto">
+            {isLoadingSessions ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+              </div>
+            ) : sessions && sessions.length > 0 ? (
+              <div>
+                <div className="px-3 py-2 bg-gray-50 dark:bg-gray-750 sticky top-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-medium">Recent Chats</p>
+                    <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                      {sessions.length}
+                    </span>
+                  </div>
+                </div>
+                {sessions.map((session) => (
+                  <div 
+                    key={session.id}
+                    className={`w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                      activeSessionId === session.id ? 'bg-violet-50 dark:bg-violet-900/20' : ''
+                    }`}
+                  >
+                    <button
+                      onClick={() => {
+                        // Show loading indicator
+                        const loadingIndicator = document.createElement('div');
+                        loadingIndicator.className = 'fixed inset-0 bg-black bg-opacity-20 z-50 flex items-center justify-center';
+                        loadingIndicator.innerHTML = `
+                          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg flex items-center space-x-3">
+                            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-violet-600"></div>
+                            <span class="text-gray-700 dark:text-gray-300">Switching chat...</span>
+                          </div>
+                        `;
+                        document.body.appendChild(loadingIndicator);
+                        
+                        // Select the session
+                        onSessionSelect(session.id);
+                        
+                        // Remove loading indicator after a short delay
+                        setTimeout(() => {
+                          document.body.removeChild(loadingIndicator);
+                          // Close the dropdown after switching
+                          setIsOpen(false);
+                        }, 300);
+                      }}
+                      className="flex-1 text-left"
+                    >
+                      <p className="font-medium text-gray-900 dark:text-white text-sm truncate max-w-[180px]">
+                        {session.title || 'Untitled Chat'}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[180px]">
+                        {session.last_message || 'No messages yet'}
+                      </p>
+                      <div className="flex items-center text-xs text-gray-400 dark:text-gray-500 mt-1">
+                        <span>{new Date(session.updated_at).toLocaleDateString()}</span>
+                        <span className="mx-1">•</span>
+                        <span>{session.message_count} {session.message_count === 1 ? 'message' : 'messages'}</span>
+                      </div>
+                    </button>
+                    {onDeleteSession && (
+                      <button
+                        onClick={() => handleDeleteSession(session.id)}
+                        disabled={deletingSessionId === session.id}
+                        className={`p-1.5 rounded-full ${
+                          deletingSessionId === session.id
+                            ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                            : 'text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                        aria-label="Delete chat"
+                      >
+                        {deletingSessionId === session.id ? (
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
+                        ) : (
+                          <TrashIcon className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 px-4">
+                <svg className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-4">
+                  No chat history yet
+                </p>
+                {onNewChat && (
+                  <button
+                    onClick={() => {
+                      onNewChat();
+                      // Don't close dropdown after creating a new chat
+                    }}
+                    className="px-4 py-2 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-lg hover:bg-violet-200 dark:hover:bg-violet-800/40 transition-colors"
+                  >
+                    Start your first chat
+                  </button>
+                )}
+                {onRetry && (
+                  <button
+                    onClick={() => {
+                      onRetry();
+                      // Keep the dropdown open to allow viewing results
+                    }}
+                    className="mt-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm"
+                  >
+                    Refresh
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* Debug info in development mode */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="p-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+              <details>
+                <summary className="cursor-pointer">Debug Info</summary>
+                <div className="p-2 mt-2 bg-gray-100 dark:bg-gray-750 rounded overflow-auto max-h-36">
+                  <p>Active Session: {activeSessionId}</p>
+                  <p>Sessions Count: {sessions?.length || 0}</p>
+                  <p>Loading: {isLoadingSessions ? 'Yes' : 'No'}</p>
+                </div>
+              </details>
+            </div>
+          )}
+        </motion.div>
+      )}
+    </div>
+  );
+};
+
+// Update the CustomThreadHeader component with functional three-dot menu
+const CustomThreadHeader: React.FC<{
+  onClose: () => void;
+  onClearChat: () => void;
+  onNewChat?: () => void;
+  isKnowledgeBaseVisible?: boolean;
+  onKnowledgeBaseToggle?: () => void;
+  sessions?: {
+    id: string;
+    title: string;
+    last_message: string;
+    updated_at: string;
+    message_count: number;
+  }[];
+  activeSessionId: string | null;
+  onSessionSelect: (sessionId: string) => void;
+  isLoadingSessions?: boolean;
+  onRetry?: () => void;
+  onDeleteSession?: (sessionId: string) => void;
+  messages?: ChatMessage[];
+  isMobile?: boolean;
+}> = ({
+  onClose,
+  onClearChat,
+  onNewChat,
+  isKnowledgeBaseVisible,
+  onKnowledgeBaseToggle,
+  sessions,
+  activeSessionId,
+  onSessionSelect,
+  isLoadingSessions,
+  onRetry,
+  onDeleteSession,
+  messages = [],
+  isMobile
+}) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleCopyConversation = () => {
+    // Generate text version of the conversation
+    const conversationText = messages
+      .map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        return `${role}: ${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`;
+      })
+      .join('\n\n');
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(conversationText)
+      .then(() => {
+        // Show success notification if possible
+        if (window.notificationContext) {
+          window.notificationContext.showNotification({
+            type: 'success',
+            message: 'Conversation copied to clipboard!'
+          });
+        }
+      })
+      .catch(err => {
+        console.error('Failed to copy conversation:', err);
+        // Show error notification if possible
+        if (window.notificationContext) {
+          window.notificationContext.showNotification({
+            type: 'error',
+            message: 'Failed to copy conversation to clipboard'
+          });
+        }
+      });
+
+    // Close the menu
+    setShowMenu(false);
+  };
+
+  return (
+    <div className={`flex items-center justify-between p-3 ${isMobile ? 'px-3' : 'px-5'} border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900`}>
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Back button on the far left */}
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded-full text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+          aria-label="Close"
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        {/* Chat History Dropdown */}
+        <div className="flex-1 min-w-0">
+          <ChatHistoryDropdown
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSessionSelect={onSessionSelect}
+            onNewChat={onNewChat}
+            isLoadingSessions={isLoadingSessions}
+            onRetry={onRetry}
+            onDeleteSession={onDeleteSession}
+          />
+        </div>
+      </div>
+
+      {/* Right aligned actions */}
+      <div className="flex items-center gap-1 sm:gap-2">
+        {/* Knowledge Base Toggle - Only show on non-mobile or make smaller on mobile */}
+        <button
+          onClick={(e) => {
+            // Prevent default and stop propagation
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Direct DOM event handling
+            e.nativeEvent.stopImmediatePropagation();
+            
+            console.log('[Knowledge Base] Toggle button clicked in header');
+            if (typeof onKnowledgeBaseToggle === 'function') {
+              try {
+                // Force immediate execution
+                window.setTimeout(() => {
+                  onKnowledgeBaseToggle();
+                  console.log('[Knowledge Base] onKnowledgeBaseToggle called from header button');
+                }, 0);
+              } catch (error) {
+                console.error('[Knowledge Base] Error in onKnowledgeBaseToggle from header button:', error);
+              }
+            } else {
+              console.error('[Knowledge Base] onKnowledgeBaseToggle is not a function in header');
+            }
+          }}
+          className={`${isMobile ? 'p-2' : 'p-2'} rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 
+                    dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800 
+                    ${isKnowledgeBaseVisible ? 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' : ''}`}
+          aria-label="Toggle Knowledge Base"
+          title="Knowledge Base"
+          data-testid="kb-toggle-button"
+        >
+          <BookOpen size={isMobile ? 20 : 18} />
+        </button>
+
+        {/* New Chat button - Hide text on mobile */}
+        {onNewChat && (
+          <button
+            onClick={onNewChat}
+            className="flex items-center rounded-lg text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+            title="New Chat"
+          >
+            <Plus size={18} className="mr-1" />
+            <span className={`${isMobile ? 'hidden' : 'inline'} text-sm font-medium`}>New Chat</span>
+          </button>
+        )}
+
+        {/* Three-dot menu button */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 
+                      dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+            aria-label="Menu"
+          >
+            <MoreVertical size={18} />
+          </button>
+
+          {/* Dropdown menu */}
+          {showMenu && (
+            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 z-10">
+              <div className="py-1">
+                <button
+                  onClick={() => {
+                    handleCopyConversation();
+                    setShowMenu(false);
+                  }}
+                  className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <Clipboard size={16} className="mr-2" />
+                  Copy conversation
+                </button>
+                <button
+                  onClick={() => {
+                    onClearChat();
+                    setShowMenu(false);
+                  }}
+                  className="flex items-center w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <TrashIcon size={16} className="mr-2" />
+                  Clear conversation
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
@@ -101,6 +656,14 @@ export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
   onRetry,
   onNewChat,
   onKnowledgeItemSelect,
+  isKnowledgeBaseVisible = true,
+  onKnowledgeBaseToggle,
+  onLoadMoreMessages,
+  hasMoreMessages,
+  showWelcomeScreen,
+  welcomeScreenRenderer,
+  onDeleteSession,
+  isMobile
 }, ref) => {
   const [groupedMessages, setGroupedMessages] = useState<ChatMessage[][]>([]);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -111,13 +674,31 @@ export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const [isKnowledgeBaseVisible, setIsKnowledgeBaseVisible] = useState(true);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [_isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{sessionId: string, title: string} | null>(null);
 
-  // Message grouping effect
+  // Group messages with useMemo to prevent unnecessary re-renders
+  const memoizedGroupedMessages = useMemo(() => {
+    console.log(`Grouping ${messages.length} messages with useMemo:`, messages);
+    return groupMessages(messages);
+  }, [messages]);
+
+  // Set grouped messages with useCallback to prevent unnecessary re-renders
+  const setGroupedMessagesState = useCallback((msgs: ChatMessage[][]) => {
+    console.log(`Setting ${msgs.length} grouped messages`);
+    setGroupedMessages(msgs);
+  }, []);
+
+  // Update grouped messages only when necessary
   useEffect(() => {
-    setGroupedMessages(groupMessages(messages));
+    if (memoizedGroupedMessages.length > 0) {
+      setGroupedMessagesState(memoizedGroupedMessages);
+    }
+  }, [memoizedGroupedMessages, setGroupedMessagesState]);
+
+  // Log when the component receives messages
+  useEffect(() => {
+    console.log(`Thread component received ${messages.length} messages:`, messages);
   }, [messages]);
 
   // Scroll handling
@@ -260,7 +841,7 @@ export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
 
   // Add this useEffect to close the history dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: globalThis.MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest('.chat-history-dropdown')) {
         setIsHistoryOpen(false);
@@ -332,251 +913,257 @@ export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
     );
   };
 
-  // Update the delete button click handler
-  const handleDeleteClick = (e: React.MouseEvent | React.KeyboardEvent, session: { id: string; title: string }) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setDeleteConfirmation({ sessionId: session.id, title: session.title });
+  // Handler for scrolling messages container
+  const handleScroll = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+      
+      setShouldAutoScroll(isAtBottom);
+      
+      if (!isAtBottom && !hasUnreadMessages && messages.length > 0) {
+        setHasUnreadMessages(true);
+      } else if (isAtBottom && hasUnreadMessages) {
+        setHasUnreadMessages(false);
+      }
+    }
   };
+
+  // Run RAG diagnostics
+  const handleRunRagDiagnostics = async () => {
+    try {
+      // Import RagService dynamically to avoid circular dependencies
+      const { RagService } = await import('../../../services/rag/RagService');
+      
+      // Show a diagnostics message
+      const diagnosticsMessageId = `rag-diagnostics-${Date.now()}`;
+      const diagnosticsMessage: ChatMessage = {
+        id: diagnosticsMessageId,
+        role: 'system',
+        content: 'Running RAG diagnostics...',
+        timestamp: Date.now(),
+        status: 'loading',
+        metadata: {
+          isSystemMessage: true,
+          isDiagnostics: true
+        }
+      };
+      
+      // Add the message to the thread
+      setGroupedMessages(prev => [...prev, [diagnosticsMessage]]);
+      
+      // Create RAG service and run diagnostics
+      const ragService = new RagService();
+      
+      // Find the collection to test
+      let dataSourceIdToTest: string | undefined;
+      const messagesRev = [...messages].reverse();
+      for (const msg of messagesRev) {
+        if (msg.metadata?.dataSourceId) {
+          dataSourceIdToTest = msg.metadata.dataSourceId.toString();
+          break;
+        }
+      }
+      
+      // Run diagnostics
+      const diagnosticResults = await ragService.runDiagnostics(dataSourceIdToTest);
+      
+      // Format results as markdown
+      const formatErrors = (errors: string[]) => 
+        errors.length > 0 
+          ? errors.map(e => `- ❌ ${e}`).join('\n') 
+          : '- ✅ No errors detected';
+          
+      const formatWarnings = (warnings: string[]) => 
+        warnings.length > 0 
+          ? warnings.map(w => `- ⚠️ ${w}`).join('\n') 
+          : '- ✅ No warnings';
+          
+      const formatInfo = (info: Record<string, any>) => 
+        Object.entries(info)
+          .map(([key, value]) => `- **${key}**: ${value}`)
+          .join('\n');
+      
+      const resultsMarkdown = `
+## RAG Diagnostics Results
+
+### Status: ${diagnosticResults.status ? '✅ Operational' : '❌ Issues Detected'}
+
+### System Information
+${formatInfo(diagnosticResults.info)}
+
+### Collections
+${diagnosticResults.collections.length === 0 
+  ? '- No collections found' 
+  : diagnosticResults.collections.map(c => `- ${c}`).join('\n')}
+
+### Errors
+${formatErrors(diagnosticResults.errors)}
+
+### Warnings
+${formatWarnings(diagnosticResults.warnings)}
+
+### Suggestions
+${diagnosticResults.suggestions.map(s => `- ${s}`).join('\n')}
+`;
+      
+      // Update the diagnostics message
+      setGroupedMessages(prev => 
+        prev.map(group => 
+          group.map(msg => 
+            msg.id === diagnosticsMessageId 
+              ? {
+                  ...msg,
+                  content: resultsMarkdown,
+                  status: 'complete'
+                }
+              : msg
+          )
+        )
+      );
+    } catch (error: any) {
+      console.error('Error running RAG diagnostics:', error);
+      // Show error message
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: 'system',
+        content: `Error running RAG diagnostics: ${error.message || 'Unknown error'}`,
+        timestamp: Date.now(),
+        status: 'error',
+        metadata: {
+          isSystemMessage: true,
+          isError: true
+        }
+      };
+      
+      // Add the error message to the thread
+      setGroupedMessages(prev => [...prev, [errorMessage]]);
+    }
+  };
+
+  // Listen for diagnostics event
+  useEffect(() => {
+    const handleDiagnosticsEvent = (event: Event) => {
+      if ((event as CustomEvent).detail) {
+        handleRunRagDiagnostics();
+      }
+    };
+    
+    // Add event listener
+    document.addEventListener('run-rag-diagnostics', handleDiagnosticsEvent);
+    
+    // Clean up
+    return () => {
+      document.removeEventListener('run-rag-diagnostics', handleDiagnosticsEvent);
+    };
+  }, [messages]);
 
   return (
     <motion.div
+      initial={{ y: 20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 20, opacity: 0 }}
+      transition={{ duration: 0.2 }}
       ref={ref}
-      initial={{ x: '100%', opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: '100%', opacity: 0 }}
-      transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-      className="fixed right-0 top-0 bottom-0 w-[1000px] 
+      className={`fixed right-0 top-0 bottom-0 ${isMobile ? 'w-full' : 'w-[1000px]'} 
         bg-white dark:bg-gray-950 shadow-xl z-50 
         border-l border-gray-200 dark:border-gray-800
-        flex flex-col h-screen"
+        flex flex-col h-screen`}
     >
-      {/* Static Header */}
-      <div className="flex-none border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center justify-between px-4 py-2">
-          {/* Left side - Close button and Chat Controls */}
-          <div className="flex items-center gap-3">
-            {/* Chat History Dropdown */}
-            <div className="relative chat-history-dropdown">
-              <button
-                onClick={() => setIsHistoryOpen(!isHistoryOpen)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium
-                  text-gray-700 dark:text-gray-300
-                  bg-gray-100 dark:bg-gray-800
-                  hover:bg-gray-200 dark:hover:bg-gray-700
-                  rounded-md transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <span className="max-w-[150px] truncate">
-                  {activeSessionId 
-                    ? sessions?.find(s => s.id === activeSessionId)?.title || 'Current Chat'
-                    : 'New Chat'}
-                </span>
-                <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-
-              {/* History Dropdown Menu */}
-              {isHistoryOpen && (
-                <div className="absolute left-0 mt-2 w-72 bg-white dark:bg-gray-800 
-                  rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50
-                  overflow-hidden"
-                >
-                  {/* New Chat Button */}
-                  <button
-                    onClick={() => {
-                      if (onNewChat) {
-                        onNewChat();
-                        setIsHistoryOpen(false);
-                      }
-                    }}
-                    className="flex items-center gap-2 w-full px-4 py-3 text-left
-                      bg-gradient-to-r from-purple-500/10 to-indigo-500/10
-                      hover:from-purple-500/20 hover:to-indigo-500/20
-                      border-b border-gray-200 dark:border-gray-700"
-                  >
-                    <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span className="font-medium text-gray-900 dark:text-white">New Chat</span>
-                  </button>
-
-                  {/* Chat History List */}
-                  <div className="max-h-[calc(100vh-200px)] overflow-y-auto py-1">
-                    {isLoadingSessions ? (
-                      <div className="flex items-center justify-center py-4">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-500" />
-                        <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">
-                          Loading chats...
-                        </span>
-                      </div>
-                    ) : sessions && sessions.length > 0 ? (
-                      sessions.map((session) => (
-                        <div
-                          key={session.id}
-                          className={`flex flex-col w-full px-4 py-3 text-left relative group cursor-pointer
-                            ${activeSessionId === session.id 
-                              ? 'bg-purple-50 dark:bg-purple-900/20' 
-                              : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'}
-                            transition-colors duration-150`}
-                          onClick={() => {
-                            onSessionSelect(session.id);
-                            setIsHistoryOpen(false);
-                          }}
-                        >
-                          <div className="flex justify-between items-start">
-                            <span className={`font-medium truncate max-w-[80%]
-                              ${activeSessionId === session.id 
-                                ? 'text-purple-700 dark:text-purple-400' 
-                                : 'text-gray-900 dark:text-white'}`}
-                            >
-                              {session.title}
-                            </span>
-                            
-                            {/* Delete Button */}
-                            <div
-                              onClick={(e) => handleDeleteClick(e, session)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  handleDeleteClick(e, session);
-                                }
-                              }}
-                              className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-100 
-                                dark:hover:bg-red-900/30 rounded-full transition-all duration-200
-                                text-gray-500 hover:text-red-600 dark:text-gray-400 
-                                dark:hover:text-red-400 cursor-pointer"
-                              title="Delete chat"
-                              role="button"
-                              tabIndex={0}
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </div>
-                          </div>
-
-                          <span className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">
-                            {session.last_message || 'No messages yet'}
-                          </span>
-                          <div className="flex items-center gap-2 mt-2">
-                            <span className="text-xs text-gray-400 dark:text-gray-500">
-                              {new Date(session.updated_at).toLocaleDateString()}
-                            </span>
-                            <span className="text-xs text-gray-400 dark:text-gray-500">•</span>
-                            <span className="text-xs text-gray-400 dark:text-gray-500">
-                              {session.message_count} messages
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                        No chat history
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right side - Action Buttons */}
-          <div className="flex items-center gap-2">
-            {/* Knowledge Base Toggle Button */}
-            <button
-              onClick={() => setIsKnowledgeBaseVisible(!isKnowledgeBaseVisible)}
-              className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white
-                focus:outline-none rounded-lg 
-                flex items-center gap-2 
-                bg-gray-100 dark:bg-gray-800 
-                hover:bg-gray-200 dark:hover:bg-gray-700
-                transition-all duration-200"
-              title={isKnowledgeBaseVisible ? "Hide Knowledge Base" : "Show Knowledge Base"}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                  d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-              <span className="text-sm font-medium">Knowledge Base</span>
-            </button>
-
-            {/* Exit Button - Moved here */}
-            <button
-              onClick={onClose}
-              className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white
-                rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
-              title="Close chat"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        </div>
-
-      <div className="flex flex-1 min-h-0">
+      <div className="flex h-full w-full">
         {/* Main Chat Area */}
-        <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${isKnowledgeBaseVisible ? 'w-[calc(100%-350px)]' : 'w-full'}`}>
-            {/* Messages Container */}
-            <div
-              ref={setRefs}
-              className="flex-1 overflow-y-auto p-4 space-y-4 bg-white dark:bg-gray-950"
-            >
-              {isLoading ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex flex-col items-center space-y-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Loading messages...
-                    </p>
-                  </div>
-                </div>
-              ) : error ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex flex-col items-center space-y-4 text-center max-w-md">
-                    <div className="text-red-500">
-                      <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                    </div>
-                    <p className="text-gray-700 dark:text-gray-300">{error}</p>
-                    {onRetry && (
-                      <button
-                        onClick={onRetry}
-                        className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-                      >
-                        Try again
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : groupedMessages.map((group, index) => (
-                <MessageGroup
-                  key={group[0].id}
-                  messages={group}
-                  onRegenerate={onMessageRegenerate}
-                  onCopy={onMessageCopy}
-                  onEdit={onMessageEdit}
-                  onDelete={onMessageDelete}
-                  isLastGroup={index === groupedMessages.length - 1}
-                  showMetadata={uiConfig.showMetadata}
-                  showAvatar={uiConfig.showAvatars}
-                  messageAlignment={uiConfig.messageAlignment}
-                  bubbleStyle="modern"
-                  accentColor="purple"
-                />
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
+        <div className="flex flex-col flex-1 h-full overflow-hidden">
+          {/* Header Section */}
+          <CustomThreadHeader
+            onClose={onClose}
+            onClearChat={onClearChat}
+            onNewChat={onNewChat}
+            isKnowledgeBaseVisible={isKnowledgeBaseVisible}
+            onKnowledgeBaseToggle={onKnowledgeBaseToggle}
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSessionSelect={onSessionSelect}
+            isLoadingSessions={isLoadingSessions}
+            onRetry={onRetry}
+            onDeleteSession={onDeleteSession}
+            messages={messages}
+            isMobile={isMobile}
+          />
 
-          {/* Composer Section - Updated */}
+          {/* Messages Section */}
+          <div 
+            ref={setRefs}
+            className={`flex-1 overflow-y-auto ${isMobile ? 'px-2' : 'px-4'} py-2 transition-all`}
+            onScroll={handleScroll}
+          >
+            {/* Show welcome screen if specified */}
+            {showWelcomeScreen && welcomeScreenRenderer ? (
+              <div className="h-full">
+                {welcomeScreenRenderer()}
+              </div>
+            ) : (
+              <>
+                {/* Load more messages button */}
+                {hasMoreMessages && (
+                  <div className="flex justify-center pt-4 pb-2">
+                    <button 
+                      onClick={onLoadMoreMessages}
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 text-sm font-medium transition-colors"
+                    >
+                      Load earlier messages
+                    </button>
+                  </div>
+                )}
+
+                {/* Error message if needed */}
+                {error && (
+                  <div className="mx-auto max-w-2xl p-4 mb-4">
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300">
+                      <h3 className="text-sm font-medium mb-1">Error</h3>
+                      <p className="text-sm">{error}</p>
+                      {onRetry && (
+                        <button 
+                          onClick={onRetry}
+                          className="mt-2 text-sm bg-red-100 dark:bg-red-800/30 hover:bg-red-200 dark:hover:bg-red-700/30 px-3 py-1 rounded-md transition-colors"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Grouped messages */}
+                {groupedMessages.map((group, groupIndex) => (
+                  <MessageGroup
+                    key={`group-${groupIndex}-${group[0]?.id || 'empty'}`}
+                    messages={group}
+                    onRegenerate={onMessageRegenerate}
+                    onCopy={onMessageCopy}
+                    onEdit={onMessageEdit}
+                    onDelete={onMessageDelete}
+                    showMetadata={uiConfig.showMetadata}
+                    showAvatar={uiConfig.showAvatars}
+                    isLastGroup={groupIndex === groupedMessages.length - 1}
+                    messageAlignment={uiConfig.messageAlignment}
+                    bubbleStyle="modern"
+                    accentColor="purple"
+                    isMobile={isMobile}
+                  />
+                ))}
+                
+                {/* Scroll to bottom button */}
+                {renderScrollToBottomButton()}
+                
+                {/* Scroll to bottom indicator */}
+                <div ref={messagesEndRef} />
+              </>
+            )}
+          </div>
+
+          {/* Composer Section */}
           <div className="flex-none border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-            <div className="p-4">
+            <div className={`${isMobile ? 'p-2' : 'p-4'}`}>
               <Composer
                 onSubmit={onSubmit}
                 isGenerating={isGenerating}
@@ -588,7 +1175,8 @@ export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
                 allowVoiceInput={true}
                 maxAttachmentSize={10 * 1024 * 1024}
                 supportedFileTypes={['image/*', 'application/pdf', 'text/*']}
-                className="min-h-[60px] max-h-[200px]"
+                className={`${isMobile ? 'min-h-[50px] max-h-[150px]' : 'min-h-[60px] max-h-[200px]'}`}
+                isMobile={isMobile}
               />
               
               {isGenerating && (
@@ -615,23 +1203,150 @@ export const Thread = forwardRef<HTMLDivElement, ThreadProps>(({
           </div>
         </div>
 
-        {/* Knowledge Base Sidebar */}
-        <div
-          className={`flex-none transition-all duration-300 border-l border-gray-200 dark:border-gray-800
-            ${isKnowledgeBaseVisible ? 'w-[350px]' : 'w-0 overflow-hidden'}`}
-        >
-          <KnowledgeSidebar
-            onItemSelect={handleKnowledgeItemSelect}
-          />
-        </div>
-            </div>
+        {/* Knowledge Base Sidebar - show as a slide-in panel on mobile */}
+        {isMobile ? (
+          <AnimatePresence>
+            {isKnowledgeBaseVisible && (
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="fixed inset-0 z-50 flex"
+                data-testid="kb-mobile-panel"
+              >
+                {/* Transparent overlay to close when clicking outside */}
+                <div 
+                  className="absolute inset-0 bg-black bg-opacity-50"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Direct DOM event handling to ensure it captures the click
+                    e.nativeEvent.stopImmediatePropagation();
+                    
+                    console.log('[Knowledge Base] Overlay clicked, attempting to close...');
+                    if (typeof onKnowledgeBaseToggle === 'function') {
+                      try {
+                        // Force immediate execution
+                        window.setTimeout(() => {
+                          onKnowledgeBaseToggle();
+                          console.log('[Knowledge Base] onKnowledgeBaseToggle called from overlay');
+                        }, 0);
+                      } catch (error) {
+                        console.error('[Knowledge Base] Error executing onKnowledgeBaseToggle from overlay:', error);
+                      }
+                    } else {
+                      console.error('[Knowledge Base] onKnowledgeBaseToggle is not a function');
+                    }
+                  }}
+                  onTouchStart={(e) => {
+                    // Also handle touch events for mobile
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[Knowledge Base] Overlay touched, attempting to close...');
+                    if (typeof onKnowledgeBaseToggle === 'function') {
+                      window.setTimeout(() => onKnowledgeBaseToggle(), 0);
+                    }
+                  }}
+                  aria-label="Close knowledge base"
+                  data-testid="kb-overlay"
+                />
+                
+                <div 
+                  className="relative ml-auto w-full max-w-[85%] h-full flex flex-col bg-white dark:bg-gray-900 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Mobile Knowledge Base Header */}
+                  <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-20 bg-white dark:bg-gray-900">
+                    <h2 className="text-base font-semibold flex items-center text-gray-800 dark:text-gray-100">
+                      <BookOpen className="w-4 h-4 mr-2" />
+                      Knowledge Base
+                    </h2>
+                    
+                    {/* Mobile close button - styling updated to match UI */}
+                    <button
+                      onClick={(e) => {
+                        // Prevent default and stop propagation
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Direct DOM event handling
+                        e.nativeEvent.stopImmediatePropagation();
+                        
+                        // Log the event for debugging
+                        console.log('[Knowledge Base] Mobile close button clicked');
+                        
+                        // Call the toggle function directly with enhanced error handling
+                        if (typeof onKnowledgeBaseToggle === 'function') {
+                          try {
+                            // Force immediate execution
+                            window.setTimeout(() => {
+                              onKnowledgeBaseToggle();
+                              console.log('[Knowledge Base] onKnowledgeBaseToggle successfully called');
+                            }, 0);
+                          } catch (error) {
+                            console.error('[Knowledge Base] Error in onKnowledgeBaseToggle:', error);
+                          }
+                        } else {
+                          console.error('[Knowledge Base] onKnowledgeBaseToggle is not a function');
+                        }
+                      }}
+                      className="p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-200 shadow-sm z-30 transition-colors"
+                      aria-label="Close knowledge base"
+                      data-testid="kb-mobile-close-button"
+                      type="button"
+                      style={{ touchAction: 'manipulation' }}
+                    >
+                      <X size={18} strokeWidth={2} />
+                    </button>
+                  </div>
+                  
+                  <div className="flex-1 overflow-hidden relative z-10">
+                    <KnowledgeSidebar
+                      onItemSelect={(item) => {
+                        handleKnowledgeItemSelect(item);
+                        // Close the panel after selecting an item on mobile
+                        if (onKnowledgeBaseToggle) {
+                          onKnowledgeBaseToggle();
+                        }
+                      }}
+                      isMobile={true}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        ) : (
+          <div
+            className={`flex-none transition-all duration-300 border-l border-gray-200 dark:border-gray-800
+              ${isKnowledgeBaseVisible ? 'w-[350px]' : 'w-0 overflow-hidden'}`}
+          >
+            <KnowledgeSidebar
+              onItemSelect={handleKnowledgeItemSelect}
+              isMobile={false}
+            />
+          </div>
+        )}
+      </div>
 
-        <AnimatePresence>
-          {renderScrollToBottomButton()}
-        {renderDeleteConfirmation()}
-        </AnimatePresence>
+      <AnimatePresence>
+        {renderScrollToBottomButton() && (
+          <div key="scroll-button">
+            {renderScrollToBottomButton()}
+          </div>
+        )}
+        {renderDeleteConfirmation() && (
+          <div key="delete-confirmation">
+            {renderDeleteConfirmation()}
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 });
 
-Thread.displayName = 'Thread'; 
+Thread.displayName = 'Thread';
+
+// ... existing code ... 

@@ -1,3 +1,82 @@
+/**
+ * Types for data processing and analysis
+ */
+
+export enum ProcessingStage {
+  INITIALIZING = 'Initializing',
+  ANALYZING_QUERY = 'Analyzing Query',
+  DETERMINING_OPERATIONS = 'Determining Operations',
+  PREPROCESSING_DATA = 'Preprocessing Data',
+  ENHANCING_DATA = 'Enhancing Data',
+  GENERATING_RESPONSE = 'Generating Response',
+  PARSING_RESPONSE = 'Parsing Response',
+  PREPARING_VISUALIZATION = 'Preparing Visualization',
+  COMPLETED = 'Completed'
+}
+
+export enum DataSourceType {
+  EXCEL = 'excel',
+  CSV = 'csv',
+  PDF = 'pdf',
+  DOC = 'document',
+  TEXT = 'text',
+  JSON = 'json',
+  TABLE = 'table', // Any generic tabular data
+  UNKNOWN = 'unknown'
+}
+
+export enum AnalyticalOperationType {
+  SUMMARIZE = 'summarize',
+  COUNT = 'count',
+  AVERAGE = 'average',
+  MIN = 'min',
+  MAX = 'max',
+  SUM = 'sum',
+  TREND = 'trend',
+  FORECAST = 'forecast',
+  COMPARE = 'compare',
+  CORRELATE = 'correlate',
+  SEGMENT = 'segment',
+  RANK = 'rank',
+  CATEGORIZE = 'categorize',
+  CLASSIFY = 'classify',
+  CLUSTER = 'cluster',
+  ANOMALY_DETECTION = 'anomaly_detection'
+}
+
+export enum VisualizationType {
+  BAR_CHART = 'bar_chart',
+  LINE_CHART = 'line_chart',
+  PIE_CHART = 'pie_chart',
+  SCATTER_PLOT = 'scatter_plot',
+  AREA_CHART = 'area_chart',
+  BUBBLE_CHART = 'bubble_chart',
+  HEATMAP = 'heatmap',
+  TABLE = 'table',
+  NONE = 'none'
+}
+
+export type ProgressCallback = (stage: ProcessingStage, progress: number, message?: string) => void;
+
+export interface AnalysisStep {
+  id: string;
+  type: string;
+  description: string;
+  content?: string;
+  order: number;
+  data?: any;
+}
+
+export interface StructuredAnalysisResponse {
+  summary: string;
+  steps: AnalysisStep[];
+  insights: string[];
+  visualization?: {
+    type: string;
+    config: any;
+  };
+}
+
 export interface ProcessingProgress {
   totalChunks: number;
   processedChunks: number;

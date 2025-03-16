@@ -1,19 +1,42 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from '../types/express-types';
 import rateLimit from 'express-rate-limit';
 import slowDown from 'express-slow-down';
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import { authRateLimiter } from './security';
 
-const logger = createLogger('Middleware');
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf((info) => {
+      const { timestamp, level, message, ...rest } = info;
+      const formattedMessage = `${timestamp} [${level.toUpperCase()}] [Middleware]: ${message}`;
+      return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+    })
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [Middleware]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      )
+    })
+  ]
+});
 
 // Re-export auth rate limiter
 export { authRateLimiter };
 
 // Rate limiter middleware
 export const rateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
-  message: 'Too many requests from this IP, please try again after 15 minutes',
+  windowMs: 60 * 60 * 1000, // Extended to 1 hour
+  max: 10000, // Increased from 1000 to 10000 requests per windowMs
+  message: 'Too many requests from this IP, please try again after 60 minutes',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req: Request, res: Response) => {

@@ -1,13 +1,15 @@
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { conversationSummaryService } from '../services/conversation-summary.service';
 import { config } from '../config';
 import { Config, TasksConfig } from '../types/config';
 import { db } from '../infrastructure/database';
 import { QdrantService } from '../services/qdrant.service';
 import { getServiceRegistry } from '../services/service-registry';
+import { AggregationRefreshTask } from './aggregation-refresh.task';
 
-const logger = createLogger('ScheduledTasks');
+const logger = createServiceLogger('ScheduledTasks');
 const qdrantService = QdrantService.getInstance();
+const aggregationRefreshTask = new AggregationRefreshTask();
 
 // Track all interval IDs so we can clear them if needed
 const intervalIds: NodeJS.Timeout[] = [];
@@ -26,6 +28,9 @@ export function startScheduledTasks(): void {
   
   // Start vector database reindexing task
   startVectorIndexing();
+  
+  // Start aggregation refresh task
+  startAggregationRefresh();
   
   logger.info('All scheduled tasks started');
 }
@@ -286,6 +291,58 @@ async function runVectorIndexing(): Promise<void> {
     });
   } catch (error) {
     logger.error('Failed to run vector database reindexing', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    
+    // Rethrow to be handled by the caller
+    throw error;
+  }
+}
+
+/**
+ * Start the aggregation refresh task
+ */
+function startAggregationRefresh(): void {
+  // Get configuration from config file
+  const tasks = (config as Config).tasks || {} as TasksConfig;
+  const refreshInterval = tasks.aggregationRefreshInterval || 24 * 60 * 60 * 1000; // Default to 24 hours
+  
+  logger.info(`Starting aggregation refresh task with interval: ${refreshInterval / 3600000} hours`);
+  
+  // Run immediately on startup
+  runAggregationRefresh().catch(error => {
+    logger.error('Error running initial aggregation refresh', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+  
+  // Schedule for regular execution
+  const intervalId = setInterval(async () => {
+    try {
+      await runAggregationRefresh();
+    } catch (error) {
+      logger.error('Error running scheduled aggregation refresh', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }, refreshInterval);
+  
+  // Add to tracked intervals
+  intervalIds.push(intervalId);
+}
+
+/**
+ * Execute the aggregation refresh task
+ */
+async function runAggregationRefresh(): Promise<void> {
+  logger.info('Running aggregation refresh task');
+  
+  try {
+    await aggregationRefreshTask.run();
+    
+    logger.info('Aggregation refresh completed');
+  } catch (error) {
+    logger.error('Failed to run aggregation refresh', {
       error: error instanceof Error ? error.message : String(error)
     });
     

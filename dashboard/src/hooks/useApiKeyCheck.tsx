@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { RagService } from '../services/rag/RagService';
 
 export function useApiKeyCheck() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -9,7 +8,7 @@ export function useApiKeyCheck() {
   useEffect(() => {
     // Check if API key is available in environment variables
     const checkApiKey = () => {
-      const hasKey = !!import.meta.env.VITE_OPENAI_API_KEY || RagService.hasApiKey();
+      const hasKey = !!import.meta.env.VITE_OPENAI_API_KEY;
       setHasApiKey(hasKey);
       
       // If no API key is set, show the modal

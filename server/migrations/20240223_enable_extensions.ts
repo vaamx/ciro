@@ -4,7 +4,7 @@ import { Knex } from 'knex';
  * This migration enables the required PostgreSQL extensions:
  * - uuid-ossp: For UUID generation
  * - pgcrypto: For cryptographic functions
- * - Note: vector support is provided by Qdrant, not pgvector
+ * - Note: Vector storage is exclusively provided by Qdrant, not PostgreSQL
  */
 export async function up(knex: Knex): Promise<void> {
   try {
@@ -16,8 +16,8 @@ export async function up(knex: Knex): Promise<void> {
     
     console.log('Core PostgreSQL extensions enabled successfully');
     
-    // Not enabling pgvector as we're using Qdrant instead
-    console.log('Using Qdrant for vector storage, skipping pgvector extension');
+    // Explicitly note that we're not using pgvector
+    console.log('Using Qdrant exclusively for vector storage, pgvector is not used in this application');
     
     // Check if system_settings table exists in a separate transaction
     try {
@@ -28,15 +28,15 @@ export async function up(knex: Knex): Promise<void> {
         await knex('system_settings')
           .insert({
             key: 'vector_support',
-            value: JSON.stringify({ enabled: true, provider: 'qdrant' })
+            value: JSON.stringify({ enabled: true, provider: 'qdrant', exclusive: true })
           })
           .onConflict('key')
           .merge({
-            value: JSON.stringify({ enabled: true, provider: 'qdrant' }),
+            value: JSON.stringify({ enabled: true, provider: 'qdrant', exclusive: true }),
             updated_at: knex.fn.now()
           });
         
-        console.log('Updated system_settings with vector_support = true (qdrant)');
+        console.log('Updated system_settings with vector_support = true (qdrant exclusive)');
       } else {
         console.log('system_settings table does not exist yet, skipping vector support configuration');
       }

@@ -1,4 +1,4 @@
-export class AppError extends Error {
+class AppError extends Error {
   constructor(
     message,
     statusCode = 500,
@@ -14,44 +14,55 @@ export class AppError extends Error {
   }
 }
 
-export class BadRequestError extends AppError {
+class BadRequestError extends AppError {
   constructor(message) {
     super(message, 400);
   }
 }
 
-export class NotFoundError extends AppError {
+class NotFoundError extends AppError {
   constructor(message) {
     super(message, 404);
   }
 }
 
-export class UnauthorizedError extends AppError {
+class UnauthorizedError extends AppError {
   constructor(message) {
     super(message, 401);
   }
 }
 
-export class ForbiddenError extends AppError {
+class ForbiddenError extends AppError {
   constructor(message) {
     super(message, 403);
   }
 }
 
-export class ValidationError extends AppError {
+class ValidationError extends AppError {
   constructor(message) {
     super(message, 422);
   }
 }
 
-export class ConflictError extends AppError {
+class ConflictError extends AppError {
   constructor(message) {
     super(message, 409);
   }
 }
 
-export class InternalServerError extends AppError {
+class InternalServerError extends AppError {
   constructor(message = 'Internal Server Error') {
     super(message, 500, false);
   }
-} 
+}
+
+module.exports = {
+  AppError,
+  BadRequestError,
+  NotFoundError,
+  UnauthorizedError,
+  ForbiddenError,
+  ValidationError,
+  ConflictError,
+  InternalServerError
+}; 

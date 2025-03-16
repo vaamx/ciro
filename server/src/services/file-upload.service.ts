@@ -1,14 +1,23 @@
 import { injectable } from 'inversify';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { db } from '../infrastructure/database';
 import { WebSocketService } from './websocket.service';
+import { DataSource } from '../types/data-source';
+
+// Add interface at the top of the file before class definition
+interface DbResult {
+  id: number;
+  name: string;
+  type: string;
+  created_at: Date;
+}
 
 /**
  * Service for handling file upload operations
  */
 @injectable()
 export class FileUploadService {
-  private logger = createLogger('FileUploadService');
+  private readonly logger = createServiceLogger('FileUploadService');
   private websocketService: WebSocketService;
 
   constructor() {
@@ -21,39 +30,76 @@ export class FileUploadService {
    * @param dataSource Data source object to create
    * @returns Created data source
    */
-  async createDataSource(dataSource: Record<string, any>): Promise<Record<string, any>> {
+  async createDataSource(dataSource: Partial<DataSource>): Promise<DataSource> {
     try {
-      this.logger.info(`Creating data source for file: ${dataSource.name}`);
+      this.logger.info(`Creating data source: ${JSON.stringify(dataSource)}`);
       
-      // Insert data source into database
-      const [result] = await db('data_sources')
+      // Get the user ID from various possible sources
+      const userId = dataSource.user_id || dataSource.created_by || dataSource.uploadedBy;
+      
+      if (!userId) {
+        this.logger.warn('No user ID provided for data source creation');
+        throw new Error('User ID is required to create a data source');
+      }
+      
+      // Convert UUID to integer for created_by field
+      let createdById = 1; // Default value
+      if (typeof userId === 'number') {
+        createdById = userId;
+      } else {
+        // Extract just the numeric part of the UUID
+        const uuidDigits = userId.toString().replace(/\D/g, '');
+        // Take first 8 digits and convert to integer (mod 1M to ensure it fits in INTEGER)
+        createdById = parseInt(uuidDigits.substring(0, 8), 10) % 1000000;
+        createdById = Math.abs(createdById) || 1; // Ensure positive and default to 1 if 0
+        this.logger.info(`Converted UUID ${userId} to integer ID: ${createdById}`);
+      }
+      
+      this.logger.info(`Using created_by: ${createdById} (integer ID)`);
+      
+      // Rest of the function to create data source with properly formatted created_by
+      const { config, ...insertData } = dataSource;
+      const result = await db('data_sources')
         .insert({
           name: dataSource.name,
           type: dataSource.type || 'file',
-          config: dataSource.config || {},
-          metadata: dataSource.metadata || {},
-          organization_id: dataSource.organization_id || 1, // Default organization
-          status: dataSource.status || 'queued', // Set initial status
-          created_at: new Date(),
-          updated_at: new Date()
+          organization_id: dataSource.organization_id || 1,
+          created_by: createdById, // Use integer ID
+          status: dataSource.status || 'connected',
+          metadata: {
+            ...(dataSource.metadata || {}),
+            id: dataSource.id || undefined,
+            filename: dataSource.filename || dataSource.name,
+            originalFilename: dataSource.originalFilename || dataSource.original_filename || dataSource.name,
+            mimeType: dataSource.mimetype || dataSource.mime_type || undefined,
+            fileType: dataSource.filetype || dataSource.file_type || undefined,
+            size: dataSource.size || undefined,
+            originalUserId: userId // Store the original UUID for reference
+          },
+          description: dataSource.description || `File upload: ${dataSource.name}`,
+          created_at: dataSource.created_at || new Date(),
+          updated_at: dataSource.updated_at || new Date()
         })
-        .returning(['id', 'name', 'type', 'status', 'created_at', 'metadata']);
+        .returning(['id', 'name', 'type', 'created_at']);
       
-      this.logger.info(`Data source created with ID: ${result.id}`);
+      // Type assertion for the result
+      const typedResult = result as unknown as DbResult[] | DbResult;
+      const resultId = Array.isArray(typedResult) ? typedResult[0]?.id : typedResult.id;
+      const resultName = Array.isArray(typedResult) ? typedResult[0]?.name : typedResult.name;
       
-      // Ensure we're using the correct name from the database result
-      // and include the full metadata for proper display
+      this.logger.info(`Data source created with ID: ${resultId}`);
+      
+      // Broadcast update
       this.websocketService.broadcast('knowledgeBaseUpdated', {
         action: 'add',
         source: {
-          id: result.id,
-          name: result.name,
-          type: dataSource.type || 'file',
+          id: resultId,
+          name: resultName,
+          // Use a generic 'file' type for display purposes
+          type: 'file',
           icon: 'file-text', // Default icon for file uploads
           isActive: true,
-          status: result.status,
-          metadata: result.metadata || dataSource.metadata, // Include metadata to ensure correct file info
-          description: dataSource.metadata?.originalName ? `File upload: ${dataSource.metadata.originalName}` : undefined
+          description: `File upload: ${dataSource.name}`
         }
       });
       
@@ -62,11 +108,20 @@ export class FileUploadService {
         timestamp: new Date().toISOString()
       });
       
-      return result;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Error creating data source: ${errorMessage}`, error);
-      throw new Error(`Failed to create data source: ${errorMessage}`);
+      const createdSource = {
+        id: resultId,
+        name: dataSource.name,
+        type: dataSource.type || 'file',
+        status: dataSource.status || 'connected',
+        metadata: dataSource.metadata,
+        created_at: dataSource.created_at || new Date(),
+        updated_at: dataSource.updated_at || new Date()
+      } as DataSource;
+      
+      return createdSource;
+    } catch (error: any) {
+      this.logger.error(`Error creating data source: ${error}`, { error });
+      throw error;
     }
   }
   
@@ -81,26 +136,29 @@ export class FileUploadService {
       this.logger.info(`Updating data source ${id}`);
       
       // Update data source in database
+      const updateData: Record<string, any> = { 
+        updated_at: new Date() 
+      };
+      
+      // Only include allowed fields in the updates
+      if (updates.name) updateData.name = updates.name;
+      if (updates.type) updateData.type = updates.type;
+      
       const [result] = await db('data_sources')
         .where('id', id)
-        .update({
-          ...updates,
-          updated_at: new Date()
-        })
-        .returning(['id', 'name', 'type', 'status', 'metadata']);
+        .update(updateData)
+        .returning(['id', 'name', 'type']);
       
       this.logger.info(`Data source ${id} updated successfully`);
       
-      // Broadcast update with complete metadata
+      // Broadcast update with the data we have
       this.websocketService.broadcast('knowledgeBaseUpdated', {
         action: 'update',
         source: {
           id: result.id,
           name: result.name,
-          type: result.type,
-          status: result.status,
-          metadata: result.metadata, // Include full metadata
-          description: result.metadata?.originalName ? `File upload: ${result.metadata.originalName}` : undefined
+          type: 'file', // Always use 'file' type for frontend consistency
+          description: `File upload: ${result.name}`
         }
       });
       

@@ -1,4 +1,4 @@
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import dotenv from 'dotenv';
 import { shouldLogInitialization } from '../utils/logger-config';
 
@@ -9,7 +9,31 @@ dotenv.config();
  * Simple configuration service to provide access to environment variables
  */
 export class ConfigService {
-  private readonly logger = createLogger('ConfigService');
+  private readonly logger = winston.createLogger({
+    level: process.env.LOG_LEVEL || 'info',
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf((info) => {
+        const { timestamp, level, message, ...rest } = info;
+        const formattedMessage = `${timestamp} [${level.toUpperCase()}] [ConfigService]: ${message}`;
+        return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+      })
+    ),
+    transports: [
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp(),
+          winston.format.printf((info) => {
+            const { timestamp, level, message, ...rest } = info;
+            const formattedMessage = `${timestamp} [${level.toUpperCase()}] [ConfigService]: ${message}`;
+            return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+          })
+        )
+      })
+    ]
+  });
+  
   private readonly envCache: Record<string, string | undefined> = {};
   
   // Add singleton implementation

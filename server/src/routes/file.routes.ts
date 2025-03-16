@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from '../types/express-types';
 import multer from 'multer';
 import fileController from '../controllers/file.controller';
 import { FileService } from '../services/file.service';
@@ -8,10 +8,10 @@ import { rateLimiter } from '../middleware/security';
 import { BadRequestError, UnauthorizedError } from '../utils/errors';
 import fs from 'fs';
 import path from 'path';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 
 // Create logger for file routes
-const logger = createLogger('FileRoutes');
+const logger = createServiceLogger('FileRoutes');
 
 // Configure multer storage
 const storage = multer.memoryStorage();
@@ -108,7 +108,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
     }
     
     // Call the controller with the added parameter
-    await fileController.uploadFile(req, res, processingMethod);
+    await fileController.uploadFile(req as any, res as any, processingMethod);
   } catch (error) {
     console.error('Error in file upload route:', error);
     // Return detailed error information

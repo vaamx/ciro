@@ -1,7 +1,17 @@
+import { ServerAnalyticsService } from '../ServerAnalyticsService';
+import { QueryType, AnalysisDomain } from '../ServerAnalyticsService';
+import { DataSourceType } from '../processors/UniversalDataProcessor';
+
 /**
  * Service for entity detection and related functionality
  */
 export class EntityDetection {
+  private serverAnalyticsService: ServerAnalyticsService;
+
+  constructor() {
+    this.serverAnalyticsService = ServerAnalyticsService.getInstance();
+  }
+
   /**
    * Extract entity name from a query
    */
@@ -26,6 +36,110 @@ export class EntityDetection {
     }
     
     return entityName;
+  }
+
+  /**
+   * Extract entities using the NLP processor from ServerAnalyticsService
+   * This provides more sophisticated entity detection across all data types
+   */
+  public async extractEntitiesWithNLP(query: string): Promise<string[]> {
+    try {
+      // Use the NLP service to analyze the query
+      const queryAnalysis = await this.serverAnalyticsService.analyzeQuery(query);
+      
+      // Return entities detected by the NLP processor
+      return queryAnalysis.entities || [];
+    } catch (error) {
+      console.error('Error extracting entities with NLP:', error);
+      
+      // Fall back to basic entity extraction
+      const basicEntity = this.extractEntityFromQuery(query);
+      return basicEntity ? [basicEntity] : [];
+    }
+  }
+
+  /**
+   * Check if a document contains an entity - enhanced with NLP capabilities
+   */
+  public async documentContainsEntityEnhanced(
+    document: { 
+      content: string; 
+      metadata?: { 
+        originalText?: string; 
+        text?: string;
+        [key: string]: any;
+      } 
+    },
+    query: string,
+    entityName: string
+  ): Promise<boolean> {
+    // First try basic entity detection
+    const basicContains = this.documentContainsEntity(document, entityName);
+    if (basicContains) return true;
+    
+    try {
+      // Use NLP to extract potential entities from the document content
+      const documentEntities = await this.extractEntitiesFromText(document.content);
+      
+      // Get query entities
+      const queryEntities = await this.extractEntitiesWithNLP(query);
+      
+      // Check for overlap between document entities and query entities
+      return documentEntities.some(docEntity => 
+        queryEntities.some(queryEntity => 
+          this.entitiesOverlap(docEntity, queryEntity)
+        )
+      );
+    } catch (error) {
+      console.error('Error in enhanced entity detection:', error);
+      return basicContains;
+    }
+  }
+
+  /**
+   * Check if two entity strings overlap or are related
+   */
+  private entitiesOverlap(entity1: string, entity2: string): boolean {
+    if (!entity1 || !entity2) return false;
+    
+    const e1 = entity1.toLowerCase();
+    const e2 = entity2.toLowerCase();
+    
+    // Exact match
+    if (e1 === e2) return true;
+    
+    // One contains the other
+    if (e1.includes(e2) || e2.includes(e1)) return true;
+    
+    // Check for word overlap
+    const words1 = e1.split(/\s+/);
+    const words2 = e2.split(/\s+/);
+    
+    // If one entity is multiple words, check for significant word overlap
+    if (words1.length > 1 || words2.length > 1) {
+      const overlap = words1.filter(w => words2.includes(w));
+      return overlap.length >= Math.min(2, Math.min(words1.length, words2.length));
+    }
+    
+    return false;
+  }
+
+  /**
+   * Extract potential entities from document text using NLP
+   */
+  private async extractEntitiesFromText(text: string): Promise<string[]> {
+    try {
+      // Create a pseudo-query that asks about entities in the text
+      const pseudoQuery = `Extract important entities from this text: ${text.substring(0, 200)}`;
+      
+      // Use the NLP service to analyze
+      const queryAnalysis = await this.serverAnalyticsService.analyzeQuery(pseudoQuery);
+      
+      return queryAnalysis.entities || [];
+    } catch (error) {
+      console.error('Error extracting entities from text:', error);
+      return [];
+    }
   }
 
   /**
@@ -75,6 +189,154 @@ export class EntityDetection {
     );
     
     return !!(exactMatch || metadataMatch || metadataTextMatch || partialMatch);
+  }
+
+  /**
+   * Check if a query is analytical in nature using ServerAnalyticsService
+   */
+  public async isAnalyticalQueryEnhanced(query: string): Promise<boolean> {
+    try {
+      // Use the NLP service to analyze the query
+      const queryAnalysis = await this.serverAnalyticsService.analyzeQuery(query);
+      
+      // Consider it analytical if it's not a general query
+      const isAnalytical = queryAnalysis.queryType !== QueryType.GENERAL;
+      
+      console.log(`Enhanced query analysis: ${queryAnalysis.queryType}`);
+      return isAnalytical;
+    } catch (error) {
+      console.error('Error in enhanced analytical query detection:', error);
+      
+      // Fall back to basic detection
+      return this.isAnalyticalQuery(query);
+    }
+  }
+
+  /**
+   * Get domain information for a query
+   */
+  public async getQueryDomain(query: string): Promise<AnalysisDomain> {
+    try {
+      // Use the NLP service to analyze the query
+      const queryAnalysis = await this.serverAnalyticsService.analyzeQuery(query);
+      
+      // Return the domain detected by the NLP processor
+      return queryAnalysis.domain;
+    } catch (error) {
+      console.error('Error getting query domain:', error);
+      return AnalysisDomain.GENERAL;
+    }
+  }
+
+  /**
+   * Detect the data source type based on document content
+   */
+  public detectDataSourceType(document: { 
+    content: string; 
+    metadata?: Record<string, any> 
+  }): DataSourceType {
+    // Check metadata for explicit type information
+    if (document.metadata?.type) {
+      const metaType = document.metadata.type.toLowerCase();
+      
+      if (metaType.includes('excel') || metaType.includes('xlsx')) {
+        return DataSourceType.EXCEL;
+      } else if (metaType.includes('csv')) {
+        return DataSourceType.CSV;
+      } else if (metaType.includes('pdf')) {
+        return DataSourceType.PDF;
+      } else if (metaType.includes('doc') || metaType.includes('docx')) {
+        return DataSourceType.DOC;
+      } else if (metaType.includes('json')) {
+        return DataSourceType.JSON;
+      } else if (metaType.includes('text') || metaType.includes('txt')) {
+        return DataSourceType.TEXT;
+      }
+    }
+    
+    // Analyze content
+    const content = document.content || '';
+    
+    // Check for CSV-like content (commas or tabs with consistent pattern)
+    if (this.looksLikeCSV(content)) {
+      return DataSourceType.CSV;
+    }
+    
+    // Check for JSON-like content
+    if (this.looksLikeJSON(content)) {
+      return DataSourceType.JSON;
+    }
+    
+    // Check for tabular structure (rows and columns)
+    if (this.looksLikeTable(content)) {
+      return DataSourceType.TABLE;
+    }
+    
+    // Default to text
+    return DataSourceType.TEXT;
+  }
+  
+  /**
+   * Check if content looks like CSV data
+   */
+  private looksLikeCSV(content: string): boolean {
+    const lines = content.trim().split('\n');
+    if (lines.length < 2) return false;
+    
+    // Check for consistent delimiters (comma or tab)
+    const firstLineCommas = (lines[0].match(/,/g) || []).length;
+    const firstLineTabs = (lines[0].match(/\t/g) || []).length;
+    
+    const delimiter = firstLineCommas > firstLineTabs ? ',' : '\t';
+    const delimiterCount = delimiter === ',' ? firstLineCommas : firstLineTabs;
+    
+    // Should have at least one delimiter and relatively consistent structure
+    if (delimiterCount === 0) return false;
+    
+    // Check if at least 70% of lines have a similar delimiter count
+    let consistentLines = 0;
+    for (let i = 1; i < Math.min(10, lines.length); i++) {
+      const lineDelimiters = (lines[i].match(new RegExp(`\\${delimiter}`, 'g')) || []).length;
+      if (Math.abs(lineDelimiters - delimiterCount) <= 1) {
+        consistentLines++;
+      }
+    }
+    
+    return (consistentLines / Math.min(lines.length - 1, 9)) >= 0.7;
+  }
+  
+  /**
+   * Check if content looks like JSON data
+   */
+  private looksLikeJSON(content: string): boolean {
+    const trimmed = content.trim();
+    return (trimmed.startsWith('{') && trimmed.endsWith('}')) || 
+           (trimmed.startsWith('[') && trimmed.endsWith(']'));
+  }
+  
+  /**
+   * Check if content looks like tabular data
+   */
+  private looksLikeTable(content: string): boolean {
+    const lines = content.trim().split('\n');
+    if (lines.length < 3) return false;
+    
+    // Look for consistent spacing patterns that suggest columns
+    const spacePattern = /\s{2,}/g;
+    const firstLineSpaces = (lines[0].match(spacePattern) || []).length;
+    
+    if (firstLineSpaces === 0) return false;
+    
+    // Check consistency across first few lines
+    let consistentLines = 0;
+    for (let i = 1; i < Math.min(10, lines.length); i++) {
+      const lineSpaces = (lines[i].match(spacePattern) || []).length;
+      if (Math.abs(lineSpaces - firstLineSpaces) <= 1) {
+        consistentLines++;
+      }
+    }
+    
+    return (consistentLines / Math.min(lines.length - 1, 9)) >= 0.5;
   }
 
   /**

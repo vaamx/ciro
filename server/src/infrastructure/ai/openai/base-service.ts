@@ -2,13 +2,14 @@ import OpenAI from 'openai';
 import { OpenAIError, APIError, RateLimitError } from './errors';
 import { createOpenAIClient, OpenAIConfig, RATE_LIMITS } from './config';
 import { backOff } from 'exponential-backoff';
+import { ExtendedOpenAI } from './types';
 
 export abstract class BaseOpenAIService {
-  protected client: OpenAI;
+  protected client: ExtendedOpenAI;
   protected rateLimiters: Map<string, { lastReset: number; tokens: number; requests: number }>;
 
   constructor(config: OpenAIConfig) {
-    this.client = createOpenAIClient(config);
+    this.client = createOpenAIClient(config) as ExtendedOpenAI;
     this.rateLimiters = new Map();
   }
 

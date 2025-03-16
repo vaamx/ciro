@@ -1,4 +1,4 @@
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { injectable } from 'inversify';
 import { config } from '../config';
 
@@ -7,7 +7,7 @@ import { config } from '../config';
  */
 @injectable()
 export class TextSearchService {
-  private readonly logger = createLogger('TextSearchService');
+  private readonly logger = createServiceLogger('TextSearchService');
   private readonly apiUrl: string;
   private readonly useMockData: boolean;
 

@@ -53,7 +53,7 @@ export const setDebugMode = (enabled: boolean): void => {
  * @param name The name of the logger
  * @returns A Winston logger instance
  */
-export const createLogger = (name: string): winston.Logger => {
+export function createLogger(name: string): winston.Logger {
   return winston.createLogger({
     level: process.env.LOG_LEVEL || 'info',
     format: winston.format.combine(
@@ -68,12 +68,19 @@ export const createLogger = (name: string): winston.Logger => {
       new winston.transports.Console({
         format: winston.format.combine(
           winston.format.colorize(),
-          loggerFormat
+          winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.printf((info) => {
+              const { timestamp, level, message, ...rest } = info;
+              const formattedMessage = `${timestamp} [${level.toUpperCase()}] [${name}]: ${message}`;
+              return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+            })
+          )
         )
       })
     ]
   });
-};
+}
 
 // Export the extended logger
 export { extendedLogger }; 

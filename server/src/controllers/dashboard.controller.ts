@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import { Knex } from 'knex';
 import { db } from '../infrastructure/database';
 import { AuthRequest } from '../middleware/auth';

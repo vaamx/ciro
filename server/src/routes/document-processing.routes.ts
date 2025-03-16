@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { DocumentProcessingController } from '../controllers/document-processing.controller';
 import { authenticate } from '../middleware/auth';
 import multer from 'multer';

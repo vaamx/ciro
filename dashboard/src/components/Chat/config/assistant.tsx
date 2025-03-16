@@ -1,5 +1,59 @@
-import { type ThreadConfig } from '@assistant-ui/react-ui';
-import { type TextContentPart, type ToolCallContentPart } from '@assistant-ui/react';
+// Define local types instead of importing from external modules
+interface ThreadConfig {
+  assistantAvatar?: {
+    fallback?: string;
+    src?: string;
+  };
+  assistantMessage?: {
+    allowReload?: boolean;
+    allowCopy?: boolean;
+    allowSpeak?: boolean;
+    components?: Record<string, any>;
+  };
+  userMessage?: {
+    allowEdit?: boolean;
+  };
+  composer?: {
+    allowAttachments?: boolean;
+  };
+  strings?: {
+    composer?: {
+      input?: {
+        placeholder?: string;
+      };
+      send?: {
+        tooltip?: string;
+      };
+      cancel?: {
+        tooltip?: string;
+      };
+      addAttachment?: {
+        tooltip?: string;
+      };
+    };
+    assistantMessage?: {
+      reload?: {
+        tooltip?: string;
+      };
+      copy?: {
+        tooltip?: string;
+      };
+    };
+    thread?: {
+      scrollToBottom?: {
+        tooltip?: string;
+      };
+    };
+  };
+}
+
+interface TextContentPart {
+  text: string;
+}
+
+interface ToolCallContentPart {
+  toolName: string;
+}
 
 interface TextProps extends TextContentPart {
   text: string;
@@ -30,7 +84,7 @@ const ToolFallback = ({ toolName }: ToolFallbackProps) => (
 export const assistantConfig: ThreadConfig = {
   assistantAvatar: {
     fallback: 'C',
-    src: '/ciro-avatar.png',
+    src: '/ciro-avatar.svg',
   },
   assistantMessage: {
     allowReload: true,

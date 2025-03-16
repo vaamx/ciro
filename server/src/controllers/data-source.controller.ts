@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from 'express-serve-static-core';
 import { db } from '../infrastructure/database/knex';
 import { BadRequestError } from '../utils/errors';
 import { DocumentProcessorService } from '../services/document-processor.service';
@@ -15,9 +15,11 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import * as mime from 'mime-types';
 import { QdrantService } from '../services/qdrant.service';
-import { OpenAI } from 'openai';
 import { DocumentProcessorFactory } from '../services/document-processors/document-processor-factory';
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
+import { SnowflakeService } from '../services/snowflake.service';
+import { RagService } from '../services/rag.service';
+import { Response as CustomResponse } from '../types/express-types';
 
 // Add this type augmentation to include 'excel' as a valid FileType
 declare module '../types/file-types' {
@@ -48,7 +50,31 @@ export class DataSourceController {
   private documentPipeline: DocumentPipelineService;
   private dataSourceService: DataSourceService;
   private qdrantService: QdrantService;
-  private logger = createLogger('DataSourceController');
+  private snowflakeService: SnowflakeService;
+  private logger = winston.createLogger({
+    level: process.env.LOG_LEVEL || 'info',
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf((info) => {
+        const { timestamp, level, message, ...rest } = info;
+        const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DataSourceController]: ${message}`;
+        return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+      })
+    ),
+    transports: [
+      new winston.transports.Console({
+        format: winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp(),
+          winston.format.printf((info) => {
+            const { timestamp, level, message, ...rest } = info;
+            const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DataSourceController]: ${message}`;
+            return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+          })
+        )
+      })
+    ]
+  });
   private db: any;
 
   constructor() {
@@ -56,6 +82,7 @@ export class DataSourceController {
     this.documentPipeline = DocumentPipelineService.getInstance();
     this.dataSourceService = DataSourceService.getInstance();
     this.qdrantService = QdrantService.getInstance();
+    this.snowflakeService = SnowflakeService.getInstance();
     this.db = db;
   }
 
@@ -348,54 +375,104 @@ export class DataSourceController {
   }
 
   async updateDataSource(req: Request, res: Response) {
-    const { id } = req.params;
-    const updateData = req.body;
-
     try {
-      // Convert string ID to number since our DB uses integer
-      const numericId = parseInt(id, 10);
+      const { id } = req.params;
+      const updateData = req.body;
       
-      if (isNaN(numericId)) {
-        console.error('Invalid ID format:', id);
-        return res.status(400).json({ 
-          error: 'Invalid ID format',
-          details: 'ID must be a valid number',
-          requestedId: id
-        });
+      this.logger.info(`Updating data source with ID: ${id}`, { updateFields: Object.keys(updateData) });
+      
+      // Get the original data source before the update to check for status changes
+      const originalDataSource = await this.db('data_sources')
+        .where({ id })
+        .first();
+        
+      if (!originalDataSource) {
+        return res.status(404).json({ message: `Data source with ID ${id} not found` });
       }
-
-      const [dataSource] = await this.db('data_sources')
-        .where({ id: numericId })
+      
+      // Update the data source
+      await this.db('data_sources')
+        .where({ id })
         .update({
           ...updateData,
           updated_at: new Date()
-        })
-        .returning('*');
-
+        });
+      
+      // Get the updated data source
+      const dataSource = await this.db('data_sources')
+        .where({ id })
+        .first();
+      
       if (!dataSource) {
-        return res.status(404).json({ error: 'Data source not found' });
+        return res.status(404).json({ message: `Data source with ID ${id} not found after update` });
       }
-
+      
+      // Check if the status has changed
+      const statusChanged = originalDataSource.status !== dataSource.status;
+      this.logger.info(`Status change detected: ${statusChanged ? 'Yes' : 'No'}`, {
+        originalStatus: originalDataSource.status,
+        newStatus: dataSource.status
+      });
+      
+      // If the status has changed, broadcast the update via WebSocket
+      if (statusChanged) {
+        try {
+          // Get WebSocket service
+          const WebSocketService = require('../services/websocket.service').WebSocketService;
+          const webSocketService = new WebSocketService();
+          
+          // Format the data source for the WebSocket message
+          const formattedDataSource = {
+            id: String(dataSource.id), // Ensure ID is a string
+            name: dataSource.name,
+            type: dataSource.type,
+            status: dataSource.status,
+            lastSync: dataSource.last_sync || new Date().toISOString(),
+            description: dataSource.description || '',
+            metrics: dataSource.metrics || {
+              records: 0,
+              syncRate: 0,
+              avgSyncTime: '0s'
+            },
+            metadata: dataSource.metadata || {}
+          };
+          
+          // Broadcast the update
+          webSocketService.broadcastDataSourceUpdate(
+            dataSource.id,
+            dataSource.status,
+            formattedDataSource
+          );
+          
+          this.logger.info(`WebSocket broadcast sent for data source status change to ${dataSource.status}`);
+        } catch (wsError) {
+          this.logger.error(`Error broadcasting WebSocket update: ${wsError instanceof Error ? wsError.message : String(wsError)}`);
+          // Don't fail the API request if WebSocket broadcast fails
+        }
+      }
+      
       // Transform response to ensure consistent type handling
       const response = {
         ...dataSource,
-        id: dataSource.id.toString(), // Always return ID as string to frontend
-        metrics: {
-          records: dataSource.metrics?.records || 0,
-          syncRate: dataSource.metrics?.syncRate || 0,
-          avgSyncTime: dataSource.metrics?.avgSyncTime || '0s',
-          lastError: dataSource.metrics?.lastError
+        id: String(dataSource.id), // Ensure ID is always returned as a string
+        metrics: dataSource.metrics || {
+          records: 0,
+          syncRate: 0,
+          avgSyncTime: '0s'
         }
       };
-
-      res.json(response);
+      
+      return res.json(response);
     } catch (error) {
-      console.error('Error updating data source:', error);
-      res.status(500).json({ error: 'Failed to update data source' });
+      this.logger.error(`Error updating data source: ${error instanceof Error ? error.message : String(error)}`);
+      return res.status(500).json({
+        message: 'Error updating data source',
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 
-  async deleteDataSource(req: AuthRequest, res: Response) {
+  async deleteDataSource(req: AuthRequest, res: Response | CustomResponse) {
     const { id } = req.params;
 
     try {
@@ -424,12 +501,44 @@ export class DataSourceController {
           throw new BadRequestError('Data source not found');
         }
 
-        console.log(`Found data source to delete: ${dataSource.name} (ID: ${dataSource.id})`);
+        console.log(`Found data source to delete: ${dataSource.name} (ID: ${dataSource.id}, Status: ${dataSource.status})`);
+
+        // Special handling for data sources that are currently processing
+        if (dataSource.status === 'processing' || dataSource.status === 'syncing') {
+          console.log(`Data source ${id} is currently in '${dataSource.status}' state. Performing extra cleanup.`);
+          
+          // Check for related processing jobs and cancel them
+          try {
+            // We'll just log for now since we don't have direct access to job processing
+            console.log(`Marked for cleanup: Any background jobs for data source ${id}`);
+            
+            // Update status to 'cancelling' before deletion
+            await trx('data_sources')
+              .where({ id: numericId })
+              .update({
+                status: 'cancelling',
+                updated_at: new Date()
+              });
+              
+            console.log(`Updated data source ${id} status to 'cancelling' before deletion`);
+          } catch (cleanupError) {
+            console.warn(`Error during cleanup for processing data source ${id}:`, cleanupError);
+          }
+        }
 
         // Delete vectors first
         try {
           // Get document processor using our helper method
           const documentProcessor = this.getDocumentProcessor();
+          
+          // Check if this is a special data source type that might use custom collection names
+          const isSnowflake = dataSource.type === 'snowflake' || 
+                             dataSource.config?.type === 'snowflake' || 
+                             JSON.stringify(dataSource).toLowerCase().includes('snowflake');
+          
+          if (isSnowflake) {
+            console.log(`Data source ${id} is a Snowflake data source. Will check for special collection formats.`);
+          }
           
           console.log(`Attempting to delete vectors for data source ${id}`);
           const vectorDeletionResult = await documentProcessor.deleteDataSourceVectors(numericId.toString());
@@ -808,7 +917,7 @@ export class DataSourceController {
     }
   }
 
-  async getDataSource(req: Request, res: Response) {
+  async getDataSource(req: Request, res: Response | CustomResponse) {
     const { id } = req.params;
     
     try {
@@ -873,7 +982,7 @@ export class DataSourceController {
     }
   }
 
-  async getDataSourceChunks(req: Request, res: Response) {
+  async getDataSourceChunks(req: Request, res: Response | CustomResponse) {
     const { id } = req.params;
     
     try {
@@ -1128,7 +1237,7 @@ export class DataSourceController {
    * @param req Express request object
    * @param res Express response object
    */
-  async getLocalFileContent(req: AuthRequest, res: Response) {
+  async getLocalFileContent(req: AuthRequest, res: Response | CustomResponse) {
     try {
       const dataSourceId = req.params.id;
       const userId = typeof req.user.id === 'string' ? parseInt(req.user.id, 10) : req.user.id;
@@ -1302,6 +1411,110 @@ export class DataSourceController {
         error: 'Failed to store document chunk',
         details: error instanceof Error ? error.message : String(error)
       });
+    }
+  }
+
+  /**
+   * Test a connection to Snowflake
+   * @param req Request containing Snowflake connection parameters
+   * @param res Response with connection result
+   */
+  async testSnowflakeConnection(req: AuthRequest, res: Response) {
+    try {
+      const { 
+        account, 
+        username, 
+        password, 
+        database, 
+        schema, 
+        warehouse, 
+        role 
+      } = req.body;
+
+      // Validate required parameters
+      if (!account || !username || !password) {
+        throw new BadRequestError('Account, username, and password are required for Snowflake connection');
+      }
+
+      // Create a temporary connection for testing (not associated with a data source yet)
+      const connectionResult = await this.snowflakeService.createConnection(
+        0, // Temporary ID, won't be stored
+        { account, username, password, database, schema, warehouse, role }
+      );
+
+      if (connectionResult.success) {
+        // Close the connection since it was just for testing
+        await this.snowflakeService.closeConnection(0);
+      }
+
+      return res.status(200).json(connectionResult);
+    } catch (error: any) {
+      this.logger.error(`Error testing Snowflake connection: ${error.message}`);
+      return res.status(400).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
+   * Update data source collection references by scanning collections
+   * This utility endpoint helps fix mismatches between data sources and collections
+   */
+  async updateDataSourceCollectionReferences(req: Request, res: Response): Promise<void> {
+    try {
+      this.logger.info('Updating data source collection references');
+      
+      // First ensure the collection_name column exists
+      const hasColumn = await this.checkIfColumnExists('data_sources', 'collection_name');
+      
+      if (!hasColumn) {
+        this.logger.info('Adding collection_name column to data_sources table');
+        await db.schema.table('data_sources', table => {
+          table.string('collection_name').nullable();
+        });
+        this.logger.info('Added collection_name column to data_sources table');
+      }
+      
+      // Get the RAG service
+      const ragService = new RagService();
+      
+      // Update references
+      const result = await ragService.updateDataSourceCollectionReferences();
+      
+      this.logger.info(`Updated ${result.updated} data source collection references with ${result.errors} errors`);
+      
+      // Return success
+      res.status(200).json({
+        success: true,
+        message: `Updated ${result.updated} data source collection references`,
+        result
+      });
+    } catch (error) {
+      this.logger.error('Error updating data source collection references:', error);
+      res.status(500).json({
+        success: false,
+        message: `Error updating data source collection references: ${error}`
+      });
+    }
+  }
+  
+  /**
+   * Check if a column exists in a table
+   */
+  private async checkIfColumnExists(tableName: string, columnName: string): Promise<boolean> {
+    try {
+      // Use PostgreSQL information_schema to check if column exists
+      const result = await db.raw(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = ? AND column_name = ?
+      `, [tableName, columnName]);
+      
+      return result.rows.length > 0;
+    } catch (error) {
+      this.logger.error(`Error checking if column ${columnName} exists in ${tableName}:`, error);
+      return false;
     }
   }
 }

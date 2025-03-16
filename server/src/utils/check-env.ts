@@ -1,9 +1,9 @@
 /**
  * Environment checks and warnings for disabled features
  */
-import { createLogger } from './logger';
+import { createServiceLogger } from './logger-factory';
 
-const logger = createLogger('EnvCheck');
+const logger = createServiceLogger('EnvCheck');
 
 /**
  * Output warnings for disabled features based on environment variables

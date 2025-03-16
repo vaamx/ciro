@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { DashboardController } from '../controllers/dashboard.controller';
 import { authenticate } from '../middleware/auth';
 

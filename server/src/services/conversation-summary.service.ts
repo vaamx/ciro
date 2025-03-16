@@ -1,6 +1,6 @@
 import { db } from '../infrastructure/database';
 import { OpenAIService, openAIService } from './openai.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { encode } from 'gpt-tokenizer';
 
 // Define the ChatMessage interface locally if not available in types
@@ -22,7 +22,7 @@ interface SummaryOptions {
  * creating summaries that can replace older message history
  */
 export class ConversationSummaryService {
-  private logger = createLogger('ConversationSummaryService');
+  private readonly logger = createServiceLogger('ConversationSummaryService');
   private openAI: OpenAIService;
   private defaultOptions: SummaryOptions = {
     maxTokenCount: 4000,

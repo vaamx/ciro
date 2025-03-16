@@ -18,6 +18,7 @@ export interface ComposerProps {
   maxAttachmentSize?: number;
   supportedFileTypes?: string[];
   className?: string;
+  isMobile?: boolean;
 }
 
 export const Composer: React.FC<ComposerProps> = ({
@@ -33,6 +34,7 @@ export const Composer: React.FC<ComposerProps> = ({
   maxAttachmentSize = 5 * 1024 * 1024,
   supportedFileTypes = ['image/*', 'application/pdf'],
   className = '',
+  isMobile = false,
 }) => {
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -139,7 +141,7 @@ export const Composer: React.FC<ComposerProps> = ({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="flex flex-wrap gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700"
+            className={`flex flex-wrap gap-2 ${isMobile ? 'px-3 py-1.5' : 'px-4 py-2'} border-b border-gray-200 dark:border-gray-700`}
           >
             {attachments.map((file, index) => (
               <div
@@ -183,8 +185,8 @@ export const Composer: React.FC<ComposerProps> = ({
                 key={index}
                 type="button"
                 onClick={() => insertSuggestion(suggestion)}
-                className="w-full px-4 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700
-                  text-gray-900 dark:text-white text-sm"
+                className={`w-full ${isMobile ? 'px-3 py-1.5' : 'px-4 py-2'} text-left hover:bg-gray-100 dark:hover:bg-gray-700
+                  text-gray-900 dark:text-white ${isMobile ? 'text-xs' : 'text-sm'}`}
               >
                 {suggestion}
               </button>
@@ -255,14 +257,15 @@ export const Composer: React.FC<ComposerProps> = ({
             placeholder={streaming ? 'AI is typing...' : placeholder}
             disabled={disabled || isGenerating}
             className={`
-              w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 
+              w-full ${isMobile ? 'px-3 py-2.5' : 'px-4 py-3'} bg-gray-50 dark:bg-gray-900 
               rounded-xl resize-none focus:outline-none focus:ring-2 
               focus:ring-indigo-500 dark:focus:ring-indigo-400
               disabled:opacity-60 disabled:cursor-not-allowed
               text-gray-900 dark:text-white placeholder-gray-500 
               dark:placeholder-gray-400
-              min-h-[44px] max-h-[120px] overflow-y-auto
+              min-h-[${isMobile ? '38' : '44'}px] max-h-[${isMobile ? '100' : '120'}px] overflow-y-auto
               ${isGenerating || streaming ? 'pr-24' : 'pr-12'}
+              ${isMobile ? 'text-sm' : 'text-base'}
               transition-all duration-200
             `}
             rows={1}
@@ -271,9 +274,9 @@ export const Composer: React.FC<ComposerProps> = ({
           <div className="absolute right-2 bottom-2 flex items-center space-x-1">
             {streaming && (
               <div className="flex items-center space-x-1 mr-2">
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className={`w-${isMobile ? '1.5' : '2'} h-${isMobile ? '1.5' : '2'} bg-indigo-500 rounded-full animate-bounce`} style={{ animationDelay: '0ms' }} />
+                <div className={`w-${isMobile ? '1.5' : '2'} h-${isMobile ? '1.5' : '2'} bg-indigo-500 rounded-full animate-bounce`} style={{ animationDelay: '150ms' }} />
+                <div className={`w-${isMobile ? '1.5' : '2'} h-${isMobile ? '1.5' : '2'} bg-indigo-500 rounded-full animate-bounce`} style={{ animationDelay: '300ms' }} />
               </div>
             )}
             {allowVoiceInput && (
@@ -283,14 +286,14 @@ export const Composer: React.FC<ComposerProps> = ({
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsRecording(!isRecording)}
                 className={`
-                  p-2 rounded-lg transition-colors
+                  ${isMobile ? 'p-1.5' : 'p-2'} rounded-lg transition-colors
                   ${isRecording 
                     ? 'text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 animate-pulse' 
                     : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'}
                   hover:bg-gray-100 dark:hover:bg-gray-700
                 `}
               >
-                <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                <svg className={`w-${isMobile ? '4' : '5'} h-${isMobile ? '4' : '5'}`} viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                 </svg>
               </motion.button>

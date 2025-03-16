@@ -1,4 +1,3 @@
-import { createLogger } from '../../utils/logger';
 import * as winston from 'winston';
 import { QdrantService } from '../qdrant.service';
 import { db } from '../../infrastructure/database';
@@ -30,7 +29,32 @@ export abstract class BaseDocumentProcessor {
   public processorName: string;
 
   constructor(serviceName: string) {
-    this.logger = createLogger(serviceName);
+    // Initialize the logger first before using it
+    this.logger = winston.createLogger({
+      level: process.env.LOG_LEVEL || 'info',
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [${serviceName}]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      ),
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.timestamp(),
+            winston.format.printf((info) => {
+              const { timestamp, level, message, ...rest } = info;
+              const formattedMessage = `${timestamp} [${level.toUpperCase()}] [${serviceName}]: ${message}`;
+              return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+            })
+          )
+        })
+      ]
+    });
+    
     this.qdrantService = QdrantService.getInstance();
     this.processorName = serviceName;
     this.logger.info(`Initializing ${serviceName}`);
@@ -57,19 +81,23 @@ export abstract class BaseDocumentProcessor {
    */
   protected async ensureCollectionExists(collectionName: string): Promise<void> {
     try {
-      const exists = await this.qdrantService.collectionExists(collectionName);
+      // Normalize the collection name to use numeric ID
+      const normalizedName = await this.normalizeCollectionNameWithNumericId(collectionName);
+      this.logger.info(`Normalized collection name: ${collectionName} -> ${normalizedName}`);
+      
+      const exists = await this.qdrantService.collectionExists(normalizedName);
       
       if (!exists) {
-        this.logger.info(`Creating collection: ${collectionName}`);
-        await this.qdrantService.createCollection(collectionName, {
+        this.logger.info(`Creating collection: ${normalizedName}`);
+        await this.qdrantService.createCollection(normalizedName, {
           vectors: {
             size: 1536, // OpenAI embeddings are 1536-dimensional
             distance: 'Cosine'
           }
         });
-        this.logger.info(`Collection created: ${collectionName}`);
+        this.logger.info(`Collection created: ${normalizedName}`);
       } else {
-        this.logger.debug(`Qdrant collection already exists: ${collectionName}`);
+        this.logger.debug(`Qdrant collection already exists: ${normalizedName}`);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -236,4 +264,69 @@ export abstract class BaseDocumentProcessor {
       throw new Error(`File is empty: ${filePath}`);
     }
   }
-} 
+
+  /**
+   * Normalize collection name to always use numeric ID
+   * This is critical for ensuring collections are consistently named across the system
+   * @param dataSourceId The data source ID (can be UUID or numeric ID)
+   * @returns Normalized collection name using numeric ID
+   */
+  protected async normalizeCollectionNameWithNumericId(dataSourceId: string): Promise<string> {
+    try {
+      // If it's already a number, just use it
+      if (!isNaN(Number(dataSourceId)) && !dataSourceId.includes('-')) {
+        this.logger.debug(`Using numeric ID format for collection: datasource_${dataSourceId}`);
+        return `datasource_${dataSourceId}`;
+      }
+      
+      // If it's a UUID, we need to find the numeric ID
+      if (dataSourceId.includes('-')) {
+        // Strip prefix if present
+        const uuid = dataSourceId.startsWith('datasource_') 
+          ? dataSourceId.substring('datasource_'.length) 
+          : dataSourceId;
+        
+        try {
+          // Look up by UUID in metadata
+          const dataSource = await db('data_sources')
+            .whereRaw("metadata->>'id' = ?", [uuid])
+            .orWhereRaw("metadata->>'filename' LIKE ?", [`%${uuid}%`])
+            .orWhereRaw("metadata->>'originalFilename' LIKE ?", [`%${uuid}%`])
+            .first('id');
+          
+          if (dataSource && dataSource.id) {
+            this.logger.info(`Found numeric ID ${dataSource.id} for UUID ${uuid}`);
+            return `datasource_${dataSource.id}`;
+          }
+          
+          // If that fails, try looking up in the metadata JSON
+          const metadataSource = await db('data_sources')
+            .whereRaw("metadata->>'id' = ?", [uuid])
+            .first('id');
+          
+          if (metadataSource && metadataSource.id) {
+            this.logger.info(`Found numeric ID ${metadataSource.id} for UUID ${uuid} in metadata`);
+            return `datasource_${metadataSource.id}`;
+          }
+        } catch (dbError) {
+          this.logger.error(`Database error looking up UUID ${uuid}: ${dbError instanceof Error ? dbError.message : String(dbError)}`);
+        }
+        
+        // If we couldn't find a numeric ID, use the UUID as fallback
+        this.logger.warn(`Could not find numeric ID for UUID ${uuid}, using UUID as fallback`);
+        return `datasource_${uuid}`;
+      }
+      
+      // If it already has prefix, assume it's correct
+      if (dataSourceId.startsWith('datasource_')) {
+        return dataSourceId;
+      }
+      
+      // Default fallback
+      return `datasource_${dataSourceId}`;
+    } catch (error) {
+      this.logger.error(`Error normalizing collection name: ${error instanceof Error ? error.message : String(error)}`);
+      return `datasource_${dataSourceId}`;
+    }
+  }
+}

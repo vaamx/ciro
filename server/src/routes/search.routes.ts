@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { SearchController } from '../controllers/search.controller';
 import { asyncHandler } from '../utils/asyncHandler';
 import { authenticate } from '../middleware/auth';
-import { RequestHandler } from 'express';
+import { RequestHandler } from '../types/express-types';
 
 const router = Router();
 const searchController = new SearchController();

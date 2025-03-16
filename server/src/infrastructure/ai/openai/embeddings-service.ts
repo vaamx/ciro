@@ -9,7 +9,7 @@ export interface EmbeddingOptions {
 }
 
 export class EmbeddingsService extends BaseOpenAIService {
-  private readonly DEFAULT_MODEL = 'text-embedding-3-large';
+  private readonly DEFAULT_MODEL = 'text-embedding-ada-002';
   private readonly MAX_TOKENS = 8191;  // Maximum tokens for embedding models
 
   async createEmbedding(input: string | string[], options: EmbeddingOptions = {}) {

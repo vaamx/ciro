@@ -1,250 +1,780 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowPathIcon, 
-  ClipboardIcon, 
-  SparklesIcon,
-} from './icons';
+import React, { useState, useRef, useEffect } from 'react';
 import { type ChatMessage } from '../types';
+import { useNotification } from '../../../contexts/NotificationContext';
+import { PDFResponseAdapter } from './PDFResponseAdapter';
 import { MessageMarkdown } from './MessageMarkdown';
-import { formatTimestamp } from '../utils/formatTimestamp';
+import { motion } from 'framer-motion';
+import { copyToClipboard } from '../../../utils/clipboard';
+import { 
+  detectDocumentType, 
+  DocumentType, 
+  needsVisualization
+} from '../utils/documentTypeHandlers';
+import { TableVisualization } from './TableVisualization';
+import { DocumentRenderer } from './DocumentRenderer';
+import { VisualizationAdapter } from './VisualizationAdapter';
+// Removing unused imports
+// import ReactMarkdown from 'react-markdown';
+// import remarkGfm from 'remark-gfm';
+// import remarkMath from 'remark-math';
+// import rehypeKatex from 'rehype-katex';
+// Import from the correct location or remove if not used
+// import { CodeBlock } from '../../Code/CodeBlock';
 
-interface TokenCount {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
+// Simple Avatar component
+const Avatar = ({ size = 'md', name = '', src = '', className = '' }) => {
+  const initials = name.split(' ').map(n => n[0]).join('').toUpperCase();
+  const sizeClass = size === 'sm' ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm';
+  
+  return (
+    <div 
+      className={`flex items-center justify-center rounded-full ${sizeClass} ${className}`}
+      title={name}
+    >
+      {src ? (
+        <img src={src} alt={name} className="rounded-full w-full h-full object-cover" />
+      ) : (
+        <span>{initials}</span>
+      )}
+    </div>
+  );
+};
 
+// We can simplify by removing unused imports/interfaces
 interface AssistantMessageProps {
   message: ChatMessage;
   onCopy: () => void;
-  onReload: () => void;
-  onDelete?: () => void;
+  onReload?: () => void;
   showMetadata?: boolean;
   showAvatar?: boolean;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
+  isRunning?: boolean;
   messageAlignment?: 'left' | 'right';
+  bubbleStyle?: 'modern' | 'classic' | 'minimal';
+  accentColor?: string;
+  isInGroup?: boolean;
+  isMobile?: boolean;
 }
 
-export const AssistantMessage: React.FC<AssistantMessageProps> = ({
-  message,
-  onCopy,
-  onReload,
-  onDelete,
+// Component to display thinking process with better animation and styling
+interface ThinkingDisplayProps {
+  content: string;
+}
+
+const ThinkingDisplay: React.FC<ThinkingDisplayProps> = ({ content }) => {
+  return (
+    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 mb-4">
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Thinking Process:</h4>
+      <div className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+        {content || "Processing your request..."}
+      </div>
+    </div>
+  );
+};
+
+// Add these at the file level, outside the component
+const stripJsonCache = new Map<string, string>();
+
+// Helper functions
+const stripJsonFromContent = (content: string): string => {
+  // Use cache to avoid repeating the same stripping operation
+  if (stripJsonCache.has(content)) {
+    return stripJsonCache.get(content)!;
+  }
+
+  try {
+    // Check if the content is JSON format
+    if (content.trim().startsWith('{') && content.trim().endsWith('}')) {
+      try {
+        const parsed = JSON.parse(content);
+        // If it has a content property, return that
+        if (parsed.content) {
+          stripJsonCache.set(content, parsed.content);
+          return parsed.content;
+        }
+      } catch (e) {
+        // Not valid JSON, continue with original content
+      }
+    }
+    
+    // If it contains embedded JSON, try to extract main text
+    if (content.includes('{') && content.includes('}')) {
+      // Try to extract any text before JSON
+      const beforeJson = content.split('{')[0].trim();
+      if (beforeJson.length > 0) {
+        stripJsonCache.set(content, beforeJson);
+        return beforeJson;
+      }
+      
+      // Try to extract any text after JSON
+      const afterJson = content.split('}').pop()?.trim();
+      if (afterJson && afterJson.length > 0) {
+        stripJsonCache.set(content, afterJson);
+        return afterJson;
+      }
+    }
+    
+    // Just return original content
+    stripJsonCache.set(content, content);
+    return content;
+  } catch (error) {
+    console.error('Error stripping JSON:', error);
+    return content;
+  }
+};
+
+// Cached refs to prevent redundant processing
+interface ProcessedRef {
+  pdf: boolean;
+  qdrant: boolean;
+  content: boolean;
+  debug: boolean;
+}
+
+interface ExtractionRef {
+  id: string | null;
+  content: string | null;
+  metadata: Record<string, any> | null;
+}
+
+export const AssistantMessage: React.FC<AssistantMessageProps> = ({ 
+  message, 
+  onCopy, 
+  onReload, 
   showMetadata = false,
   showAvatar = true,
-  isFirstInGroup = false,
-  isLastInGroup = false,
-}) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const isTyping = message.status === 'streaming' || message.status === 'loading';
-
-  const messageVariants = {
-    initial: { opacity: 0, y: 10 },
-    animate: { 
-      opacity: 1, 
-      y: 0,
-      transition: { 
-        type: 'spring',
-        damping: 30,
-        stiffness: 400
-      }
-    },
-    exit: { opacity: 0, y: -10 }
+  isFirstInGroup = true,
+  isLastInGroup = true,
+  isRunning = false,
+  messageAlignment = 'left',
+  bubbleStyle = 'modern',
+  accentColor = 'violet',
+  isInGroup = false,
+  isMobile = false
+}: AssistantMessageProps) => {
+  const [isContentReady, setIsContentReady] = useState<boolean>(false);
+  const { showNotification } = useNotification();
+  
+  // Get bubble style classes based on the bubbleStyle prop
+  const getBubbleStyles = () => {
+    switch (bubbleStyle) {
+      case 'minimal':
+        return `bg-transparent dark:bg-transparent border-none px-1 py-1 shadow-none`;
+      case 'classic':
+        return `bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm border border-gray-100 dark:border-gray-700`;
+      case 'modern':
+      default:
+        return `bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden`;
+    }
   };
+  
+  // Refs to track processing state
+  const processedRef = useRef<ProcessedRef>({
+    pdf: false,
+    qdrant: false,
+    content: false,
+    debug: false
+  });
+  
+  // Ref to track extracted content
+  const extractionRef = useRef<ExtractionRef>({
+    id: null,
+    content: null,
+    metadata: null
+  });
+  
+  // Log message rendering
+  useEffect(() => {
+    console.log(`Rendering message: ${message.id} ${message.role} ${message.status}`);
+  }, [message.id, message.role, message.status]);
+  
+  // Extract content from message - always call this hook, never conditionally
+  useEffect(() => {
+    if (!message || !message.content) return;
+    
+    console.log(`Extracting content from message: ${message.id}`);
+    
+    // Convert content to string if needed
+    const content = typeof message.content === 'string' 
+      ? message.content 
+      : JSON.stringify(message.content);
+    
+    console.log(`Extracted content length: ${content.length}`);
+    
+    // Store extracted content in ref
+    extractionRef.current = {
+      id: message.id,
+      content: content,
+      metadata: message.metadata || null
+    };
+    
+    // Mark content as processed
+    processedRef.current.content = true;
+    
+    // Set content ready state after a short delay to ensure all processing is complete
+    const timer = setTimeout(() => {
+      setIsContentReady(true);
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [message]);
+  
+  // Detect document type
+  const docType = detectDocumentType(message);
 
-  const actionBarVariants = {
-    hidden: { opacity: 0, scale: 0.95 },
-    visible: { 
-      opacity: 1, 
-      scale: 1,
-      transition: { 
-        type: 'spring',
-        damping: 25,
-        stiffness: 400
+  // Check if this is a simple welcome message
+  const isSimpleWelcome = message.metadata?.isSimpleWelcome === true;
+  
+  // Check if this is a loading message
+  const isSimpleLoading = message.metadata?.isSimpleLoading === true;
+  const isLoading = message.status === 'loading' || message.metadata?.isLoading === true;
+  const suppressVisualization = message.metadata?.suppressVisualization === true;
+  const forceSimpleDisplay = message.metadata?.forceSimpleDisplay === true;
+  const skipEnhancedVisualization = message.metadata?.skipEnhancedVisualization === true;
+  
+  // Determine if we should use simple display
+  const useSimpleDisplay = isSimpleWelcome || isSimpleLoading || forceSimpleDisplay || 
+                          suppressVisualization || skipEnhancedVisualization;
+
+  // Only log rendering once per message - always call this hook, never conditionally
+  useEffect(() => {
+    if (!processedRef.current.debug) {
+      console.log('Rendering message:', message.id, message.role, 
+        isSimpleWelcome ? '(simple welcome)' : '',
+        isSimpleLoading ? '(simple loading)' : '',
+        isLoading ? '(loading)' : '',
+        useSimpleDisplay ? '(simple display)' : '',
+        message.status);
+      processedRef.current.debug = true;
+    }
+  }, [message.id, message.role, isSimpleWelcome, isSimpleLoading, isLoading, useSimpleDisplay, message.status]);
+
+  // Handle early return for content not ready - IMPORTANT: Do this after all hooks are called
+  const shouldRenderContent = isContentReady || message.status !== 'complete';
+  
+  // Access the extracted content
+  const extractedContent = extractionRef.current.content || (
+    typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+  );
+
+  // Handle copy action
+  const handleCopy = () => {
+    if (message.content) {
+      const content = typeof message.content === 'string' 
+        ? message.content 
+        : JSON.stringify(message.content, null, 2);
+      
+      const success = copyToClipboard(content);
+      if (success) {
+        showNotification({
+          type: 'success',
+          message: 'Message content copied to clipboard'
+        });
+        onCopy();
+      } else {
+        showNotification({
+          type: 'error',
+          message: 'Failed to copy content'
+        });
       }
     }
   };
 
+  // Process PDF response - specialized handler
+  function processPdfResponse() {
+    try {
+      // Only log processing once per message
+      if (!processedRef.current.pdf) {
+        console.log('Processing PDF response for message:', message.id);
+        processedRef.current.pdf = true;
+      }
+      
+      // For loading state, show appropriate indicator
+      if (message.status === 'loading') {
+        return (
+          <div className="flex items-center space-x-2 p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+            <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          </div>
+        );
+      }
+      
+      // Render the PDF response
+      return (
+        <PDFResponseAdapter message={message} />
+      );
+    } catch (error) {
+      console.error('Error rendering PDF response:', error);
+      return (
+        <div className="text-red-500 p-2 rounded bg-red-50 dark:bg-red-900/20">
+          Error rendering PDF response
+        </div>
+      );
+    }
+  }
+
+  // Function to process Qdrant responses - simplified to avoid dependencies on removed components
+  function processQdrantResponse() {
+    // Mark as processed to prevent repeated processing
+    processedRef.current.qdrant = true;
+    
+    try {
+      if (message.status === 'loading') {
+        return (
+          <div className="flex items-center space-x-2 p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+            <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          </div>
+        );
+      }
+    
+      // Use VisualizationAdapter for Qdrant responses to get enhanced visualizations
+      console.log('Processing Qdrant response with VisualizationAdapter');
+      
+      // Always return the content, even if there's an error later
+      const safeContent = message.content ? (
+        typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+      ) : "No content received from server.";
+      
+      // Ensure we're not showing "No analysis available" when we have content
+      if (!safeContent || safeContent.trim() === '' || safeContent === "No analysis available") {
+        // If no usable content, display a more helpful error
+        return (
+          <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-md">
+            <p className="text-red-600 dark:text-red-400 text-sm">
+              No analysis available. Please try a different query.
+            </p>
+            {renderDiagnosticsButton()}
+          </div>
+        );
+      }
+      
+      // If we have content, render the visualization adapter
+      return (
+        <div className="rag-response-container">
+          <VisualizationAdapter 
+            message={message} 
+            messageId={message.id}
+          />
+        </div>
+      );
+    } catch (error) {
+      console.error('Error rendering Qdrant response:', error);
+      
+      // Fallback to simple markdown rendering on any error
+      return (
+        <>
+          <MessageMarkdown content={stripJsonFromContent(message.content)} />
+          {renderDiagnosticsButton()}
+        </>
+      );
+    }
+  }
+
+  // Process tabular data (Excel/CSV)
+  function processTabularData() {
+    try {
+      if (message.status === 'loading') {
+        return (
+          <div className="flex items-center space-x-2 p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+            <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          </div>
+        );
+      }
+      
+      // If we need visualization, try the visualization adapter first
+      if (needsVisualization(message)) {
+        try {
+          return (
+            <VisualizationAdapter 
+              message={message} 
+              messageId={message.id}
+            />
+          );
+        } catch (error) {
+          console.error('Error rendering visualization adapter:', error);
+          // Fall back to table visualization
+          try {
+            return (
+              <TableVisualization 
+                content={extractedContent} 
+                message={message} 
+                messageId={message.id}
+              />
+            );
+          } catch (tableError) {
+            console.error('Error rendering table visualization:', tableError);
+            // Fall back to markdown rendering
+            return <MessageMarkdown content={extractedContent} />;
+          }
+        }
+      }
+      
+      // Default to markdown rendering
+      return <MessageMarkdown content={extractedContent} />;
+    } catch (error) {
+      console.error('Error rendering tabular data:', error);
+      return (
+        <div className="text-red-500 p-2 rounded bg-red-50 dark:bg-red-900/20">
+          Error rendering data
+        </div>
+      );
+    }
+  }
+
+  // Process document responses based on file type
+  function processDocumentResponse() {
+    const { type } = docType;
+    
+    try {
+      // For loading state, show appropriate indicator
+      if (message.status === 'loading') {
+        return (
+          <div className="flex items-center space-x-2 p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+            <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          </div>
+        );
+      }
+      
+      // For all document types, first check if we should use visualization adapter
+      if (needsVisualization(message)) {
+        return (
+          <VisualizationAdapter 
+            message={message} 
+            messageId={message.id}
+          />
+        );
+      }
+      
+      // Otherwise, use specific renderer based on document type
+      switch (type) {
+        case DocumentType.PDF:
+          return <PDFResponseAdapter message={message} />;
+        case DocumentType.EXCEL:
+        case DocumentType.CSV:
+          return <TableVisualization content={extractedContent} message={message} messageId={message.id} />;
+        case DocumentType.DOCX:
+          return <DocumentRenderer content={extractedContent} type="docx" messageId={message.id} />;
+        case DocumentType.QDRANT:
+          return <VisualizationAdapter message={message} messageId={message.id} />;
+        default:
+          return <MessageMarkdown content={extractedContent} />;
+      }
+    } catch (error) {
+      console.error('Error processing document response:', error);
+      return <MessageMarkdown content={extractedContent} />;
+    }
+  }
+
+  // Check if this is a Qdrant response
+  const isQdrantResponse = 
+    docType.type === DocumentType.QDRANT || 
+    message.metadata?.dataSourceType === 'qdrant' ||
+    message.metadata?.collectionName ||
+    message.metadata?.isQdrantResponse;
+  
+  // Diagnostics button helper
+  const renderDiagnosticsButton = () => {
+    // Only show for Qdrant responses
+    if (!isQdrantResponse) return null;
+    
+    return (
+      <div className="mt-3 flex justify-start">
+        <button
+          onClick={() => {
+            // Dispatch a custom event that Thread.tsx can listen for
+            const event = new CustomEvent('run-rag-diagnostics', {
+              detail: { messageId: message.id }
+            });
+            document.dispatchEvent(event);
+          }}
+          className={`px-3 py-1 text-xs font-medium text-${accentColor}-600 bg-${accentColor}-50 rounded-md hover:bg-${accentColor}-100 dark:bg-${accentColor}-900/30 dark:text-${accentColor}-400 dark:hover:bg-${accentColor}-800/40 focus:outline-none focus:ring-1 focus:ring-${accentColor}-500 ${isMobile ? 'text-sm px-4 py-2' : ''}`}
+        >
+          Run RAG Diagnostics
+        </button>
+      </div>
+    );
+  };
+
+  // If content is not ready and message is complete, render a loading placeholder instead of null
+  if (!shouldRenderContent) {
+    return (
+      <motion.div
+        className={`
+          relative group
+          flex flex-col
+          w-full
+          text-sm md:text-base
+          ${isFirstInGroup ? 'pt-2' : 'pt-1'}
+          ${isLastInGroup ? 'pb-2' : 'pb-1'}
+          ${isInGroup ? 'pl-4 border-l-2 border-gray-100 dark:border-gray-800' : ''}
+        `}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+      >
+        <div className={`flex items-start space-x-2 sm:space-x-4 ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
+          {showAvatar && messageAlignment === 'left' && (
+            <div className="flex-shrink-0 mt-1">
+              <Avatar 
+                size="sm" 
+                name="AI" 
+                src="/ai-avatar.svg"
+                className={`bg-${accentColor}-500/10 text-${accentColor}-600 ring-2 ring-${accentColor}-500/20`}
+              />
+            </div>
+          )}
+          
+          <div className={`flex-1 min-w-0 space-y-0.5 ${isMobile ? 'max-w-[90%]' : 'max-w-[85%]'}`}>
+            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4"></div>
+              <div className="space-y-2">
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+              </div>
+            </div>
+          </div>
+          
+          {showAvatar && messageAlignment === 'right' && (
+            <div className="flex-shrink-0 mt-1">
+              <Avatar 
+                size="sm" 
+                name="AI" 
+                src="/ai-avatar.svg"
+                className={`bg-${accentColor}-500/10 text-${accentColor}-600 ring-2 ring-${accentColor}-500/20`}
+              />
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Render the message
   return (
     <motion.div
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      variants={messageVariants}
-      onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
       className={`
-        group relative flex items-start gap-8 px-8 py-6
-        ${!isFirstInGroup ? 'mt-1' : 'mt-4'}
-        ${!isLastInGroup ? 'mb-1' : 'mb-4'}
-        bg-transparent dark:bg-transparent
-        hover:bg-gray-50/30 dark:hover:bg-gray-900/30
-        transition-all duration-200
+        relative group
+        flex flex-col
+        w-full
+        text-sm md:text-base
+        ${isFirstInGroup ? 'pt-2' : 'pt-1'}
+        ${isLastInGroup ? 'pb-2' : 'pb-1'}
+        ${isInGroup ? 'pl-4 border-l-2 border-gray-100 dark:border-gray-800' : ''}
       `}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+      data-message-id={message.id}
+      data-message-type="assistant"
+      data-content-type={docType.type}
     >
-      {showAvatar && (
-        <motion.div 
-          className={`
-            relative flex-shrink-0 w-8 h-8 rounded-xl overflow-hidden
-            bg-gradient-to-br from-violet-500 via-indigo-500 to-purple-500
-            dark:from-violet-400 dark:via-indigo-400 dark:to-purple-400
-            flex items-center justify-center
-            shadow-lg shadow-violet-500/20 dark:shadow-violet-400/10
-            ring-1 ring-white/10 dark:ring-white/5
-            ${isFirstInGroup ? '' : 'invisible'}
-            transform-gpu transition-all duration-300
-            hover:scale-110 hover:rotate-3
-            hover:shadow-xl hover:shadow-violet-500/30 dark:hover:shadow-violet-400/20
-            group-hover:translate-x-1
-          `}
-          initial={{ scale: 0.5, rotate: -10, y: 10 }}
-          animate={{ scale: 1, rotate: 0, y: 0 }}
-          transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-        >
-          <SparklesIcon className="w-4 h-4 text-white/90 transform transition-transform" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-        </motion.div>
-      )}
-
-      <div className="flex-1 min-w-0 max-w-3xl relative">
-        <div className="prose prose-sm dark:prose-invert max-w-none
-          prose-p:leading-relaxed prose-p:my-3 first:prose-p:mt-0 last:prose-p:mb-0
-          prose-p:text-gray-700 dark:prose-p:text-white/90
-          prose-headings:text-gray-900 dark:prose-headings:text-white
-          prose-pre:my-3 prose-pre:bg-white/50 dark:prose-pre:bg-gray-800/50 
-          prose-pre:rounded-xl prose-pre:shadow-sm prose-pre:ring-1 
-          prose-pre:ring-gray-100 dark:prose-pre:ring-gray-700/50
-          prose-code:text-gray-800 dark:prose-code:text-white/90 
-          prose-code:bg-gray-50/80 dark:prose-code:bg-gray-800/80
-          prose-code:rounded-md prose-code:px-1.5 prose-code:py-0.5
-          prose-code:text-[13px] prose-code:font-medium
-          prose-code:before:content-none prose-code:after:content-none
-          prose-a:text-violet-600 dark:prose-a:text-violet-300 
-          prose-a:no-underline hover:prose-a:underline
-          prose-strong:text-gray-900 dark:prose-strong:text-white
-          prose-em:text-gray-700 dark:prose-em:text-white/80
-          prose-ul:my-2 prose-li:my-1 
-          prose-li:text-gray-700 dark:prose-li:text-white/90
-          prose-li:marker:text-gray-400 dark:prose-li:marker:text-white/40
-          prose-blockquote:border-l-2 prose-blockquote:border-violet-200 
-          dark:prose-blockquote:border-violet-500/30
-          prose-blockquote:pl-4 prose-blockquote:my-4 
-          prose-blockquote:italic 
-          prose-blockquote:text-gray-700 dark:prose-blockquote:text-white/80
-          prose-img:rounded-xl prose-img:shadow-lg
-          [&_table]:border-collapse [&_td]:p-2 [&_th]:p-2
-          [&_table]:my-4 [&_tr]:border-b 
-          [&_tr]:border-gray-100 dark:[&_tr]:border-gray-800
-          [&_th]:text-gray-900 dark:[&_th]:text-white
-          [&_td]:text-gray-700 dark:[&_td]:text-white/90"
-        >
-          <MessageMarkdown content={message.content} />
-        </div>
-
-        {isTyping && (
-          <div className="mt-3 flex items-center gap-2">
-            <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1.4, repeat: Infinity }}
-              className="w-1 h-1 bg-violet-500/70 dark:bg-violet-400/70 rounded-full"
-            />
-            <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1.4, repeat: Infinity, delay: 0.2 }}
-              className="w-1 h-1 bg-indigo-500/70 dark:bg-indigo-400/70 rounded-full"
-            />
-            <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1.4, repeat: Infinity, delay: 0.4 }}
-              className="w-1 h-1 bg-purple-500/70 dark:bg-purple-400/70 rounded-full"
+      <div className={`flex items-start space-x-2 sm:space-x-4 ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
+        {showAvatar && messageAlignment === 'left' && (
+          <div className="flex-shrink-0 mt-1">
+            <Avatar 
+              size="sm" 
+              name="AI" 
+              src="/ai-avatar.svg"
+              className={`bg-${accentColor}-500/10 text-${accentColor}-600 ring-2 ring-${accentColor}-500/20`}
             />
           </div>
         )}
+        
+        <div className={`flex-1 min-w-0 space-y-0.5 ${isMobile ? 'max-w-[90%]' : 'max-w-[85%]'}`}>
+          <div className={`
+            flex items-center space-x-1 text-xs text-gray-500 dark:text-gray-400
+            ${!showAvatar ? 'pl-10' : ''}
+            ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}
+            ${isMobile ? 'text-sm' : ''}
+          `}>
+            {showAvatar && (
+              <span className="font-medium">AI Assistant</span>
+            )}
+            {message.timestamp && (
+              <span className="opacity-70">
+                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+          
+          <div className={`
+            relative
+            ${getBubbleStyles()}
+            transform 
+            transition-all duration-200
+          `}>
+            <div className="relative">
+              {(() => {
+                // For any loading message, show a simple loading indicator
+                if (isLoading) {
+                  return (
+                    <div className="p-4">
+                      <div className="flex items-center space-x-2">
+                        <div className={`animate-pulse h-2 w-2 bg-${accentColor}-500 dark:bg-${accentColor}-400 rounded-full`}></div>
+                        <div className={`animate-pulse h-2 w-2 bg-${accentColor}-500 dark:bg-${accentColor}-400 rounded-full`} style={{ animationDelay: '0.2s' }}></div>
+                        <div className={`animate-pulse h-2 w-2 bg-${accentColor}-500 dark:bg-${accentColor}-400 rounded-full`} style={{ animationDelay: '0.4s' }}></div>
+                        <span className={`text-gray-700 dark:text-gray-300 ml-2 font-medium ${isMobile ? 'text-base' : ''}`}>Thinking...</span>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                // For simple welcome messages or any message that should use simple display
+                if (useSimpleDisplay) {
+                  return (
+                    <div className={`p-4 ${isMobile ? 'text-base' : ''}`}>
+                      <p className="text-gray-800 dark:text-gray-200">{message.content}</p>
+                    </div>
+                  );
+                }
+                
+                // For thinking process
+                if (message.metadata?.thinking && message.metadata.showThinking) {
+                  return <ThinkingDisplay content={message.metadata.thinking as string} />;
+                }
 
-        <AnimatePresence>
-          {isHovered && (
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              exit="hidden"
-              variants={actionBarVariants}
-              className="absolute -top-3 right-0 flex items-center gap-2
-                bg-white/80 dark:bg-gray-800/80 px-2.5 py-1.5 rounded-lg
-                shadow-sm ring-1 ring-gray-200/50 dark:ring-gray-700/50
-                opacity-0 group-hover:opacity-100 transition-opacity
-                backdrop-blur-sm"
-            >
+                // For structured responses like PDF
+                if (docType.type === DocumentType.PDF) {
+                  return processPdfResponse();
+                }
+                
+                // For Qdrant vector search results
+                if (docType.type === DocumentType.QDRANT) {
+                  return processQdrantResponse();
+                }
+                
+                // For tabular data (Excel, CSV)
+                if (docType.type === DocumentType.EXCEL || docType.type === DocumentType.CSV) {
+                  return processTabularData();
+                }
+                
+                // For document types like DOCX 
+                if (docType.type === DocumentType.DOCX) {
+                  return processDocumentResponse();
+                }
+                
+                // For messages that need visualization but aren't specific document types
+                if (needsVisualization(message)) {
+                  return <VisualizationAdapter message={message} messageId={message.id} />;
+                }
+                
+                // Special case: Check if this message should suppress direct content display
+                if (message.metadata?.suppressDirectDisplay || 
+                    message.metadata?.suppressDuplicateDisplay) {
+                  console.log('Suppressing direct content display in favor of structured response');
+                  
+                  // Show a placeholder message that structured content is available
+                  return (
+                    <div className={`p-4 bg-${accentColor}-50 dark:bg-${accentColor}-900/10 text-${accentColor}-800 dark:text-${accentColor}-200 rounded-lg text-sm ${isMobile ? 'text-base' : ''}`}>
+                      <p className="font-medium">Analysis is available in the structured view below.</p>
+                    </div>
+                  );
+                }
+                
+                // Default to markdown
+                return <MessageMarkdown content={stripJsonFromContent(extractedContent)} />;
+              })()}
+              
+              {/* Add diagnostics button for Qdrant responses */}
+              {renderDiagnosticsButton()}
+            </div>
+            
+            {/* Message Actions */}
+            <div className={`
+              absolute 
+              top-2 right-2
+              opacity-0 group-hover:opacity-100
+              transition-opacity duration-200
+              flex items-center space-x-1
+              z-10
+            `}>
               <button
-                onClick={onCopy}
-                className="p-1.5 text-gray-600 hover:text-gray-900
-                  dark:text-gray-400 dark:hover:text-gray-100 rounded-md
-                  hover:bg-gray-100/70 dark:hover:bg-gray-700/70
-                  transition-colors duration-200"
-                title="Copy message"
+                onClick={handleCopy}
+                className={`
+                  p-1 rounded-full 
+                  text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300
+                  bg-white/80 dark:bg-gray-800/80 
+                  hover:bg-white dark:hover:bg-gray-800
+                  shadow-sm
+                  transition-all duration-150
+                  ${isMobile ? 'p-2' : 'p-1'}
+                `}
+                aria-label="Copy content"
+                title="Copy content"
               >
-                <ClipboardIcon className="w-3.5 h-3.5" />
+                <svg className={`${isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
               </button>
               
-              <button
-                onClick={onReload}
-                className="p-1.5 text-gray-600 hover:text-gray-900
-                  dark:text-gray-400 dark:hover:text-gray-100 rounded-md
-                  hover:bg-gray-100/70 dark:hover:bg-gray-700/70
-                  transition-colors duration-200"
-                title="Regenerate response"
-              >
-                <ArrowPathIcon className="w-3.5 h-3.5" />
-              </button>
-
-              {onDelete && (
+              {onReload && (
                 <button
-                  onClick={onDelete}
-                  className="p-1.5 text-gray-600 hover:text-red-600
-                    dark:text-gray-400 dark:hover:text-red-400 rounded-md
-                    hover:bg-red-100/70 dark:hover:bg-red-900/30
-                    transition-colors duration-200"
-                  title="Delete message"
+                  onClick={onReload}
+                  className={`
+                    p-1 rounded-full 
+                    text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300
+                    bg-white/80 dark:bg-gray-800/80 
+                    hover:bg-white dark:hover:bg-gray-800
+                    shadow-sm
+                    transition-all duration-150
+                    ${isMobile ? 'p-2' : 'p-1'}
+                  `}
+                  aria-label="Regenerate response"
+                  title="Regenerate response"
+                  disabled={isRunning}
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className={`${isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                    />
                   </svg>
                 </button>
               )}
+            </div>
+          </div>
+          
+          {/* Metadata display */}
+          {showMetadata && message.metadata && (
+            <motion.div 
+              className={`text-xs text-gray-500 dark:text-gray-400 mt-1 space-y-1 ${messageAlignment === 'right' ? 'text-right' : 'text-left'} ${isMobile ? 'text-sm' : ''}`}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.2 }}
+            >
+              {message.metadata.model && (
+                <div>Model: {message.metadata.model}</div>
+              )}
+              {message.metadata.tokens && (
+                <div>Tokens: {message.metadata.tokens}</div>
+              )}
+              {message.metadata.time && (
+                <div>Time: {message.metadata.time.toFixed(2)}s</div>
+              )}
+              {docType.type !== DocumentType.UNKNOWN && (
+                <div>Type: {docType.type}</div>
+              )}
             </motion.div>
           )}
-        </AnimatePresence>
-
-        {showMetadata && message.metadata && (
-          <div className="mt-3 flex items-center gap-2 text-xs
-            opacity-0 group-hover:opacity-100 transition-opacity select-none"
-          >
-            <span className="font-medium text-gray-600 dark:text-gray-300">
-              {formatTimestamp(message.timestamp || 0)}
-            </span>
-            {message.metadata?.model && (
-              <>
-                <span className="text-gray-400 dark:text-gray-500">•</span>
-                <span className="font-medium text-violet-600/90 dark:text-violet-400/90">
-                  {message.metadata.model}
-                </span>
-              </>
-            )}
-            {message.metadata?.tokens && (
-              <>
-                <span className="text-gray-400 dark:text-gray-500">•</span>
-                <span className="font-medium text-gray-600/90 dark:text-gray-300/90">
-                  {typeof message.metadata.tokens === 'object' 
-                    ? `${(message.metadata.tokens as TokenCount).total_tokens || 0} tokens`
-                    : `${message.metadata.tokens} tokens`}
-                </span>
-              </>
-            )}
+        </div>
+        
+        {showAvatar && messageAlignment === 'right' && (
+          <div className="flex-shrink-0 mt-1">
+            <Avatar 
+              size="sm" 
+              name="AI" 
+              src="/ai-avatar.svg"
+              className={`bg-${accentColor}-500/10 text-${accentColor}-600 ring-2 ring-${accentColor}-500/20`}
+            />
           </div>
         )}
       </div>
     </motion.div>
   );
-}; 
+};
+
+export default AssistantMessage;

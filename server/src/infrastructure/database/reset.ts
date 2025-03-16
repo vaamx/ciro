@@ -17,7 +17,6 @@ async function resetDatabase() {
     await pool.query(`
       DROP EXTENSION IF EXISTS "uuid-ossp" CASCADE;
       DROP EXTENSION IF EXISTS "pgcrypto" CASCADE;
-      DROP EXTENSION IF EXISTS "vector" CASCADE;
     `);
     console.log('Extensions dropped successfully');
 

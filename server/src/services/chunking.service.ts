@@ -1,4 +1,4 @@
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import { shouldLogInitialization } from '../utils/logger-config';
 
 /**
@@ -21,7 +21,30 @@ export interface ChunkingOptions {
  * Service for handling text chunking
  */
 export class ChunkingService {
-    private readonly logger = createLogger('ChunkingService');
+    private readonly logger = winston.createLogger({
+        level: process.env.LOG_LEVEL || 'info',
+        format: winston.format.combine(
+            winston.format.timestamp(),
+            winston.format.printf((info) => {
+                const { timestamp, level, message, ...rest } = info;
+                const formattedMessage = `${timestamp} [${level.toUpperCase()}] [ChunkingService]: ${message}`;
+                return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+            })
+        ),
+        transports: [
+            new winston.transports.Console({
+                format: winston.format.combine(
+                    winston.format.colorize(),
+                    winston.format.timestamp(),
+                    winston.format.printf((info) => {
+                        const { timestamp, level, message, ...rest } = info;
+                        const formattedMessage = `${timestamp} [${level.toUpperCase()}] [ChunkingService]: ${message}`;
+                        return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+                    })
+                )
+            })
+        ]
+    });
     private readonly defaultChunkSize = 1000;
     private readonly defaultOverlap = 200;
     private readonly defaultMinChunkSize = 100;

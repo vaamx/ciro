@@ -1,4 +1,4 @@
-export type DataSourceType = 'local-files' | 'crm-hubspot';
+export type DataSourceType = 'local-files' | 'crm-hubspot' | 'snowflake';
 export type DataSourceStatus = 'connected' | 'disconnected' | 'processing' | 'error' | 'syncing' | 'ready' | 'completed';
 
 export interface ProcessingProgress {
@@ -61,4 +61,5 @@ export interface DataSource {
   lastSync?: string;
   metadata?: Record<string, any>;
   metrics: DataSourceMetrics;
+  dataSourceType?: string;
 } 

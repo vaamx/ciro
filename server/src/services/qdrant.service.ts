@@ -1,9 +1,12 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import { config } from '../config/index';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { ConfigService } from '../services/config.service';
 import { HttpException } from '@nestjs/common';
+import axios from 'axios';
+import { createServiceLogger } from '../utils/logger-factory';
+import { OpenAIService } from './openai.service';
 
 // Default vector dimension for embeddings
 const VECTOR_DIMENSION = 1536; // Default for OpenAI embeddings
@@ -28,7 +31,7 @@ interface QdrantConfig {
  * Unified query analysis interface for vector operations
  */
 interface QueryAnalysis {
-  queryType: 'semantic' | 'keyword' | 'hybrid' | 'count' | 'analytical';
+  queryType: 'semantic' | 'keyword' | 'hybrid' | 'count' | 'analytical' | 'entity_lookup';
   complexity: 'high' | 'medium' | 'low';
   needsExhaustiveResults: boolean;
   keywords: string[];
@@ -55,8 +58,11 @@ interface SearchResult {
  * Service for interacting with the Qdrant vector database
  */
 export class QdrantService {
-  private readonly logger = createLogger('QdrantService');
+  private readonly logger = createServiceLogger('QdrantService');
+  private readonly apiUrl: string;
+  private readonly headers: Record<string, string>;
   private readonly client: QdrantClient;
+  private openaiService: OpenAIService;
   
   private static instance: QdrantService | null = null;
   private static clientInitialized = false;
@@ -82,22 +88,35 @@ export class QdrantService {
   constructor() {
     QdrantService.constructorCallCount++;
     
-    // Get Qdrant URL from config
-    const qdrantConfig: QdrantConfig = {
-      url: config?.qdrant?.url || 'http://localhost:6333',
-      apiKey: config?.qdrant?.apiKey
+    const configService = new ConfigService();
+    this.apiUrl = configService.get('QDRANT_API_URL') || 'http://localhost:6333';
+    
+    // Set up headers for Qdrant API requests
+    this.headers = {
+      'Content-Type': 'application/json'
     };
+    
+    // Add API key if configured
+    const apiKey = configService.get('QDRANT_API_KEY');
+    if (apiKey) {
+      this.headers['Api-Key'] = apiKey;
+    }
+    
+    this.logger.info(`QdrantService initialized with API URL: ${this.apiUrl}`);
+    
+    // Initialize OpenAI service
+    this.openaiService = OpenAIService.getInstance();
     
     // Create Qdrant client
     try {
       if (!QdrantService.clientInitialized) {
-        this.logger.info(`Initializing Qdrant client with URL: ${qdrantConfig.url}`);
+        this.logger.info(`Initializing Qdrant client with URL: ${this.apiUrl}`);
         QdrantService.clientInitialized = true;
       }
       
       this.client = new QdrantClient({
-        url: qdrantConfig.url,
-        apiKey: qdrantConfig.apiKey
+        url: this.apiUrl,
+        apiKey: apiKey
       });
       
       if (QdrantService.instance) {
@@ -127,9 +146,9 @@ export class QdrantService {
   async collectionExists(collectionName: string): Promise<boolean> {
     try {
       const collections = await this.client.getCollections();
-      return collections.collections.some(c => c.name === collectionName);
+      return collections.collections.map(c => c.name).includes(collectionName);
     } catch (error) {
-      this.logger.error(`Error checking collection existence for ${collectionName}: ${error.message}`);
+      this.logger.error(`Error checking if collection ${collectionName} exists: ${error}`);
       return false;
     }
   }
@@ -152,14 +171,53 @@ export class QdrantService {
     try {
       this.logger.info(`Creating collection ${collectionName} with dimension ${options.vectors.size}`);
       
-      await this.client.createCollection(collectionName, options);
+      // Enhance options to ensure on-disk storage and disable caching
+      const enhancedOptions = {
+        ...options,
+        // Explicitly enable on-disk storage for all data
+        on_disk_payload: true,
+        hnsw_config: {
+          // Store HNSW index on disk to prevent memory caching
+          on_disk: true,
+          // Other HNSW defaults
+          m: 16,
+          ef_construct: 100,
+          full_scan_threshold: 10000
+        },
+        optimizers_config: {
+          // Ensure vectors are moved to disk-based storage quickly
+          default_segment_number: 2,
+          memmap_threshold: 20000, // Lower threshold for moving to disk
+          indexing_threshold: 5000  // Lower threshold for indexing
+        },
+        // Force write to disk more frequently
+        wal_config: {
+          wal_capacity_mb: 32,
+          wal_segments_ahead: 0
+        }
+      };
       
-      this.logger.info(`Successfully created collection ${collectionName}`);
+      await this.client.createCollection(collectionName, enhancedOptions);
+      
+      this.logger.info(`Successfully created collection ${collectionName} with on-disk storage configuration`);
       return true;
     } catch (error) {
       // If the collection already exists, consider it a success
       if (error instanceof Error && error.message.includes('already exists')) {
         this.logger.info(`Collection ${collectionName} already exists`);
+        // Update existing collection to use on-disk storage if possible
+        try {
+          await this.client.updateCollection(collectionName, {
+            optimizers_config: {
+              default_segment_number: 2,
+              memmap_threshold: 20000,
+              indexing_threshold: 5000
+            }
+          });
+          this.logger.info(`Updated collection ${collectionName} with on-disk storage optimizations`);
+        } catch (updateError) {
+          this.logger.warn(`Could not update on-disk settings for ${collectionName}: ${updateError.message}`);
+        }
         return true;
       }
       
@@ -175,7 +233,7 @@ export class QdrantService {
     collectionName: string,
     vectors: number[][],
     payloads: Record<string, any>[],
-    ids?: string[]
+    ids?: (string | number)[]
   ): Promise<string[]> {
     try {
       console.log(`Storing ${vectors.length} vectors in collection ${collectionName}`);
@@ -191,12 +249,38 @@ export class QdrantService {
         });
       }
       
-      // Prepare points
+      // Prepare points, extra validation for IDs
       const points = vectors.map((vector, index) => {
-        const id = ids ? ids[index] : crypto.randomUUID();
-        console.log(`Creating point with ID ${id} (${vector.length} dimensions)`);
+        let pointId;
+        
+        // Handle ID assignment with better validation
+        if (ids && index < ids.length) {
+          const rawId = ids[index];
+          
+          // If it's already a number, use as is (Qdrant accepts numeric IDs directly)
+          if (typeof rawId === 'number') {
+            pointId = rawId;
+            console.log(`Using numeric ID directly: ${pointId}`);
+          } else {
+            // Try to parse as number if it's a string containing only digits
+            if (typeof rawId === 'string' && /^\d+$/.test(rawId)) {
+              pointId = parseInt(rawId, 10);
+              console.log(`Converted string number "${rawId}" to numeric ID: ${pointId}`);
+            } else {
+              // Otherwise use UUID conversion
+              pointId = this.convertToValidQdrantId(rawId);
+              console.log(`Converted complex ID to valid format: ${pointId}`);
+            }
+          }
+        } else {
+          // Generate a UUID if no ID provided
+          pointId = crypto.randomUUID();
+          console.log(`Generated UUID for point: ${pointId}`);
+        }
+        
+        console.log(`Creating point with ID ${pointId} (${vector.length} dimensions)`);
         return {
-          id,
+          id: pointId,
           vector,
           payload: payloads[index]
         };
@@ -239,24 +323,69 @@ export class QdrantService {
     collectionName: string,
     queryVector: number[],
     filter?: Record<string, any>,
-    limit: number = 5
+    limit: number = 500  // Increased default from 100 to 500
   ): Promise<any[]> {
     try {
       console.log(`Searching collection ${collectionName} with vector of length ${queryVector.length}`);
       
-      // Ensure collection exists
-      if (!(await this.collectionExists(collectionName))) {
-        console.log(`Collection ${collectionName} does not exist for search`);
-        this.logger.warn(`Collection ${collectionName} does not exist`);
+      // Validate input
+      if (!queryVector || !Array.isArray(queryVector) || queryVector.length === 0) {
+        this.logger.error(`Invalid query vector provided: ${queryVector ? 'Empty array' : 'Not an array'}`);
         return [];
       }
       
-      // Perform the search
+      // Normalize the collection name
+      const normalizedCollectionName = this.normalizeCollectionName(collectionName);
+      this.logger.info(`Normalized collection name for search: ${normalizedCollectionName}`);
+      
+      // Ensure collection exists
+      if (!(await this.collectionExists(normalizedCollectionName))) {
+        // Try alternative collection names
+        const alternativeNames = [
+          `datasource_${collectionName}`,
+          collectionName.startsWith('datasource_') ? collectionName.substring(11) : collectionName,
+          // Try with numeric ID if the collection name is a UUID
+          collectionName.includes('-') ? `datasource_${parseInt(collectionName, 10) || ''}` : collectionName
+        ];
+        
+        this.logger.info(`Collection ${normalizedCollectionName} not found, trying alternatives: ${alternativeNames.join(', ')}`);
+        
+        // Check each alternative
+        let foundAlternative = false;
+        for (const altName of alternativeNames) {
+          if (await this.collectionExists(altName)) {
+            this.logger.info(`Found alternative collection: ${altName}`);
+            collectionName = altName;
+            foundAlternative = true;
+            break;
+          }
+        }
+        
+        if (!foundAlternative) {
+          this.logger.warn(`No collection found for ${collectionName} or alternatives`);
+          return [];
+        }
+      } else {
+        collectionName = normalizedCollectionName;
+      }
+      
+      // Universal search parameters for all collections
+      // No special case handling - treat all collections the same
+      const effectiveLimit = limit; // Use provided limit directly
+      
+      // Perform the search with universal parameters
       const searchParams: any = {
         vector: queryVector,
-        limit,
+        limit: effectiveLimit,
         with_payload: true,
-        with_vector: false
+        with_vector: false,
+        // Use a very low threshold to ensure we capture all potentially relevant documents
+        score_threshold: 0.2, // Lowered from 0.7/0.5 to 0.2 to be more inclusive
+      };
+      
+      // Add HNSW search params for better recall
+      searchParams.params = {
+        hnsw_ef: 512, // Increased from 256 for more exhaustive search
       };
       
       if (filter) {
@@ -267,7 +396,8 @@ export class QdrantService {
       console.log(`Executing search with params:`, {
         collectionName,
         vectorLength: queryVector.length,
-        limit,
+        limit: searchParams.limit,
+        threshold: searchParams.score_threshold,
         hasFilter: !!filter
       });
       
@@ -276,6 +406,19 @@ export class QdrantService {
       console.log(`Search complete, found ${results.length} results`);
       if (results.length > 0) {
         console.log(`Top result score: ${results[0].score}`);
+        console.log(`Lowest result score: ${results[results.length - 1].score}`);
+        
+        // Log the content of the first result to help debugging
+        if (results.length > 0) {
+          const firstResult = results[0];
+          if (firstResult.payload && typeof firstResult.payload.text === 'string') {
+            console.log(`First result content preview: ${firstResult.payload.text.substring(0, 200)}...`);
+          } else if (firstResult.payload && typeof firstResult.payload.content === 'string') {
+            console.log(`First result content preview: ${firstResult.payload.content.substring(0, 200)}...`);
+          } else {
+            console.log(`First result has no text content or is not a string`);
+          }
+        }
       }
       
       this.logger.info(`Found ${results.length} results for search in collection ${collectionName}`);
@@ -362,6 +505,95 @@ export class QdrantService {
   }
 
   /**
+   * Convert a string ID with colons to a valid Qdrant point ID (UUID v5)
+   * @param id The original ID (possibly containing colons)
+   * @returns A valid Qdrant ID (UUID or number)
+   */
+  private convertToValidQdrantId(id: string | number): string | number {
+    if (typeof id === 'number') {
+      // If it's already a number, it's a valid Qdrant ID
+      this.logger.debug(`ID is already a number: ${id}`);
+      return id;
+    }
+    
+    // If it's a string that can be parsed as a number, convert it
+    if (typeof id === 'string' && !isNaN(Number(id)) && !id.includes(':')) {
+      const numericId = Number(id);
+      this.logger.debug(`Converted string ID "${id}" to numeric ID: ${numericId}`);
+      return numericId;
+    }
+    
+    // If it's a string with colons, convert to a deterministic UUID using UUID v5
+    if (typeof id === 'string' && id.includes(':')) {
+      // Using a namespace based on the application name to ensure consistency
+      const NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'; // UUID namespace (this is the DNS namespace UUID)
+      
+      try {
+        // Generate a deterministic UUID based on the ID string
+        const uuid = uuidv5(id, NAMESPACE);
+        this.logger.debug(`Converted ID with colons: "${id}" → UUID: "${uuid}"`);
+        return uuid;
+      } catch (error) {
+        this.logger.warn(`Failed to convert ID "${id}" to UUID, using a sanitized version`);
+        // Fallback: Replace colons with underscores
+        return id.replace(/:/g, '_');
+      }
+    }
+    
+    // If it's already a valid format, return as is
+    return id;
+  }
+
+  /**
+   * Force optimization and flushing of a collection to ensure all data is persisted to disk
+   * @param collectionName Name of the collection to optimize and flush
+   * @returns Promise<boolean> True if the operation was successful
+   */
+  async forceFlushCollection(collectionName: string): Promise<boolean> {
+    try {
+      this.logger.info(`Forcing optimization and flush for collection: ${collectionName}`);
+      
+      // First update the collection to force optimization
+      await this.client.updateCollection(collectionName, {
+        optimizers_config: {
+          indexing_threshold: 0, // Force immediate indexing
+          default_segment_number: 2 // Reduce number of segments
+        }
+      });
+      
+      // Then try to call a low-level API for direct flush if available
+      // Note: This is best-effort and won't fail if not available
+      try {
+        // Get the Qdrant URL from config, same as in constructor
+        const qdrantUrl = config?.qdrant?.url || 'http://localhost:6333';
+        const apiKey = config?.qdrant?.apiKey;
+        
+        const response = await fetch(`${qdrantUrl}/collections/${collectionName}/optimize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey && { 'api-key': apiKey })
+          }
+        });
+        
+        if (!response.ok) {
+          this.logger.warn(`Optimize endpoint returned status ${response.status}: ${await response.text()}`);
+        } else {
+          this.logger.info(`Successfully forced collection optimization for ${collectionName}`);
+        }
+      } catch (optimizeError) {
+        // Ignore errors from this endpoint as it might not be available
+        this.logger.debug(`Optimize endpoint not available: ${optimizeError.message}`);
+      }
+      
+      return true;
+    } catch (error) {
+      this.logger.error(`Error forcing collection flush: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
    * Upsert vectors to Qdrant
    * @param collectionName The name of the collection
    * @param points The points to upsert
@@ -408,22 +640,23 @@ export class QdrantService {
         }
       }
 
-      // Prepare points for upsert, handling UUID conversions
+      // Prepare points for upsert, handling ID conversions for Qdrant compatibility
       const preparedPoints = points.map(point => {
-        // Handle non-UUID IDs by converting to string
-        const pointId = typeof point.id === 'string' ? point.id : String(point.id);
+        // Convert the ID to a format Qdrant accepts (UUID or integer)
+        const pointId = this.convertToValidQdrantId(point.id);
         
         // Log the original and processed point ID for debugging
         this.logger.debug(`Processing point ID: ${point.id} → ${pointId}`);
         
-              return {
+        return {
           id: pointId,
           vector: point.vector,
-                payload: {
-                  ...point.payload,
+          payload: {
+            ...point.payload,
             // Store both formats of IDs to help with retrieval
             fileId: point.payload.fileId || null,
             dataSourceId: point.payload.dataSourceId || null,
+            originalId: point.id, // Store the original ID to help with mapping back
           }
         };
       });
@@ -447,18 +680,41 @@ export class QdrantService {
       // Process in batches to avoid timeouts
       for (let i = 0; i < preparedPoints.length; i += batchSize) {
         const batch = preparedPoints.slice(i, i + batchSize);
-        this.logger.info(`Upserting batch ${i / batchSize + 1}/${Math.ceil(preparedPoints.length / batchSize)} (${batch.length} points)`);
+        this.logger.info(`Upserting batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(preparedPoints.length/batchSize)} (${batch.length} points)`);
         
         try {
+          // Set wait=true to ensure points are fully processed before proceeding
           const result = await this.client.upsert(normalizedCollectionName, {
             points: batch,
+            wait: true // This ensures operation completes before returning
           });
           
           this.logger.info(`Batch upsert result: ${JSON.stringify(result)}`);
           totalUpserted += batch.length;
+          
+          // Force a collection update to ensure data is persisted to disk
+          try {
+            // Trigger an update that forces a flush to disk
+            await this.forceFlushCollection(normalizedCollectionName);
+            this.logger.debug(`Forced disk flush for batch ${Math.floor(i/batchSize) + 1}`);
+          } catch (flushError) {
+            // Non-fatal, just log warning
+            this.logger.warn(`Could not force disk flush for batch ${Math.floor(i/batchSize) + 1}: ${flushError.message}`);
+          }
         } catch (batchError) {
           this.logger.error(`Error upserting batch: ${(batchError as Error).message}`);
           throw batchError;
+        }
+      }
+
+      // After all batches are processed, do a final flush to ensure everything is persisted
+      if (totalUpserted > 0) {
+        try {
+          this.logger.info(`Performing final flush for ${normalizedCollectionName} after upserting ${totalUpserted} vectors`);
+          await this.forceFlushCollection(normalizedCollectionName);
+        } catch (finalFlushError) {
+          this.logger.warn(`Final flush operation failed, but vectors were upserted: ${finalFlushError.message}`);
+          // Continue despite error since the vectors should be upserted already
         }
       }
 
@@ -539,15 +795,20 @@ export class QdrantService {
    * Get all points from a collection
    * @param collectionName Name of the collection
    * @param limit Maximum number of points to retrieve
+   * @param includeVectors Whether to include vector data (default: false)
    * @returns Promise<Array<{id: string; vector?: number[]; payload: Record<string, any>;}>>
    */
-  async getAllPoints(collectionName: string, limit: number = 100): Promise<Array<{
+  async getAllPoints(
+    collectionName: string, 
+    limit: number = 100, 
+    includeVectors: boolean = false
+  ): Promise<Array<{
     id: string;
     vector?: number[];
     payload: Record<string, any>;
   }>> {
     try {
-      this.logger.info(`Getting all points from collection: ${collectionName} (limit: ${limit})`);
+      this.logger.info(`Getting all points from collection: ${collectionName} (limit: ${limit}, includeVectors: ${includeVectors})`);
       
       // Check if collection exists
       const exists = await this.collectionExists(collectionName);
@@ -560,7 +821,7 @@ export class QdrantService {
       const response = await this.client.scroll(collectionName, {
         limit: limit,
         with_payload: true,
-        with_vector: false // Skip vectors to reduce response size
+        with_vector: includeVectors // Include vectors if requested
       });
       
       if (!response || !response.points) {
@@ -572,6 +833,7 @@ export class QdrantService {
       
       return response.points.map(point => ({
         id: point.id as string,
+        ...(includeVectors && point.vector ? { vector: point.vector as number[] } : {}),
         payload: point.payload as Record<string, any>
       }));
     } catch (error) {
@@ -589,25 +851,67 @@ export class QdrantService {
     collection: string,
     text: string,
     filter?: any,
-    limit: number = 10
+    limit: number = 100  // Increased from 10 to 100
   ) {
     try {
       this.logger.debug(`Using textSearch method with text "${text}"`);
       
-      // Use the new intelligentSearch with text input and exactMatch=true
-      const results = await this.intelligentSearch(collection, text, {
-        filters: filter,
-        limit,
-        exactMatch: true
-      });
+      // Normalize collection name
+      const normalizedCollection = this.normalizeCollectionName(collection);
       
-      // Convert to old format for backward compatibility
-      return results.map(result => ({
+      // Check if collection exists
+      const collectionExists = await this.collectionExists(normalizedCollection);
+      if (!collectionExists) {
+        this.logger.warn(`Collection ${normalizedCollection} does not exist for text search`);
+        
+        // Try alternatives
+        const alternativeNames = [
+          collection,
+          `datasource_${collection}`,
+          collection.startsWith('datasource_') ? collection.substring(11) : collection
+        ];
+        
+        let foundAlternative = false;
+        for (const altName of alternativeNames) {
+          if (await this.collectionExists(altName)) {
+            this.logger.info(`Found alternative collection for text search: ${altName}`);
+            collection = altName;
+            foundAlternative = true;
+            break;
+          }
+        }
+        
+        if (!foundAlternative) {
+          this.logger.warn(`No collection found for ${collection} or alternatives`);
+          return [];
+        }
+      } else {
+        collection = normalizedCollection;
+      }
+      
+      // Generate embedding for the query
+      const embeddings = await this.openaiService.createEmbeddings([text]);
+      
+      if (!embeddings || embeddings.length === 0) {
+        this.logger.error(`Failed to create embeddings for text search query: ${text}`);
+        return [];
+      }
+      
+      // Use the embedding to search directly
+      const searchResults = await this.search(
+        collection,
+        embeddings[0],
+        filter,
+        limit
+      );
+      
+      // Convert to the expected format
+      return searchResults.map(result => ({
         id: result.id,
         score: result.score,
         payload: {
-          ...result.metadata,
-          text: result.content
+          ...result.payload,
+          text: result.payload?.text || result.payload?.content || '',
         }
       }));
     } catch (error) {
@@ -656,15 +960,15 @@ export class QdrantService {
       forceExhaustive?: boolean;
     } = {}
   ): QueryAnalysis {
-    // Default search parameters
+    // Default search parameters - more generous defaults
     const defaultAnalysis: QueryAnalysis = {
       queryType: 'semantic',
       complexity: 'low',
-      needsExhaustiveResults: false,
+      needsExhaustiveResults: options.forceExhaustive || false,
       keywords: [],
       entities: [],
-      limit: options.defaultLimit || 10,
-      scoreThreshold: 0.7,
+      limit: options.defaultLimit || 50, // Increased from 10 to 50
+      scoreThreshold: 0.3, // Lowered from 0.7 to 0.3
       exactMatch: options.forceExact || false,
       includeSimilar: true,
       filters: options.filters
@@ -682,6 +986,20 @@ export class QdrantService {
     
     // Extract potential entities
     const entities = this.extractEntities(query);
+    
+    // Check for entity lookup queries
+    const entityLookupPatterns = [
+      /tell me about\s+(.+)/i,
+      /information (on|about)\s+(.+)/i,
+      /details (of|about)\s+(.+)/i,
+      /who is\s+(.+)/i,
+      /what is\s+(.+)/i,
+      /describe\s+(.+)/i,
+      /explain\s+(.+)/i,
+      /show me\s+(.+)/i
+    ];
+    
+    const isEntityLookup = entityLookupPatterns.some(pattern => pattern.test(lowerQuery));
     
     // Check if query is analytical in nature
     const analyticalPatterns = [
@@ -725,9 +1043,11 @@ export class QdrantService {
     }
     
     // Determine query type
-    let queryType: 'semantic' | 'keyword' | 'hybrid' | 'count' | 'analytical' = 'semantic';
+    let queryType: 'semantic' | 'keyword' | 'hybrid' | 'count' | 'analytical' | 'entity_lookup' = 'semantic';
     
-    if (isCountQuery) {
+    if (isEntityLookup) {
+      queryType = 'entity_lookup';
+    } else if (isCountQuery) {
       queryType = 'count';
     } else if (isAnalytical) {
       queryType = 'analytical';
@@ -737,21 +1057,25 @@ export class QdrantService {
       queryType = 'hybrid';
     }
     
-    // Determine search limits based on query type
-    let limit = options.defaultLimit || 10;
+    // Determine search limits based on query type - use more generous limits
+    let limit = options.defaultLimit || 50; // Higher default limit
     let needsExhaustiveResults = options.forceExhaustive || false;
-    let scoreThreshold = 0.7;
+    let scoreThreshold = 0.3; // Lower general threshold
     
-    if (queryType === 'count' || queryType === 'analytical') {
-      limit = 100; // Larger limit for analytical queries
+    if (queryType === 'entity_lookup') {
+      limit = 500; // Very high limit for entity lookup queries
       needsExhaustiveResults = true;
-      scoreThreshold = 0.3; // Lower threshold to get more results
+      scoreThreshold = 0.2; // Lower threshold for entity lookups
+    } else if (queryType === 'count' || queryType === 'analytical') {
+      limit = 500; // Larger limit for analytical queries
+      needsExhaustiveResults = true;
+      scoreThreshold = 0.2; // Lower threshold to get more results
     } else if (complexity === 'high') {
-      limit = 20;
-      scoreThreshold = 0.5;
+      limit = 100; // Increased from 20 to 100
+      scoreThreshold = 0.25; // Lowered from 0.5 to 0.25
     } else if (complexity === 'medium') {
-      limit = 15;
-      scoreThreshold = 0.6;
+      limit = 50; // Increased from 15 to 50
+      scoreThreshold = 0.3; // Lowered from 0.6 to 0.3
     }
     
     return {
@@ -959,6 +1283,166 @@ export class QdrantService {
     } catch (error) {
       this.logger.error(`Error in intelligent search: ${error instanceof Error ? error.message : String(error)}`);
       return [];
+    }
+  }
+
+  /**
+   * Get a sample of documents from a collection
+   * This is useful for exploring collection contents
+   * @param collectionName Name of the collection
+   * @param limit Number of documents to retrieve (default: 10)
+   * @returns Array of documents with payload
+   */
+  async getCollectionSample(collectionName: string, limit: number = 10): Promise<any[]> {
+    try {
+      this.logger.info(`Getting ${limit} sample documents from collection ${collectionName}`);
+      
+      // Create a random vector to get diverse results
+      const randomVector = Array(VECTOR_DIMENSION).fill(0).map(() => Math.random() * 2 - 1);
+      
+      // Search with the random vector
+      const results = await this.search(
+        collectionName,
+        randomVector,
+        null,  // No filter
+        limit
+      );
+      
+      this.logger.info(`Retrieved ${results.length} sample documents from ${collectionName}`);
+      
+      return results.map(result => ({
+        id: result.id,
+        content: result.payload?.text || result.payload?.content || '',
+        metadata: {
+          ...result.payload?.metadata,
+          id: result.id,
+          score: result.score,
+          collectionName
+        }
+      }));
+    } catch (error) {
+      this.logger.error(`Error retrieving sample from collection ${collectionName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return [];
+    }
+  }
+
+  /**
+   * Add points (vectors with payloads) to a collection
+   * @param collectionName Name of the collection
+   * @param points Array of points to add
+   * @returns Promise resolving to the number of points added
+   */
+  async addPoints(
+    collectionName: string,
+    points: Array<{
+      id: string;
+      vector: number[];
+      payload: any;
+    }>
+  ): Promise<number> {
+    try {
+      this.logger.info(`Adding ${points.length} points to collection ${collectionName}`);
+      
+      // Normalize collection name
+      const normalizedName = this.normalizeCollectionName(collectionName);
+      
+      // Check if collection exists, create it if needed
+      const exists = await this.collectionExists(normalizedName);
+      if (!exists) {
+        this.logger.info(`Collection ${normalizedName} does not exist, creating it`);
+        await this.createCollection(normalizedName, {
+          vectors: {
+            size: VECTOR_DIMENSION,
+            distance: 'Cosine'
+          }
+        });
+      }
+      
+      // Use upsert because it's more robust - it will create or update points
+      const result = await this.upsertVectors(normalizedName, points);
+      
+      this.logger.info(`Successfully added ${result.upserted} points to ${normalizedName}`);
+      return result.upserted;
+    } catch (error) {
+      this.logger.error(`Error adding points to collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get information about a collection
+   * @param collectionName Name of the collection
+   * @returns Promise resolving to collection information
+   */
+  async getInfo(collectionName: string): Promise<any> {
+    try {
+      this.logger.info(`Getting info for collection ${collectionName}`);
+      
+      // Normalize collection name
+      const normalizedName = this.normalizeCollectionName(collectionName);
+      
+      // Check if collection exists
+      const exists = await this.collectionExists(normalizedName);
+      if (!exists) {
+        this.logger.warn(`Collection ${normalizedName} does not exist`);
+        return null;
+      }
+      
+      // Get collection info
+      const info = await this.getCollectionInfo(normalizedName);
+      return info;
+    } catch (error) {
+      this.logger.error(`Error getting info for collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Scroll through points in a collection with pagination
+   * @param collectionName Name of the collection
+   * @param limit Maximum number of points to return per page
+   * @param offset Offset to continue from a previous scroll
+   * @returns Points and pagination offset for next page
+   */
+  async scrollPoints(collectionName: string, limit: number = 100, offset: string | null = null, includeVectors: boolean = true): Promise<{
+    points: Array<{
+      id: string;
+      vector: number[];
+      payload?: any;
+    }>;
+    next_page_offset: string | null;
+  }> {
+    try {
+      // Format the request body
+      const requestBody: any = {
+        limit,
+        with_vectors: includeVectors
+      };
+      
+      // Add offset if provided
+      if (offset) {
+        requestBody.offset = offset;
+      }
+      
+      this.logger.info(`Scrolling points from ${collectionName} with limit ${limit}, offset ${offset}, includeVectors: ${includeVectors}`);
+      
+      const response = await axios.post(
+        `${this.apiUrl}/collections/${collectionName}/points/scroll`,
+        requestBody,
+        { headers: this.headers }
+      );
+      
+      if (response.data && response.data.result) {
+        return {
+          points: response.data.result.points || [],
+          next_page_offset: response.data.result.next_page_offset
+        };
+      }
+      
+      return { points: [], next_page_offset: null };
+    } catch (error) {
+      this.logger.error(`Error scrolling points in collection ${collectionName}: ${error}`);
+      return { points: [], next_page_offset: null };
     }
   }
 } 

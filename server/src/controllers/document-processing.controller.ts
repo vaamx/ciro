@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import { AuthRequest } from '../middleware/auth';
 import { documentProcessorManager, ProcessingJob } from '../services/document-processing/document-processor-manager';
 import { FileService } from '../services/file.service';

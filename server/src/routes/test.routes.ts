@@ -1,11 +1,13 @@
-import express, { Router, Request, Response } from 'express';
+import express from '../types/express-types';
+import { Request, Response, NextFunction } from 'express-serve-static-core';
+
 import { EnhancedExcelProcessorService as CustomExcelProcessorService } from '../services/document-processors/enhanced-excel-processor.service';
 import multer from 'multer';
 import path from 'path';
 import { DocumentPipelineService } from '../services/document-pipeline.service';
 import { DocumentProcessorFactory } from '../services/document-processors/document-processor-factory';
 import fs from 'fs';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { config } from '../config/index';
 import { getContentType } from '../utils/file-utils';
 import { configService } from '../services/config.service';
@@ -24,8 +26,8 @@ import { parse } from 'csv-parse/sync';
 import { WebSocketService } from '../services/websocket.service';
 import { getServiceRegistry } from '../services/service-registry';
 
-const router = Router();
-const logger = createLogger('TestRoutes');
+const router = require('express').Router();
+const logger = createServiceLogger('TestRoutes');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -1551,6 +1553,584 @@ router.post('/custom-process-csv', async (req: Request, res: Response) => {
     return res.status(500).json({
       error: 'Error processing CSV file',
       message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add a diagnostic route for checking Qdrant collections and snowflake data
+router.get('/diagnostics/qdrant', async (req, res) => {
+  try {
+    const logger = createServiceLogger('QdrantDiagnostics');
+    logger.info('Running Qdrant diagnostics');
+    
+    const qdrantService = QdrantService.getInstance();
+    
+    // Get all collections
+    const collections = await qdrantService.listCollections();
+    logger.info(`Found ${collections.length} collections:`);
+    
+    // Find Snowflake collections
+    const snowflakeCollections = collections.filter(name => 
+      name.includes('snowflake') || name.includes('diana'));
+    
+    if (snowflakeCollections.length === 0) {
+      return res.json({ 
+        success: false, 
+        message: 'No Snowflake collections found',
+        collections
+      });
+    }
+    
+    logger.info(`Found ${snowflakeCollections.length} Snowflake collections: ${snowflakeCollections.join(', ')}`);
+    
+    // Get information about each collection
+    const collectionsInfo = await Promise.all(
+      snowflakeCollections.map(async (name) => {
+        try {
+          const info = await qdrantService.getCollectionInfo(name);
+          const pointCount = info.vectors_count || info.points_count || 0;
+          
+          // Get a sample of points if available
+          let samplePoints = [];
+          if (pointCount > 0) {
+            samplePoints = await qdrantService.getRandomPoints(name, 2);
+          }
+          
+          return {
+            name,
+            info,
+            pointCount,
+            samplePoints
+          };
+        } catch (err) {
+          logger.error(`Error getting info for collection ${name}: ${err}`);
+          return {
+            name,
+            error: err instanceof Error ? err.message : String(err)
+          };
+        }
+      })
+    );
+    
+    // Test search
+    let searchResults = [];
+    if (snowflakeCollections.length > 0) {
+      const openaiService = OpenAIService.getInstance();
+      
+      // Generate embeddings for test query
+      const testQuery = "How many products are there?";
+      const embeddings = await openaiService.createEmbeddings([testQuery]);
+      
+      if (embeddings && embeddings.length > 0) {
+        // Test search with lower threshold
+        searchResults = await qdrantService.search(
+          snowflakeCollections[0],
+          embeddings[0],
+          undefined,
+          20
+        );
+        
+        logger.info(`Test search found ${searchResults.length} results`);
+      }
+    }
+    
+    return res.json({
+      success: true,
+      collections,
+      snowflakeCollections,
+      collectionsInfo,
+      searchResults
+    });
+  } catch (error) {
+    const logger = createServiceLogger('QdrantDiagnostics');
+    logger.error(`Error in Qdrant diagnostics: ${error}`);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add a specific route to search for product information
+router.get('/products-search', async (req, res) => {
+  try {
+    const logger = createServiceLogger('ProductsSearch');
+    logger.info('Running Snowflake products search');
+    
+    const qdrantService = QdrantService.getInstance();
+    const openaiService = OpenAIService.getInstance();
+    
+    // Get all collections
+    const collections = await qdrantService.listCollections();
+    
+    // Find Snowflake collections
+    const snowflakeCollections = collections.filter(name => 
+      name.includes('snowflake') || name.includes('diana'));
+    
+    if (snowflakeCollections.length === 0) {
+      return res.json({ 
+        success: false, 
+        message: 'No Snowflake collections found',
+        collections
+      });
+    }
+    
+    // Create product-specific query embeddings
+    const queries = [
+      "product table", 
+      "products", 
+      "PRODUCT_ID", 
+      "unique products",
+      "product count",
+      "PRODUCTS table",
+      "DIANA_SALES_ES PRODUCTS"
+    ];
+    
+    // Results for all queries
+    const allResults = [];
+    
+    // Process each query
+    for (const query of queries) {
+      try {
+        // Generate embeddings for the query
+        const embeddings = await openaiService.createEmbeddings([query]);
+        
+        if (!embeddings || embeddings.length === 0) {
+          logger.error(`Failed to create embeddings for query: ${query}`);
+          continue;
+        }
+        
+        // Search with very low threshold
+        const searchResults = await qdrantService.search(
+          snowflakeCollections[0],
+          embeddings[0],
+          undefined,
+          30
+        );
+        
+        logger.info(`Query "${query}" found ${searchResults.length} results`);
+        
+        // Keep track of successful queries
+        if (searchResults.length > 0) {
+          allResults.push({
+            query,
+            count: searchResults.length,
+            topResults: searchResults.slice(0, 3).map(r => ({
+              score: r.score,
+              id: r.id,
+              text: typeof r.payload?.text === 'string' ? r.payload.text.substring(0, 300) + '...' : 'No text'
+            }))
+          });
+        }
+      } catch (err) {
+        logger.error(`Error searching with query "${query}": ${err}`);
+      }
+    }
+    
+    return res.json({
+      success: true,
+      snowflakeCollections,
+      results: allResults
+    });
+  } catch (error) {
+    const logger = createServiceLogger('ProductsSearch');
+    logger.error(`Error in product search: ${error}`);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add a specific endpoint to examine Snowflake collection content
+router.get('/snowflake-content/:dataSourceId', async (req, res) => {
+  try {
+    const logger = createServiceLogger('SnowflakeContent');
+    const dataSourceId = req.params.dataSourceId;
+    logger.info(`Examining Snowflake collection content for data source: ${dataSourceId}`);
+    
+    const qdrantService = QdrantService.getInstance();
+    
+    // Try different collection name formats
+    const possibleCollectionNames = [
+      `datasource_${dataSourceId}`,
+      `snowflake_${dataSourceId}`,
+      `snowflake_${dataSourceId}_diana_sales_es_sales`
+    ];
+    
+    // Find which collection exists
+    let existingCollection: string | null = null;
+    for (const name of possibleCollectionNames) {
+      const exists = await qdrantService.collectionExists(name);
+      if (exists) {
+        existingCollection = name;
+        logger.info(`Found existing collection: ${name}`);
+        break;
+      }
+    }
+    
+    if (!existingCollection) {
+      logger.error(`No collections found for data source ID: ${dataSourceId}`);
+      return res.json({
+        success: false,
+        message: 'No collections found for this data source',
+        checkedCollections: possibleCollectionNames
+      });
+    }
+    
+    // Get collection info
+    const collectionInfo = await qdrantService.getCollectionInfo(existingCollection);
+    
+    // Get a sample of points from the collection
+    const points = await qdrantService.getAllPoints(existingCollection, 100);
+    logger.info(`Retrieved ${points.length} points from collection ${existingCollection}`);
+    
+    // Count points containing product-related terms
+    const productTerms = ['product', 'products', 'product_id', 'item'];
+    const productRelatedPoints = points.filter(point => {
+      const text = typeof point.payload?.text === 'string' ? point.payload.text : '';
+      return productTerms.some(term => text.toLowerCase().includes(term.toLowerCase()));
+    });
+    
+    // Extract table names from points
+    const tableNamePattern = /TABLE:\s*([A-Z0-9_]+)/i;
+    const tableNames = new Set<string>();
+    points.forEach(point => {
+      const text = typeof point.payload?.text === 'string' ? point.payload.text : '';
+      const match = text.match(tableNamePattern);
+      if (match && match[1]) {
+        tableNames.add(match[1]);
+      }
+    });
+    
+    return res.json({
+      success: true,
+      collectionName: existingCollection,
+      collectionInfo,
+      totalPoints: points.length,
+      productRelatedPoints: {
+        count: productRelatedPoints.length,
+        examples: productRelatedPoints.slice(0, 5).map(p => ({
+          id: p.id,
+          text: typeof p.payload?.text === 'string' ? p.payload.text.substring(0, 200) + '...' : 'No text'
+        }))
+      },
+      detectedTables: Array.from(tableNames),
+      samplePoints: points.slice(0, 10).map(p => ({
+        id: p.id,
+        text: typeof p.payload?.text === 'string' ? p.payload.text.substring(0, 200) + '...' : 'No text'
+      }))
+    });
+  } catch (error) {
+    const logger = createServiceLogger('SnowflakeContent');
+    logger.error(`Error examining Snowflake content: ${error}`);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add endpoint to test SQL-specific queries for products
+router.get('/sql-products-test/:dataSourceId', async (req, res) => {
+  try {
+    const logger = createServiceLogger('SQLProductsTest');
+    const dataSourceId = req.params.dataSourceId;
+    logger.info(`Testing SQL-specific product queries for data source: ${dataSourceId}`);
+    
+    const qdrantService = QdrantService.getInstance();
+    const openaiService = OpenAIService.getInstance();
+    
+    // Try different collection name formats
+    const possibleCollectionNames = [
+      `snowflake_${dataSourceId}_diana_sales_es_sales`,
+      `datasource_${dataSourceId}`,
+      `snowflake_${dataSourceId}`
+    ];
+    
+    // Find which collection exists
+    let existingCollection: string | null = null;
+    for (const name of possibleCollectionNames) {
+      const exists = await qdrantService.collectionExists(name);
+      if (exists) {
+        existingCollection = name;
+        logger.info(`Found existing collection: ${name}`);
+        break;
+      }
+    }
+    
+    if (!existingCollection) {
+      logger.error(`No collections found for data source ID: ${dataSourceId}`);
+      return res.json({
+        success: false,
+        message: 'No collections found for this data source',
+        checkedCollections: possibleCollectionNames
+      });
+    }
+    
+    // SQL-specific test queries
+    const sqlQueries = [
+      "SELECT COUNT(*) FROM PRODUCTS",
+      "SELECT * FROM PRODUCTS LIMIT 10",
+      "SELECT COUNT(DISTINCT PRODUCT_ID) FROM SALES",
+      "SHOW TABLES",
+      "TABLE SCHEMA PRODUCTS",
+      "DESCRIBE TABLE PRODUCTS",
+      "SQL query to count products",
+      "SQL query to find total number of products",
+      "SQL query to list all products"
+    ];
+    
+    const results = [];
+    
+    // Process each SQL query
+    for (const query of sqlQueries) {
+      try {
+        // Generate embeddings for the query
+        const embeddings = await openaiService.createEmbeddings([query]);
+        
+        if (!embeddings || embeddings.length === 0) {
+          logger.error(`Failed to create embeddings for query: ${query}`);
+          continue;
+        }
+        
+        // Search with very low threshold
+        const searchResults = await qdrantService.search(
+          existingCollection,
+          embeddings[0],
+          undefined,
+          30
+        );
+        
+        logger.info(`SQL query "${query}" found ${searchResults.length} results`);
+        
+        if (searchResults.length > 0) {
+          results.push({
+            query,
+            count: searchResults.length,
+            topResults: searchResults.slice(0, 3).map(r => ({
+              score: r.score,
+              id: r.id,
+              text: typeof r.payload?.text === 'string' ? r.payload.text.substring(0, 200) + '...' : 'No text'
+            }))
+          });
+        }
+      } catch (err) {
+        logger.error(`Error searching with SQL query "${query}": ${err}`);
+      }
+    }
+    
+    return res.json({
+      success: true,
+      collectionName: existingCollection,
+      results,
+      allQueriesTested: sqlQueries
+    });
+  } catch (error) {
+    const logger = createServiceLogger('SQLProductsTest');
+    logger.error(`Error in SQL products test: ${error}`);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add endpoint to analyze indexed tables in Qdrant
+router.get('/analyze-tables/:dataSourceId', async (req, res) => {
+  try {
+    const logger = createServiceLogger('AnalyzeTables');
+    const dataSourceId = req.params.dataSourceId;
+    logger.info(`Analyzing indexed tables for data source: ${dataSourceId}`);
+    
+    const qdrantService = QdrantService.getInstance();
+    
+    // Try different collection name formats
+    const possibleCollectionNames = [
+      `snowflake_${dataSourceId}_diana_sales_es_sales`,
+      `datasource_${dataSourceId}`,
+      `snowflake_${dataSourceId}`
+    ];
+    
+    // Find which collection exists
+    let existingCollection: string | null = null;
+    for (const name of possibleCollectionNames) {
+      const exists = await qdrantService.collectionExists(name);
+      if (exists) {
+        existingCollection = name;
+        logger.info(`Found existing collection: ${name}`);
+        break;
+      }
+    }
+    
+    if (!existingCollection) {
+      logger.error(`No collections found for data source ID: ${dataSourceId}`);
+      return res.json({
+        success: false,
+        message: 'No collections found for this data source',
+        checkedCollections: possibleCollectionNames
+      });
+    }
+    
+    // Get a larger sample of points to analyze
+    const points = await qdrantService.getAllPoints(existingCollection, 500);
+    logger.info(`Retrieved ${points.length} points from collection ${existingCollection}`);
+    
+    // Analyze content to identify tables
+    interface TableInfo {
+      name: string;
+      columns: Set<string>;
+      schema: string | null;
+      examples: Array<{id: string, text: string}>;
+      count: number;
+    }
+    
+    const tables = new Map<string, TableInfo>();
+    const tablePattern = /TABLE:\s*([A-Z0-9_]+)/i;
+    const columnPattern = /COLUMN:\s*([A-Z0-9_]+)/i;
+    const schemaPattern = /SCHEMA:\s*([A-Z0-9_]+)/i;
+    
+    points.forEach(point => {
+      const text = typeof point.payload?.text === 'string' ? point.payload.text : '';
+      
+      // Extract table
+      const tableMatch = text.match(tablePattern);
+      if (tableMatch && tableMatch[1]) {
+        const tableName = tableMatch[1].toUpperCase();
+        
+        if (!tables.has(tableName)) {
+          tables.set(tableName, {
+            name: tableName,
+            columns: new Set<string>(),
+            schema: null,
+            examples: [],
+            count: 0
+          });
+        }
+        
+        const tableInfo = tables.get(tableName)!;
+        tableInfo.count++;
+        
+        // Only keep first 3 examples
+        if (tableInfo.examples.length < 3) {
+          tableInfo.examples.push({
+            id: String(point.id),
+            text: text.substring(0, 150) + '...'
+          });
+        }
+        
+        // Extract schema
+        const schemaMatch = text.match(schemaPattern);
+        if (schemaMatch && schemaMatch[1] && !tableInfo.schema) {
+          tableInfo.schema = schemaMatch[1].toUpperCase();
+        }
+        
+        // Extract columns
+        const columnMatch = text.match(columnPattern);
+        if (columnMatch && columnMatch[1]) {
+          tableInfo.columns.add(columnMatch[1].toUpperCase());
+        }
+      }
+    });
+    
+    // Check specifically for product-related tables/columns
+    const productTables = Array.from(tables.values()).filter(table => 
+      table.name.includes('PRODUCT') || 
+      Array.from(table.columns).some(col => col.includes('PRODUCT'))
+    );
+    
+    // Format the tables data for response
+    const tablesData = Array.from(tables.values()).map(table => ({
+      name: table.name,
+      schema: table.schema,
+      count: table.count,
+      columns: Array.from(table.columns),
+      examples: table.examples
+    }));
+    
+    return res.json({
+      success: true,
+      collectionName: existingCollection,
+      totalPoints: points.length,
+      totalTables: tables.size,
+      tables: tablesData,
+      productRelatedTables: productTables.map(table => ({
+        name: table.name,
+        count: table.count,
+        columns: Array.from(table.columns)
+      }))
+    });
+  } catch (error) {
+    const logger = createServiceLogger('AnalyzeTables');
+    logger.error(`Error analyzing tables: ${error}`);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add an endpoint to test vector collection deletion
+router.get('/cleanup-vectors/:dataSourceId', async (req, res) => {
+  try {
+    const logger = createServiceLogger('CleanupVectorsTest');
+    const dataSourceId = req.params.dataSourceId;
+    logger.info(`Testing vector cleanup for data source: ${dataSourceId}`);
+    
+    // Initialize the document processor service
+    const documentProcessor = DocumentProcessorService.getInstance();
+    
+    // List collections before cleanup
+    const qdrantService = QdrantService.getInstance();
+    const beforeCollections = await qdrantService.listCollections();
+    
+    // Filter to potentially matching collections
+    const beforeMatching = beforeCollections.filter(name => 
+      name.includes(dataSourceId) || 
+      name.includes(`datasource_${dataSourceId}`) || 
+      name.includes(`snowflake_${dataSourceId}`)
+    );
+    
+    logger.info(`Found ${beforeMatching.length} collections that might be associated with data source ${dataSourceId} before cleanup`);
+    
+    // Call the delete method
+    logger.info(`Calling deleteDataSourceVectors for data source ${dataSourceId}`);
+    const result = await documentProcessor.deleteDataSourceVectors(dataSourceId);
+    
+    // List collections after cleanup
+    const afterCollections = await qdrantService.listCollections();
+    
+    // Filter to potentially matching collections
+    const afterMatching = afterCollections.filter(name => 
+      name.includes(dataSourceId) || 
+      name.includes(`datasource_${dataSourceId}`) || 
+      name.includes(`snowflake_${dataSourceId}`)
+    );
+    
+    logger.info(`Found ${afterMatching.length} collections that might be associated with data source ${dataSourceId} after cleanup`);
+    
+    // Calculate which collections were deleted
+    const deleted = beforeMatching.filter(name => !afterCollections.includes(name));
+    
+    return res.json({
+      success: result,
+      dataSourceId,
+      beforeCleanup: {
+        totalCollections: beforeCollections.length,
+        matchingCollections: beforeMatching
+      },
+      afterCleanup: {
+        totalCollections: afterCollections.length,
+        matchingCollections: afterMatching
+      },
+      deletedCollections: deleted
+    });
+  } catch (error) {
+    const logger = createServiceLogger('CleanupVectorsTest');
+    logger.error(`Error in vector cleanup test: ${error}`);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });

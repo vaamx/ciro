@@ -1,34 +1,44 @@
 {
   "compilerOptions": {
-    "target": "es2020",
+    "target": "es2022",
     "module": "commonjs",
-    "lib": ["es2020"],
-    "allowJs": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
     "strict": false,
     "noImplicitAny": false,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
+    "strictNullChecks": false,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "declaration": false,
-    "declarationMap": false,
-    "sourceMap": true,
-    "moduleResolution": "node",
+    "removeComments": true,
     "typeRoots": [
       "./node_modules/@types",
       "./src/types"
     ],
-    "types": ["node", "express", "tesseract.js"],
-    "noEmitOnError": false,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": [
+        "node_modules/*",
+        "src/types/*"
+      ]
+    },
+    "strictFunctionTypes": false,
+    "strictPropertyInitialization": false,
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "noFallthroughCasesInSwitch": false,
-    "noImplicitThis": false,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "emitDecoratorMetadata": true
   },
-  "include": ["src/**/*", "src/types/*.d.ts"],
-  "exclude": ["dist"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules"
+  ],
+  "ts-node": {
+    "transpileOnly": true,
+    "files": true
+  }
 } 

@@ -1,8 +1,8 @@
-import { type MessageStatus as AssistantMessageStatus } from '@assistant-ui/react';
 import type { ModelType } from './models';
+import { StructuredAnalysisResponse } from "../../../types/ExcelTypes";
 
 export type { ModelType } from './models';
-export type MessageStatus = AssistantMessageStatus | 'complete' | 'error' | 'loading';
+export type MessageStatus = 'pending' | 'complete' | 'error' | 'loading';
 
 export type MessageRole = 'user' | 'assistant' | 'error';
 
@@ -10,6 +10,16 @@ export type MessageMetadata = {
   visualization?: {
     type: string;
     config: Record<string, unknown>;
+  };
+  isAnalytical?: boolean;
+  hasStructuredResponse?: boolean;
+  dataSourceType?: string;
+  analyticalOperations?: string[];
+  model?: ModelType;
+  tokens?: {
+    prompt: number;
+    completion: number;
+    total: number;
   };
   [key: string]: unknown;
 };
@@ -20,14 +30,8 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   status?: 'pending' | 'complete' | 'error';
-  metadata?: {
-    model?: ModelType;
-    tokens?: {
-      prompt: number;
-      completion: number;
-      total: number;
-    };
-  };
+  structuredResponse?: StructuredAnalysisResponse;
+  metadata?: MessageMetadata;
 }
 
 export interface MessageProps {

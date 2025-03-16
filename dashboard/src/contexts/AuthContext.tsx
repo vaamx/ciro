@@ -1,7 +1,35 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
-// Use relative path since we're using Vite's proxy
-export const API_URL = '';
+// Use environment variable or fallback to relative path
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+// Base URL without '/api' suffix for constructing API endpoints
+export const BASE_URL = API_URL.endsWith('/api') 
+  ? API_URL.slice(0, -4)  // Remove '/api' if it exists
+  : API_URL;
+
+// Path prefix for API endpoints - don't add /api if it's already included
+export const API_PATH = import.meta.env.VITE_API_PATH || '/api';
+
+/**
+ * Helper function to build API URLs correctly by ensuring we don't have
+ * multiple /api prefixes in the path
+ * @param endpoint API endpoint path (without leading slash)
+ * @returns Fully qualified URL with proper API path prefix
+ */
+export function buildApiUrl(endpoint: string): string {
+  // Remove any leading slash from the endpoint
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+  
+  // If the endpoint already starts with 'api/', don't add the API_PATH
+  if (cleanEndpoint.startsWith('api/')) {
+    return `${API_URL}/${cleanEndpoint}`;
+  }
+  
+  // Otherwise add the API_PATH
+  const path = API_PATH.endsWith('/') ? API_PATH : `${API_PATH}/`;
+  return `${API_URL}${path}${cleanEndpoint}`;
+}
 
 interface User {
   id: number;
@@ -43,11 +71,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('Attempting login with:', {
       email,
       apiUrl: API_URL,
-      endpoint: `${API_URL}/api/auth/login`
+      endpoint: buildApiUrl('auth/login')
     });
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      const response = await fetch(buildApiUrl('auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -76,12 +104,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Save the auth token
       localStorage.setItem('auth_token', data.token);
+      console.log('Token saved to localStorage:', data.token.substring(0, 10) + '...');
       
       if (!data.user) {
         throw new Error('No user data received');
       }
 
       setUser(data.user);
+      console.log('User set in AuthContext:', data.user);
     } catch (err) {
       console.error('Login error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred during login');
@@ -108,13 +138,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const response = await fetch(`${API_URL}/api/auth/me`, {
+        const response = await fetch(buildApiUrl('auth/me'), {
           method: 'GET',
+          credentials: 'include',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
-          },
-          credentials: 'include'
+            'Authorization': `Bearer ${token}`
+          }
         });
 
         if (!response.ok) {
@@ -175,13 +205,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
+      const response = await fetch(buildApiUrl('auth/register'), {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email, password, name }),
-        credentials: 'include'
+        body: JSON.stringify({ email, password, name })
       });
 
       const data = await response.json();
@@ -201,16 +230,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
     try {
-      const token = localStorage.getItem('auth_token');
-      await fetch(`${API_URL}/api/auth/logout`, {
+      await fetch(buildApiUrl('auth/logout'), {
         method: 'POST',
+        credentials: 'include',
         headers: {
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        credentials: 'include'
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
       });
     } catch (error) {
       console.error('Logout error:', error);
@@ -225,12 +255,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/request-password-reset`, {
+      const response = await fetch(buildApiUrl('auth/request-password-reset'), {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email })
       });
 
       const data = await response.json();
@@ -251,12 +281,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/reset-password`, {
+      const response = await fetch(buildApiUrl('auth/reset-password'), {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ token, password })
       });
 
       const data = await response.json();

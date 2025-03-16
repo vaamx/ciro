@@ -8,9 +8,9 @@ import path from 'path';
 import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
-import { Request } from 'express';
+import { Request } from '../types/express-types';
 import { config } from '../config';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { DocumentProcessorFactory } from './document-processors/document-processor-factory';
 import { FileType } from '../constants/file-types';
 
@@ -58,7 +58,7 @@ const readFileAsync = promisify(fs.readFile);
 export class FileService {
   // Base upload directory
   private readonly uploadsDir: string;
-  private readonly logger = createLogger('FileService');
+  private readonly logger = createServiceLogger('FileService');
   private documentProcessorFactory: DocumentProcessorFactory;
   
   constructor(private readonly dbInstance: Knex = db) {
@@ -98,27 +98,17 @@ export class FileService {
       // Debug file buffer
       if (!file.buffer || !(file.buffer instanceof Buffer)) {
         this.logger.error(`Invalid file buffer: ${file.buffer ? typeof file.buffer : 'undefined'}`);
-        throw new Error(`Invalid file buffer for ${file.originalname}`);
+        throw new Error('Invalid file buffer');
       }
       
-      // Check if uploads directory exists and is writable
-      try {
-        const testPath = path.join(this.uploadsDir, `_test_${Date.now()}.txt`);
-        await writeFileAsync(testPath, 'test');
-        await unlinkAsync(testPath);
-        this.logger.debug(`Upload directory ${this.uploadsDir} is writable`);
-      } catch (testError) {
-        this.logger.error(`Upload directory ${this.uploadsDir} is not writable:`, testError);
-        throw new Error(`Upload directory is not writable: ${(testError as Error).message}`);
-      }
-      
-      // Write buffer to disk
+      // Write the file to disk
       await writeFileAsync(filePath, file.buffer);
       this.logger.info(`File stored successfully at: ${filePath}`);
+      
       return filePath;
     } catch (error) {
-      this.logger.error('Error storing file:', error);
-      throw error;
+      this.logger.error(`Error storing file: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to store file: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   
@@ -312,7 +302,7 @@ export class FileService {
       await fs.promises.mkdir(uploadPath, { recursive: true });
       
       // Create a more unique filename that includes the UUID and organization ID
-      const filename = `${fileId}_${userId.substring(0, 8)}.${fileExtension.replace('.', '')}`;
+      const filename = `${fileId}_${userId.replace(/-/g, '')}.${fileExtension.replace('.', '')}`;
       const filePath = path.join(uploadPath, filename);
       
       // Store file on disk
@@ -320,10 +310,14 @@ export class FileService {
       await fs.promises.writeFile(filePath, file.buffer);
       this.logger.info(`File stored successfully at: ${filePath}`);
       
+      // Ensure the data source name uses the original filename
+      const dataSourceName = file.originalname;
+      
       // Add file-specific metadata
       const metadata: any = {
         id: fileId,
         originalName: file.originalname,
+        originalFilename: file.originalname, // Make sure this is always included
         filename,
         uploadedAt: new Date().toISOString(),
         lastModified: new Date().toISOString(),
@@ -332,9 +326,7 @@ export class FileService {
         filePath,
         fileType,
         userId: userId,
-        uploadedBy: userId,
-        // Convert user ID to numeric format for database compatibility
-        numericUserId: this.extractNumericUserId(userId)
+        uploadedBy: userId
       };
       
       // Add processing method to metadata if provided
@@ -402,135 +394,107 @@ export class FileService {
         this.logger.error(`Error checking for existing data source: ${err}`);
       }
       
-      // If processing method is provided and no existing data source, create a data source
-      if (processingMethod && !existingDataSource) {
-        if (fileType === 'pdf') {
-          this.logger.info(`Creating data source for PDF file ID: ${fileId}`);
-          
-          // Normalize data source name by removing special characters
-          const dataSourceName = `${file.originalname}_${new Date().toISOString().replace(/:/g, '-')}`;
-          
-          try {
-            // Get user ID as numeric if possible
-            let userIdNumeric = parseInt(userId, 10);
-            if (isNaN(userIdNumeric)) {
-              try {
-                // Try to find user record to get numeric ID
-                const userRecord = await this.dbInstance('users')
-                  .where({ id: userId })
-                  .first();
-                  
-                if (userRecord && userRecord.id) {
-                  userIdNumeric = userRecord.id;
-                } else {
-                  userIdNumeric = 1; // Default to first user if not found
-                }
-              } catch (userErr) {
-                this.logger.error(`Error looking up user ID: ${userErr}`);
-                userIdNumeric = 1; // Default to first user
-              }
-            }
-          
-            const dataSource = await this.dbInstance('data_sources')
-              .insert({
-                organization_id: organizationId,
-                name: dataSourceName,
-                type: 'local-files',
-                status: 'queued', // Start as queued for processing
-                description: `PDF upload: ${file.originalname}`,
-                last_sync: new Date(),
-                metadata: {
-                  id: fileId,
-                  url: '',
-                  size: file.size.toString(),
-                  status: 'ready',
-                  preview: null,
-                  fileType: 'pdf',
-                  filename: file.originalname,
-                  syncRate: 100,
-                  uploadedAt: new Date().toISOString(),
-                  avgSyncTime: '0s',
-                  lastModified: new Date().toISOString(),
-                  processingMethod: processingMethod,
-                  filePath: filePath // Always include file path for PDF documents
-                },
-                metrics: {
-                  chunks: 0,
-                  vectorsStored: 0,
-                  processingTime: '0ms'
-                },
-                created_by: userIdNumeric,
-                created_at: new Date(),
-                updated_at: new Date()
-              })
-              .returning('*');
-              
-            this.logger.info(`Created new data source with ID: ${dataSource[0].id} for PDF file`);
-            
-            // Store the datasource ID in the metadata
-            metadata.dataSourceId = dataSource[0].id;
-            
-            // UPDATED: Make sure file is properly linked to this data source ID
+      // Create a data source for ALL file types, not just PDFs
+      if (!existingDataSource) {
+        this.logger.info(`Creating data source for file ID: ${fileId}, type: ${fileType}`);
+        
+        // Normalize data source name by removing special characters
+        const dataSourceName = `${file.originalname}_${new Date().toISOString().replace(/:/g, '-')}`;
+        
+        try {
+          // Get user ID as numeric if possible
+          let userIdNumeric = parseInt(userId, 10);
+          if (isNaN(userIdNumeric)) {
             try {
-              // Store file to data source mapping
-              await this.dbInstance('file_to_data_source')
-                .insert({
-                  file_id: fileId,
-                  data_source_id: dataSource[0].id.toString(),
-                  created_at: new Date()
-                })
-                .onConflict(['file_id', 'data_source_id'])
-                .ignore();
-                
-              this.logger.info(`Stored file to data source mapping: ${fileId} -> ${dataSource[0].id}`);
-              
-              // Update file metadata with data source ID
-              await this.dbInstance('files')
-                .where({ id: fileId })
-                .update({
-                  metadata: {
-                    ...metadata,
-                    dataSourceId: dataSource[0].id,
-                    processingDataSourceId: dataSource[0].id // Clear indication this is the real processing data source
-                  }
-                });
-                
-              this.logger.info(`Updated file metadata with processing data source ID: ${dataSource[0].id}`);
-            } catch (updateError) {
-              this.logger.error(`Error updating file metadata: ${updateError}`);
-            }
-            
-            // Check for OLDER data source that might have been created earlier (fix for the ID mixup bug)
-            try {
-              const possibleOlderSourceId = parseInt(dataSource[0].id) - 1;
-              const olderSource = await this.dbInstance('data_sources')
-                .where({ id: possibleOlderSourceId })
+              // Try to find user record to get numeric ID
+              const userRecord = await this.dbInstance('users')
+                .where({ id: userId })
                 .first();
                 
-              if (olderSource) {
-                // If we found an earlier source, also link the file to this one and flag it
-                await this.dbInstance('data_sources')
-                  .where({ id: possibleOlderSourceId })
-                  .update({
-                    metadata: {
-                      ...olderSource.metadata,
-                      isSupersededBy: dataSource[0].id,
-                      supersededReason: 'PDF processing created newer data source',
-                      originalFileId: fileId
-                    }
-                  });
-                  
-                this.logger.info(`Flagged older data source ${possibleOlderSourceId} as superseded by ${dataSource[0].id}`);
+              if (userRecord && userRecord.id) {
+                userIdNumeric = userRecord.id;
+              } else {
+                userIdNumeric = 1; // Default to first user if not found
               }
-            } catch (err) {
-              this.logger.warn(`Error checking for older data source: ${err}`);
+            } catch (userErr) {
+              this.logger.error(`Error looking up user ID: ${userErr}`);
+              userIdNumeric = 1; // Default to first user
             }
-          } catch (dsError) {
-            this.logger.error(`Error creating data source: ${dsError}`);
-            // Continue even if data source creation fails
           }
+        
+          const dataSource = await this.dbInstance('data_sources')
+            .insert({
+              organization_id: organizationId,
+              name: dataSourceName,
+              type: `local-files-${fileType}`,
+              status: 'queued', // Start as queued for processing
+              description: `File upload: ${file.originalname}`,
+              last_sync: new Date(),
+              metadata: {
+                id: fileId,
+                url: '',
+                size: file.size.toString(),
+                status: 'ready',
+                preview: null,
+                fileType: fileType,
+                filename: file.originalname,
+                syncRate: 100,
+                uploadedAt: new Date().toISOString(),
+                avgSyncTime: '0s',
+                lastModified: new Date().toISOString(),
+                processingMethod: processingMethod || `${fileType}-processor`,
+                filePath: filePath // Always include file path for all documents
+              },
+              metrics: {
+                chunks: 0,
+                vectorsStored: 0,
+                processingTime: '0ms'
+              },
+              created_by: userId, // Keep as UUID string
+              created_at: new Date(),
+              updated_at: new Date()
+            })
+            .returning('*');
+            
+          this.logger.info(`Created new data source with ID: ${dataSource[0].id} for file ${fileId}`);
+          
+          // Store the datasource ID in the metadata
+          metadata.dataSourceId = dataSource[0].id;
+          
+          // Make sure file is properly linked to this data source ID
+          try {
+            // Store file to data source mapping
+            await this.dbInstance('file_to_data_source')
+              .insert({
+                file_id: fileId,
+                data_source_id: dataSource[0].id.toString(),
+                created_at: new Date()
+              })
+              .onConflict(['file_id', 'data_source_id'])
+              .ignore();
+              
+            this.logger.info(`Stored file to data source mapping: ${fileId} -> ${dataSource[0].id}`);
+            
+            // Update file metadata with data source ID
+            await this.dbInstance('files')
+              .where({ id: fileId })
+              .update({
+                metadata: {
+                  ...metadata,
+                  dataSourceId: dataSource[0].id,
+                  processingDataSourceId: dataSource[0].id // Clear indication this is the real processing data source
+                }
+              });
+                
+            this.logger.info(`Updated file metadata with processing data source ID: ${dataSource[0].id}`);
+          } catch (updateError) {
+            this.logger.error(`Error updating file metadata: ${updateError}`);
+          }
+        } catch (dsError) {
+          this.logger.error(`Error creating data source: ${dsError}`);
+          // Continue even if data source creation fails
         }
-      } else if (!metadata.processingMethod && existingDataSource) {
+      } else if (existingDataSource) {
         // If we have an existing data source, store its ID in the metadata
         metadata.dataSourceId = existingDataSource.id;
         
@@ -609,6 +573,52 @@ export class FileService {
           // Continue even if processing failed to queue
         }
       }
+      // Special handling for CSV files - they need to be processed by their own processor
+      else if (fileType === 'csv') {
+        this.logger.info(`CSV file detected, preparing to process with csv-processor: ${fileId}`);
+        try {
+          // Get the data source ID if we have one, otherwise use the file ID
+          const dataSourceId = metadata.dataSourceId || fileId;
+          
+          // Initialize the CSV processor directly to avoid dependency issues
+          const CsvProcessorService = require('./document-processors/csv-processor.service').CsvProcessorService;
+          const configService = new (require('./config.service').ConfigService)();
+          const chunkingService = new (require('./chunking.service').ChunkingService)();
+          const qdrantService = require('./qdrant.service').QdrantService.getInstance();
+          const websocketService = new (require('./websocket.service').WebSocketService)();
+          
+          // Create a new CSV processor instance
+          const csvProcessor = new CsvProcessorService(
+            configService,
+            chunkingService,
+            qdrantService,
+            websocketService
+          );
+          
+          this.logger.info(`CSV processor initialized, processing file: ${filePath} with data source ID: ${dataSourceId}`);
+          
+          // Add extra metadata to help with processing
+          const processorMetadata = {
+            ...metadata,
+            numericUserId: this.extractNumericUserId(userId),
+            fileType: 'csv',
+            skipDatabaseCheck: false,
+            directProcessing: true,
+            verbose: true
+          };
+          
+          // Process the file and handle any errors
+          csvProcessor.processFile(filePath, String(dataSourceId), processorMetadata)
+            .then(result => {
+              this.logger.info(`CSV processor completed for file ${fileId} with status: ${result.status}`);
+            })
+            .catch(error => {
+              this.logger.error(`Error processing CSV file ${fileId}: ${error instanceof Error ? error.message : String(error)}`);
+            });
+        } catch (csvError) {
+          this.logger.error(`Error initializing CSV processor for file ${fileId}: ${csvError instanceof Error ? csvError.message : String(csvError)}`);
+        }
+      }
 
       // Return the inserted file record with updated metadata
       return {
@@ -627,59 +637,76 @@ export class FileService {
    * @param dataSourceId ID of the data source
    */
   async processCSVFile(filePath: string, dataSourceId: string): Promise<void> {
-    this.logger.info(`Starting document processing with csv-processor for data source ID: ${dataSourceId}`);
-    
+    this.logger.info(`Starting CSV file processing for data source ${dataSourceId}`, { filePath });
+
     try {
-      // Dynamically import to avoid circular dependencies
-      const { DocumentProcessorFactory } = require('./document-processors/document-processor-factory');
-      const factory = new DocumentProcessorFactory();
-      
-      // Get the CSV processor
-      const processor = factory.getProcessor('csv-processor');
-      
-      if (!processor) {
-        throw new Error('CSV processor not found');
+      // Initialize the document processor factory if needed
+      if (!this.documentProcessorFactory) {
+        const { DocumentProcessorFactory } = require('./document-processors/document-processor-factory');
+        this.documentProcessorFactory = new DocumentProcessorFactory();
+        this.logger.info('Document processor factory initialized for CSV processing');
       }
+
+      // Get a CSV processor specifically
+      const csvProcessor = this.documentProcessorFactory.getProcessor('csv');
+      if (!csvProcessor) {
+        throw new Error('CSV processor not available');
+      }
+
+      this.logger.info('Reading CSV file content', { filePath });
+      const fileContent = await this.readFile(filePath);
       
-      // Process the file
-      const result = await processor.processFile(filePath, dataSourceId, {
-        skipDatabaseCheck: false, // We've already created the DB record
+      // Process the CSV file
+      this.logger.info('Processing CSV file with dedicated CSV processor', { 
+        dataSourceId, 
+        fileSize: fileContent.length 
+      });
+      
+      // Use processFile method which is part of the BaseDocumentProcessor interface
+      const result = await csvProcessor.processFile(filePath, dataSourceId, {
+        skipDatabaseCheck: true, // We've already created the DB record
         directProcessing: true,
         verbose: true
       });
-      
-      this.logger.info(`CSV processing completed with status: ${result.status}`);
-      
-      // Update the data source status based on processing result
+
+      this.logger.info('CSV processing completed successfully', { 
+        dataSourceId,
+        recordCount: result.metadata?.recordCount || 'unknown',
+        status: result.status
+      });
+
+      // Update the data source status to completed
       await this.dbInstance('data_sources')
-        .where('id', dataSourceId)
-        .update({
-          status: result.status === 'success' ? 'connected' : 'error',
-          last_sync: new Date(),
+        .where({ id: dataSourceId })
+        .update({ 
+          status: result.status === 'success' ? 'completed' : 'error',
           updated_at: new Date(),
-          metrics: this.dbInstance.raw(`jsonb_set(
-            COALESCE(metrics::jsonb, '{}'::jsonb),
-            '{records}',
-            ?::jsonb
-          )`, [JSON.stringify(result.metadata?.recordCount || 0)])
+          metadata: this.dbInstance.raw(`jsonb_set(metadata, '{processingComplete}', 'true')`)
         });
-        
-      this.logger.info(`Updated data source ${dataSourceId} with record count: ${result.metadata?.recordCount || 0}`);
+
+      this.logger.info('Data source status updated to completed', { dataSourceId });
     } catch (error) {
-      this.logger.error(`Error processing CSV file: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error processing CSV file: ${errorMessage}`, { dataSourceId, filePath, error });
       
-      // Update data source with error status
-      await this.dbInstance('data_sources')
-        .where('id', dataSourceId)
-        .update({
-          status: 'error',
-          metrics: this.dbInstance.raw(`jsonb_set(
-            COALESCE(metrics::jsonb, '{}'::jsonb),
-            '{lastError}',
-            ?::jsonb
-          )`, [JSON.stringify(error instanceof Error ? error.message : String(error))]),
-          updated_at: new Date()
+      // Update the data source status to error
+      try {
+        await this.dbInstance('data_sources')
+          .where({ id: dataSourceId })
+          .update({ 
+            status: 'error',
+            updated_at: new Date(),
+            metadata: this.dbInstance.raw(`jsonb_set(metadata, '{processingError}', '"${errorMessage.replace(/"/g, '\\"')}"')`)
+          });
+        this.logger.info('Data source status updated to error', { dataSourceId });
+      } catch (updateError) {
+        this.logger.error('Failed to update data source status after CSV processing error', { 
+          dataSourceId, 
+          error: updateError 
         });
+      }
+      
+      throw error;
     }
   }
 
@@ -967,7 +994,7 @@ export class FileService {
             const dataSourceData = {
               organization_id: file.organization_id,
               name: dataSourceName,
-              type: 'local-files',
+              type: `local-files-${file.file_type}`,
               status: 'processing',
               description: `File upload: ${file.original_filename}`,
               last_sync: new Date(),
@@ -991,7 +1018,7 @@ export class FileService {
                 vectorsStored: 0,
                 processingTime: '0ms'
               },
-              created_by: numericUserId, // Ensure this is a number
+              created_by: numericUserId, // Use appropriate ID that exists in scope
               created_at: new Date(),
               updated_at: new Date()
             };
@@ -1125,6 +1152,39 @@ export class FileService {
     } catch (error) {
       this.logger.warn(`Failed to convert UUID to numeric ID: ${error}, using default value 1`);
       return 1;
+    }
+  }
+
+  /**
+   * Link a file to a data source
+   * @param fileId File UUID
+   * @param dataSourceId Data source ID
+   */
+  async linkFileToDataSource(fileId: string, dataSourceId: string | number): Promise<void> {
+    try {
+      this.logger.info(`Linking file ${fileId} to data source ${dataSourceId}`);
+      
+      // Check if the link already exists
+      const existingLink = await this.dbInstance('file_to_data_source')
+        .where({ file_id: fileId, data_source_id: String(dataSourceId) })
+        .first();
+      
+      if (existingLink) {
+        this.logger.info(`File ${fileId} is already linked to data source ${dataSourceId}`);
+        return;
+      }
+      
+      // Create the link
+      await this.dbInstance('file_to_data_source').insert({
+        file_id: fileId,
+        data_source_id: String(dataSourceId),
+        created_at: new Date()
+      });
+      
+      this.logger.info(`Successfully linked file ${fileId} to data source ${dataSourceId}`);
+    } catch (error) {
+      this.logger.error(`Error linking file to data source: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't throw error - this is a non-critical operation
     }
   }
 } 

@@ -1,12 +1,12 @@
 import rateLimit from 'express-rate-limit';
 import slowDown from 'express-slow-down';
 import helmet from 'helmet';
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from '../types/express-types';
 
 // Rate limiting configuration
 export const rateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // Limit each IP to 200 requests per windowMs
+  windowMs: 60 * 60 * 1000, // Extended to 1 hour
+  max: 10000, // Increased from 200 to 10000 requests per windowMs
   message: JSON.stringify({ error: 'Too many requests from this IP, please try again later.' }),
   standardHeaders: true,
   legacyHeaders: false,
@@ -14,8 +14,8 @@ export const rateLimiter = rateLimit({
 
 // Specific rate limits for sensitive endpoints
 export const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // Changed from 1 hour to 15 minutes
-  max: 20, // Increased from 5 to 20 attempts
+  windowMs: 60 * 60 * 1000, // Extended to 1 hour
+  max: 200, // Increased from 20 to 200 attempts
   message: JSON.stringify({ error: 'Too many login attempts, please try again later.' }),
   standardHeaders: true,
   legacyHeaders: false,
@@ -23,9 +23,9 @@ export const authRateLimiter = rateLimit({
 
 // Speed limiter to slow down brute force attempts
 export const speedLimiter = slowDown({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  delayAfter: 100, // Increased from 50 to 100
-  delayMs: (hits) => Math.min(hits * 50, 2000), // Cap delay at 2 seconds
+  windowMs: 60 * 60 * 1000, // Extended to 1 hour
+  delayAfter: 1000, // Increased from 100 to 1000
+  delayMs: (hits) => Math.min(hits * 10, 1000), // Reduced delay factor and cap at 1 second
 });
 
 // WebSocket rate limiting

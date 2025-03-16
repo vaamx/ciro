@@ -1,59 +1,33 @@
-import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { ParamsDictionary } from 'express-serve-static-core';
-import { ParsedQs } from 'qs';
-import 'express';
+// This file augments the Express namespace and re-exports Express types
 
-declare namespace Express {
-  interface User {
-    id: string;
-    email: string;
-    role: string;
-    organizationId: string;
-  }
+// Import Express types
+import * as expressNamespace from 'express';
 
-  // Extend the Request interface to ensure user is always present after authentication
-  interface Request {
-    user?: User;
+// Extend the Express Request interface
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any;
+      file?: any;
+    }
   }
 }
 
-export interface AuthenticatedRequest extends Request {
-  user: Express.User;
-}
-
-export type AuthenticatedRequestHandler = (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-) => Promise<any> | any;
-
+// Re-export Express types to make them available when importing from 'express'
 declare module 'express' {
-  interface Request {
-    user?: {
-      id: string;
-      email: string;
-      role: string;
-      organizationId: string;
-    };
-  }
+  export type Request = expressNamespace.Request;
+  export type Response = expressNamespace.Response;
+  export type NextFunction = expressNamespace.NextFunction;
+  export type RequestHandler = expressNamespace.RequestHandler;
+  export type Router = expressNamespace.Router;
+  export type Application = expressNamespace.Application;
+  
+  // Re-export the Router function
+  export function Router(options?: expressNamespace.RouterOptions): expressNamespace.Router;
+  
+  // Re-export the Express function
+  export default function express(): expressNamespace.Express.Application;
 }
 
-// This export is needed to make the file a module
-export {};
-
-export interface User {
-  id: string;
-  email: string;
-  role: string;
-  organizationId: string;
-}
-
-export interface AuthRequest extends Request {
-  user: User;
-}
-
-export interface AuthenticatedResponse extends Response {
-  locals: {
-    user: User;
-  };
-} 
+// Export Express namespace
+export = expressNamespace;

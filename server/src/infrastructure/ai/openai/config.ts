@@ -1,7 +1,34 @@
 import OpenAI from 'openai';
 import { APIError, OpenAIError } from './errors';
 import { Config } from '../../../types/config';
-import { logger } from '../../../utils/logger';
+import * as winston from 'winston';
+import { ExtendedOpenAI } from './types';
+
+// Create a direct logger for this module to avoid circular dependencies
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf((info) => {
+      const { timestamp, level, message, ...rest } = info;
+      const formattedMessage = `${timestamp} [${level.toUpperCase()}] [OpenAIConfig]: ${message}`;
+      return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+    })
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [OpenAIConfig]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      )
+    })
+  ]
+});
 
 // Configuration types
 export interface OpenAIConfig {

@@ -17,6 +17,7 @@ export interface DataSource {
   isActive: boolean;
   lastSynced?: Date;
   originalSource?: any;
+  dataSourceType?: string;
 }
 
 export interface KnowledgeItem {
@@ -27,6 +28,7 @@ export interface KnowledgeItem {
   sourceId: string;
   type: ContentType;
   content: string;
+  dataSourceType?: string;
   metadata: {
     lastModified: Date;
     author: string;

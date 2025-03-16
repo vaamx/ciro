@@ -18,7 +18,7 @@ export interface JWTConfig {
 }
 
 export interface CorsConfig {
-  origin: string;
+  origin: string | boolean | RegExp | string[] | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => void);
   credentials: boolean;
   methods: string[];
   allowedHeaders: string[];
@@ -35,6 +35,7 @@ export interface TasksConfig {
   summarizationInterval?: number; // in milliseconds
   cleanupInterval?: number; // in milliseconds
   indexingInterval?: number; // in milliseconds
+  aggregationRefreshInterval?: number; // in milliseconds
 }
 
 export interface Config {

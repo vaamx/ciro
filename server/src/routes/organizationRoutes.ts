@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { organizationController } from '../controllers/organizationController';
 import { authenticate } from '../middleware/auth';
 import multer from 'multer';

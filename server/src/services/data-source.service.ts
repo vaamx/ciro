@@ -2,7 +2,7 @@ import { db } from '../infrastructure/database';
 import { QdrantService } from './qdrant.service';
 import { ChunkingService } from './chunking.service';
 import { OpenAIService } from './openai.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { DocumentProcessorService } from './document-processor.service';
 import { DocumentPipelineService } from './document-pipeline.service';
 import { FileType } from '../types/file-types';
@@ -23,7 +23,7 @@ interface DocumentChunk {
 export class DataSourceService {
   private qdrantService: QdrantService;
   private openai: OpenAIService;
-  private logger = createLogger('DataSourceService');
+  private logger = createServiceLogger('DataSourceService');
   private db = db;
   private documentProcessor: DocumentProcessorService;
   private documentPipeline: DocumentPipelineService;
@@ -122,199 +122,176 @@ export class DataSourceService {
   async searchDocumentChunks(
     embedding: number[],
     dataSources: number[],
-    limit: number = 3,
-    similarityThreshold: number = 0.5,
+    limit: number = 100,
+    similarityThreshold: number = 0.3,
     isAnalytical: boolean = false,
     isVCFundCountQuery: boolean = false,
-    originalQuery: string = ''
+    originalQuery: string = '',
+    needsExhaustiveResults: boolean = false
   ) {
     try {
-      console.log('Searching document chunks:', {
-        dataSourcesCount: dataSources.length,
-        embeddingLength: embedding.length,
+      // Check if query is for entity information
+      const isEntityLookup = this.isEntityLookupQuery(originalQuery);
+      
+      // When we need exhaustive results, force analytical treatment
+      if (needsExhaustiveResults || isEntityLookup) {
+        isAnalytical = true;
+        this.logger.info(`Forcing analytical processing for exhaustive results or entity lookup: "${originalQuery}"`);
+      }
+      
+      // Log query info
+      this.logger.info(`Searching document chunks with embedding`, {
+        dataSources,
         limit,
-        similarityThreshold,
+        threshold: similarityThreshold,
         isAnalytical,
         isVCFundCountQuery,
-        originalQuery: originalQuery ? originalQuery.substring(0, 50) + '...' : 'not provided'
+        originalQuery: originalQuery.substring(0, 50) + (originalQuery.length > 50 ? '...' : ''),
+        isEntityLookup,
+        needsExhaustiveResults
       });
-
-      // Ensure all data source IDs are numbers
-      const numericIds = dataSources.map(id => typeof id === 'string' ? parseInt(String(id), 10) : id);
-      console.log('Normalized data source IDs:', numericIds);
       
-      if (numericIds.some(id => isNaN(id))) {
-        throw new Error('Invalid data source IDs: All data source IDs must be valid numbers');
+      // Initialize Qdrant if not done already
+      if (!this.qdrantService) {
+        this.qdrantService = QdrantService.getInstance();
       }
-
-      // First check if we have any chunks for these data sources
-      try {
-        const chunkCount = await db('document_chunks')
-          .whereIn('data_source_id', numericIds)
-          .count('id as count')
-          .first();
-        
-        console.log('Document chunks count query result:', chunkCount);
-      } catch (countError) {
-        console.error('Error counting document chunks:', countError);
-      }
-
-      let combinedResults: any[] = [];
       
-      // First try Qdrant for vector search
-      try {
-        console.log('Initializing Qdrant search');
+      // Use higher limits for analytical/entity queries
+      let effectiveLimit = limit;
+      let effectiveThreshold = similarityThreshold;
+      
+      if (isAnalytical || isVCFundCountQuery || isEntityLookup || needsExhaustiveResults) {
+        effectiveLimit = 500; // Significantly higher for comprehensive data retrieval
+        effectiveThreshold = 0.2; // Lower threshold for analytical/entity queries
+      }
+      
+      // Search collections in parallel
+      const searchPromises = dataSources.map(async (datasourceId) => {
+        const collectionName = `datasource_${datasourceId}`;
+        this.logger.info(`Searching collection ${collectionName}`);
         
-        // Initialize qdrantService if not done already
-        if (!this.qdrantService) {
-          console.log('Creating new QdrantService instance');
-          this.qdrantService = QdrantService.getInstance();
-        }
-        
-        // Get all Qdrant collections to verify what's available
-        console.log('Getting all Qdrant collections for verification');
         try {
-          const { collections } = await this.qdrantService.getClient().getCollections();
-          console.log(`Available Qdrant collections: ${collections.map(c => c.name).join(', ') || 'none'}`);
-        } catch (listError) {
-          console.error('Error listing Qdrant collections:', listError);
+          // Adjust limit for all queries to ensure comprehensive data retrieval
+          // We want to retrieve ALL relevant data, not just a small subset
+          const searchLimit = effectiveLimit;
+          
+          const qdrantResults = await this.qdrantService.search(
+            collectionName, 
+            embedding,
+            undefined, // No filter
+            searchLimit
+          );
+          
+          // Only filter by the minimal threshold to include more data
+          const filteredResults = qdrantResults.filter(result => (result.score || 0) >= effectiveThreshold);
+          
+          this.logger.info(`Qdrant search results for ${collectionName}:`, {
+            found: filteredResults.length,
+            firstResult: filteredResults.length > 0 ? {
+              id: filteredResults[0].id,
+              score: filteredResults[0].score
+            } : null
+          });
+          
+          // Process results
+          const processedResults = filteredResults.map(result => {
+            const payload = result.payload || {};
+            
+            // Extract text content
+            let content = '';
+            if (typeof payload.text === 'string') {
+              content = payload.text;
+            } else if (typeof payload.content === 'string') {
+              content = payload.content;
+            } else if (payload.page_content) {
+              content = payload.page_content;
+            }
+            
+            // Format metadata
+            const metadata = {
+              ...payload.metadata,
+              datasource_id: datasourceId,
+              collection_name: collectionName,
+              similarity: result.score || 0
+            };
+            
+            return {
+              id: result.id,
+              content,
+              pageContent: content,
+              metadata
+            };
+          });
+          
+          return processedResults;
+        } catch (error) {
+          this.logger.error(`Error searching collection ${collectionName}`, {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return [];
+        }
+      });
+      
+      // Wait for all search promises to complete
+      const results = await Promise.all(searchPromises);
+      
+      // Flatten the results
+      const combinedResults = results.flat();
+      
+      // If we got results from Qdrant, sort them by similarity
+      if (combinedResults.length > 0) {
+        this.logger.info(`Found ${combinedResults.length} relevant chunks from Qdrant`);
+        
+        // Sort by similarity
+        combinedResults.sort((a, b) => b.metadata.similarity - a.metadata.similarity);
+        
+        // For all queries, return a comprehensive set of results
+        // Don't limit the results too aggressively
+        let finalLimit = 500; // High limit for all queries
+        
+        // For analytical or entity counting queries, return even more
+        if (isVCFundCountQuery || isAnalytical) {
+          finalLimit = 1000;
+          this.logger.info(`Using expanded final limit of ${finalLimit} for comprehensive retrieval`);
         }
         
-        // For each data source, search in its Qdrant collection
-        for (const dataSourceId of numericIds) {
-          const collectionName = `datasource_${dataSourceId}`;
-          console.log(`Searching Qdrant collection: ${collectionName}`);
-          
-          // Check if collection exists
-          const collectionExists = await this.qdrantService.collectionExists(collectionName);
-          console.log(`Qdrant collection ${collectionName} exists? ${collectionExists}`);
-          
-          if (!collectionExists) {
-            console.log(`Skipping missing collection: ${collectionName}`);
-            continue;
-          }
-          
-          // Try to search in Qdrant collection
-          console.log(`Searching in Qdrant collection ${collectionName} with vector of length ${embedding.length}`);
-          try {
-            // Adjust limit for analytical queries and VC fund counting
-            let effectiveLimit = limit;
-            if (isVCFundCountQuery) {
-              // For VC fund counting, use a much higher limit to get more comprehensive data
-              effectiveLimit = Math.max(limit, 500);
-              console.log(`Using expanded limit of ${effectiveLimit} for VC fund counting in Qdrant search`);
-            } else if (isAnalytical) {
-              // For general analytical queries, use a higher limit
-              effectiveLimit = Math.max(limit, 100);
-              console.log(`Using higher limit of ${effectiveLimit} for analytical query in Qdrant search`);
+        // Only limit if the result set is very large to prevent context issues
+        const limitedResults = combinedResults.length > finalLimit ? 
+                             combinedResults.slice(0, finalLimit) : 
+                             combinedResults;
+        
+        // Always add entity counts to help with visualization
+        const entityCounts = this.countEntitiesInResults(limitedResults);
+        if (Object.keys(entityCounts).length > 0) {
+          // Create a structured entity counts summary for better processing
+          const countSummary = {
+            id: 'entity-count-summary',
+            content: `Entity Count Summary: ${JSON.stringify(entityCounts)}`,
+            pageContent: `Entity Count Summary: ${JSON.stringify(entityCounts)}`,
+            metadata: {
+              isEntityCountSummary: true,
+              similarity: 1.0, // Give it the highest similarity so it appears first
+              entityCounts
             }
-            
-            // For analytical queries, consider using a lower similarity threshold
-            const effectiveThreshold = isAnalytical ? Math.min(similarityThreshold, 0.4) : similarityThreshold;
-            
-            const qdrantResults = await this.qdrantService.search(
-              collectionName, 
-              embedding,
-              undefined, // No filter
-              effectiveLimit
-            );
-            
-            // If the results need to be filtered by threshold, do it post-search
-            const filteredResults = effectiveThreshold < 1 
-              ? qdrantResults.filter(result => (result.score || 0) >= effectiveThreshold)
-              : qdrantResults;
-            
-            console.log(`Qdrant search results for ${collectionName}:`, {
-              found: filteredResults.length,
-              firstResult: filteredResults.length > 0 ? {
-                id: filteredResults[0].id,
-                score: filteredResults[0].score
-              } : null
-            });
-            
-            if (filteredResults && filteredResults.length > 0) {
-              // Format Qdrant results
-              const formattedResults = filteredResults.map(result => ({
-                id: result.id,
-                content: result.payload.content || result.payload.text,
-                pageContent: result.payload.content || result.payload.text,
-                metadata: {
-                  ...result.payload.metadata,
-                  similarity: result.score,
-                  source: result.payload.metadata?.source || 'unknown',
-                  sourceId: result.payload.metadata?.sourceId || dataSourceId,
-                  sourceType: result.payload.metadata?.sourceType || 'document',
-                  timestamp: result.payload.metadata?.timestamp || new Date().toISOString()
-                }
-              }));
-              
-              combinedResults = [...combinedResults, ...formattedResults];
-            }
-          } catch (searchError) {
-            console.error(`Error searching in Qdrant collection ${collectionName}:`, searchError);
-          }
+          };
+          
+          // Add the summary to the beginning of the results
+          limitedResults.unshift(countSummary);
         }
         
-        // If we got results from Qdrant, sort and return them
-        if (combinedResults.length > 0) {
-          console.log(`Found ${combinedResults.length} relevant chunks from Qdrant`);
-          
-          // Sort by similarity and limit
-          combinedResults.sort((a, b) => b.metadata.similarity - a.metadata.similarity);
-          
-          // For analytical queries, especially VC fund counting, we want to return more results
-          let finalLimit = limit;
-          if (isVCFundCountQuery) {
-            finalLimit = Math.max(limit, 500);
-            console.log(`Using expanded final limit of ${finalLimit} for VC fund counting`);
-          } else if (isAnalytical) {
-            finalLimit = Math.max(limit, 100);
-            console.log(`Using higher final limit of ${finalLimit} for analytical query`);
-          }
-          
-          const limitedResults = combinedResults.slice(0, finalLimit);
-          
-          // For analytical queries, add a summary of entity counts
-          if (isAnalytical) {
-            const entityCounts = this.countEntitiesInResults(limitedResults);
-            if (Object.keys(entityCounts).length > 0) {
-              const countSummary = {
-                id: 'entity-count-summary',
-                content: `Entity Count Summary: ${Object.entries(entityCounts)
-                  .map(([entity, count]) => `${entity}: ${count} records`)
-                  .join(', ')}`,
-                pageContent: `Entity Count Summary: ${Object.entries(entityCounts)
-                  .map(([entity, count]) => `${entity}: ${count} records`)
-                  .join(', ')}`,
-                metadata: {
-                  isAnalyticalSummary: true,
-                  similarity: 1.0, // Give it the highest similarity so it appears first
-                  entityCounts
-                }
-              };
-              
-              // Add the summary to the beginning of the results
-              limitedResults.unshift(countSummary);
-            }
-          }
-          
-          console.log(`Returning ${limitedResults.length} results from Qdrant`);
-          return limitedResults;
-        } else {
-          console.log('No results found from Qdrant search');
-        }
-      } catch (qdrantError) {
-        console.error('Error searching in Qdrant:', qdrantError);
-        // Fall back to PostgreSQL search
+        this.logger.info(`Returning ${limitedResults.length} results from Qdrant`);
+        return limitedResults;
+      } else {
+        this.logger.info('No results found from Qdrant search');
       }
       
       // Fallback to PostgreSQL vector search if Qdrant search returned no results
-      console.log('Falling back to PostgreSQL vector search');
+      this.logger.info('Falling back to PostgreSQL vector search');
       
       // Format embedding as a properly formatted Postgres vector
       const formattedEmbedding = `[${embedding.join(',')}]`;
       
-      console.log(`Formatted vector for search (first 50 chars): ${formattedEmbedding.substring(0, 50)}...`);
+      this.logger.info(`Formatted vector for search (first 50 chars): ${formattedEmbedding.substring(0, 50)}...`);
 
       // For analytical queries, we may need to extract the entity name from the query
       let textSearchQuery = originalQuery;
@@ -322,13 +299,13 @@ export class DataSourceService {
         // Extract entity names for specific entities
         if (originalQuery.toLowerCase().includes('south park commons')) {
           textSearchQuery = 'South Park Commons';
-          console.log(`Extracted entity name from analytical query: "${textSearchQuery}"`);
+          this.logger.info(`Extracted entity name from analytical query: "${textSearchQuery}"`);
         } else {
           // Try to identify other entities in the query
           const entityMatch = originalQuery.match(/(?:about|for|on|regarding)\s+([A-Z][a-zA-Z\s]+)(?:\?|$)/i);
           if (entityMatch && entityMatch[1]) {
             textSearchQuery = entityMatch[1].trim();
-            console.log(`Extracted potential entity name from analytical query: "${textSearchQuery}"`);
+            this.logger.info(`Extracted potential entity name from analytical query: "${textSearchQuery}"`);
           }
         }
       }
@@ -339,10 +316,10 @@ export class DataSourceService {
         let dbLimit = limit;
         if (isVCFundCountQuery) {
           dbLimit = Math.max(limit, 500);
-          console.log(`Using expanded DB limit of ${dbLimit} for VC fund counting`);
+          this.logger.info(`Using expanded DB limit of ${dbLimit} for VC fund counting`);
         } else if (isAnalytical) {
           dbLimit = Math.max(limit, 100);
-          console.log(`Using higher DB limit of ${dbLimit} for analytical query`);
+          this.logger.info(`Using higher DB limit of ${dbLimit} for analytical query`);
         }
         
         const chunks = await db('document_chunks')
@@ -350,13 +327,13 @@ export class DataSourceService {
             'document_chunks.*',
             db.raw('1 - (embedding <=> ?) as similarity', [formattedEmbedding])
           )
-          .whereIn('data_source_id', numericIds)
+          .whereIn('data_source_id', dataSources)
           .whereRaw('embedding IS NOT NULL')
           .andWhereRaw('1 - (embedding <=> ?) >= ?', [formattedEmbedding, similarityThreshold])
           .orderBy('similarity', 'desc')
           .limit(dbLimit);
 
-        console.log(`Found ${chunks.length} relevant chunks with similarity >= ${similarityThreshold}`);
+        this.logger.info(`Found ${chunks.length} relevant chunks with similarity >= ${similarityThreshold}`);
 
         // Format response
         const formattedChunks = chunks.map((chunk: DocumentChunk) => ({
@@ -375,30 +352,30 @@ export class DataSourceService {
 
         return formattedChunks;
       } catch (dbError) {
-        console.error('Database error during vector search:', dbError);
+        this.logger.error('Database error during vector search:', dbError);
         
         // Fallback to basic text search if vector search fails
         // Adjust limit for analytical queries
         let basicLimit = limit;
         if (isVCFundCountQuery) {
           basicLimit = Math.max(limit, 500);
-          console.log(`Using expanded basic limit of ${basicLimit} for VC fund counting`);
+          this.logger.info(`Using expanded basic limit of ${basicLimit} for VC fund counting`);
         } else if (isAnalytical) {
           basicLimit = Math.max(limit, 100);
-          console.log(`Using higher basic limit of ${basicLimit} for analytical query`);
+          this.logger.info(`Using higher basic limit of ${basicLimit} for analytical query`);
         }
         
         // For text search, we should use the extracted entity name if available
-        console.log(`Performing text search with query: "${textSearchQuery}"`);
+        this.logger.info(`Performing text search with query: "${textSearchQuery}"`);
         
         const chunks = await db('document_chunks')
           .select('*')
-          .whereIn('data_source_id', numericIds)
+          .whereIn('data_source_id', dataSources)
           .whereRaw('LOWER(content) LIKE ?', [`%${textSearchQuery.toLowerCase()}%`])
           .orderBy('created_at', 'desc')
           .limit(basicLimit);
 
-        console.log(`Fallback: Found ${chunks.length} chunks using text search for "${textSearchQuery}"`);
+        this.logger.info(`Fallback: Found ${chunks.length} chunks using text search for "${textSearchQuery}"`);
 
         const formattedChunks = chunks.map((chunk: DocumentChunk) => ({
           id: chunk.id,
@@ -417,7 +394,7 @@ export class DataSourceService {
         return formattedChunks;
       }
     } catch (error) {
-      console.error('Error in searchDocumentChunks:', error);
+      this.logger.error('Error in searchDocumentChunks:', error);
       throw error;
     }
   }
@@ -432,7 +409,7 @@ export class DataSourceService {
     metadata: any
   ) {
     try {
-      console.log(`Storing document chunk for data source ${dataSourceId}`);
+      this.logger.info(`Storing document chunk for data source ${dataSourceId}`);
       
       // Check if this chunk already exists
       const existingChunk = await db('document_chunks')
@@ -443,7 +420,7 @@ export class DataSourceService {
         .first();
       
       if (existingChunk) {
-        console.log(`Chunk already exists for data source ${dataSourceId}, updating embedding`);
+        this.logger.info(`Chunk already exists for data source ${dataSourceId}, updating embedding`);
         
         // Update the existing chunk with the new embedding
         await db('document_chunks')
@@ -474,7 +451,7 @@ export class DataSourceService {
         })
         .returning('id');
       
-      console.log(`Stored new document chunk with ID ${result.id} for data source ${dataSourceId}`);
+      this.logger.info(`Stored new document chunk with ID ${result.id} for data source ${dataSourceId}`);
       
       return {
         id: result.id,
@@ -483,7 +460,7 @@ export class DataSourceService {
         status: 'created'
       };
     } catch (error) {
-      console.error('Error storing document chunk:', error);
+      this.logger.error('Error storing document chunk:', error);
       throw error;
     }
   }
@@ -633,6 +610,24 @@ export class DataSourceService {
    * Analytical queries may get special handling
    */
   private isAnalyticalQuery(text: string): boolean {
+    // Add entity lookup patterns
+    const entityPatterns = [
+      /tell me about\s+(.+)/i,
+      /information (on|about)\s+(.+)/i,
+      /details (of|about)\s+(.+)/i,
+      /who is\s+(.+)/i,
+      /what is\s+(.+)/i,
+      /describe\s+(.+)/i,
+      /explain\s+(.+)/i,
+      /show me\s+(.+)/i
+    ];
+    
+    // Check entity patterns first
+    if (entityPatterns.some(pattern => pattern.test(text))) {
+      return true;
+    }
+    
+    // Existing analytical patterns
     const analyticalPatterns = [
       /how many/i,
       /count of/i,
@@ -714,8 +709,97 @@ export class DataSourceService {
   }
 
   /**
+   * Extract potential entity names from content
+   * Enhanced to be more robust and work with various document formats
+   */
+  private extractEntitiesFromContent(content: string): string[] {
+    if (!content || typeof content !== 'string') {
+      return [];
+    }
+    
+    const entities: Set<string> = new Set();
+    
+    // Break content into manageable lines
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      // Skip empty lines
+      if (!line.trim()) continue;
+      
+      // PATTERN 1: Check for labeled entities like "VC Fund: [Name]"
+      const labeledPatterns = [
+        { regex: /VC Fund:?\s*([^,\n.]+)/i, type: 'vc_fund' },
+        { regex: /Fund:?\s*([^,\n.]+)/i, type: 'vc_fund' },
+        { regex: /Investor:?\s*([^,\n.]+)/i, type: 'investor' },
+        { regex: /Investor Name:?\s*([^,\n.]+)/i, type: 'investor' },
+        { regex: /Name:?\s*([^,\n.]+)/i, type: 'name' },
+        { regex: /Company:?\s*([^,\n.]+)/i, type: 'company' },
+        { regex: /Organization:?\s*([^,\n.]+)/i, type: 'organization' }
+      ];
+      
+      for (const pattern of labeledPatterns) {
+        const match = line.match(pattern.regex);
+        if (match && match[1] && match[1].trim()) {
+          entities.add(match[1].trim());
+        }
+      }
+      
+      // PATTERN 2: Table row extraction - look for rows with multiple tabular space separations
+      // which are common in the Excel data exports we found
+      if (line.includes('  ') && !line.includes('Sheet:') && !line.includes('Column:')) {
+        // This might be a tabular data row
+        const parts = line.split(/\s{2,}/); // Split by 2+ spaces (common in tabular format)
+        
+        if (parts.length >= 1 && parts[0].trim()) {
+          // First column is often the entity name in tabular data
+          entities.add(parts[0].trim());
+        }
+      }
+      
+      // PATTERN 3: Look for named entities with typical formats
+      const entityPatterns = [
+        // VC fund patterns
+        /\b([A-Z][A-Za-z0-9]* (?:Capital|Ventures|Partners|VC|Global|Startups))\b/g,
+        
+        // Look for patterns like "500 Global"
+        /\b(\d+\s+(?:Global|Ventures|Capital|Partners))\b/g,
+        
+        // Common business entities
+        /\b([A-Z][A-Za-z0-9]+ [A-Z][A-Za-z0-9]+ (?:Capital|Ventures|Partners|VC|Inc|LLC|Ltd))\b/g,
+        
+        // Explicitly look for "500 Global" as a special case
+        /\b(500 Global)\b/g
+      ];
+      
+      for (const pattern of entityPatterns) {
+        const matches = [...line.matchAll(pattern)];
+        for (const match of matches) {
+          if (match[1] && match[1].trim()) {
+            entities.add(match[1].trim());
+          }
+        }
+      }
+      
+      // PATTERN 4: Sample values list extraction
+      if (line.includes('Sample Values:')) {
+        const samplesText = line.replace('Sample Values:', '').trim();
+        const samples = samplesText.split(/,\s*/); // Split by commas with optional spaces
+        
+        for (const sample of samples) {
+          if (sample && sample.trim()) {
+            entities.add(sample.trim());
+          }
+        }
+      }
+    }
+    
+    // Return as array with duplicates removed
+    return Array.from(entities);
+  }
+  
+  /**
    * Count entities in the search results
-   * This helps with analytical queries to provide counts of specific entities
+   * Enhanced to better identify and count unique entities
    */
   private countEntitiesInResults(results: any[]): Record<string, number> {
     const entityCounts: Record<string, number> = {};
@@ -723,69 +807,42 @@ export class DataSourceService {
     for (const result of results) {
       const content = result.content || result.pageContent || '';
       
-      // Try to identify specific entities in the content
-      this.extractEntitiesFromContent(content).forEach(entity => {
+      // Check if this is already an entity count summary to avoid double-counting
+      if (result.metadata?.isEntityCountSummary || result.id === 'entity-count-summary') {
+        continue;
+      }
+      
+      // Extract entities from content
+      const extractedEntities = this.extractEntitiesFromContent(content);
+      
+      // Count each entity
+      for (const entity of extractedEntities) {
+        // Skip short entities that are likely not meaningful
+        if (entity.length < 2) continue;
+        
         entityCounts[entity] = (entityCounts[entity] || 0) + 1;
-      });
+      }
       
       // Also look for entities in metadata
       if (result.metadata) {
         const metadata = result.metadata;
         
         // Check common metadata fields that might contain entity names
-        ['title', 'name', 'organization', 'vc_fund', 'fund_name', 'company'].forEach(field => {
+        const metadataFields = [
+          'title', 'name', 'organization', 'vc_fund', 'fund_name', 'company',
+          'investor', 'investor_name', 'fund'
+        ];
+        
+        for (const field of metadataFields) {
           if (metadata[field] && typeof metadata[field] === 'string' && metadata[field].trim()) {
             const entity = metadata[field].trim();
             entityCounts[entity] = (entityCounts[entity] || 0) + 1;
           }
-        });
+        }
       }
     }
     
     return entityCounts;
-  }
-  
-  /**
-   * Extract potential entity names from content
-   */
-  private extractEntitiesFromContent(content: string): string[] {
-    const entities: string[] = [];
-    
-    // Check for common patterns that might indicate entity names
-    
-    // Check for "VC Fund: [Name]" pattern
-    const vcFundMatch = content.match(/VC Fund:?\s*([^,\n.]+)/i);
-    if (vcFundMatch && vcFundMatch[1]) {
-      entities.push(vcFundMatch[1].trim());
-    }
-    
-    // Check for "Name: [Name]" pattern
-    const nameMatch = content.match(/Name:?\s*([^,\n.]+)/i);
-    if (nameMatch && nameMatch[1]) {
-      entities.push(nameMatch[1].trim());
-    }
-    
-    // Check for "South Park Commons" specifically since it was mentioned
-    if (content.includes('South Park Commons')) {
-      entities.push('South Park Commons');
-    }
-    
-    // Look for other common VC fund indicators
-    const fundPatterns = [
-      /([A-Z][a-z]+ (?:Capital|Ventures|Partners|VC))/g,
-      /([A-Z][a-z]+ [A-Z][a-z]+ (?:Capital|Ventures|Partners|VC))/g
-    ];
-    
-    fundPatterns.forEach(pattern => {
-      const matches = content.matchAll(pattern);
-      for (const match of matches) {
-        if (match[1]) {
-          entities.push(match[1]);
-        }
-      }
-    });
-    
-    return [...new Set(entities)]; // Remove duplicates
   }
 
   async processDocument(file: {
@@ -969,5 +1026,28 @@ export class DataSourceService {
       
       throw error;
     }
+  }
+
+  /**
+   * Determine if a query is an entity lookup query
+   * These are queries like "Tell me about X" or "Who is Y"
+   */
+  private isEntityLookupQuery(query: string): boolean {
+    if (!query) return false;
+    
+    const entityLookupPatterns = [
+      /tell me about\s+(.+)/i,
+      /information (on|about)\s+(.+)/i,
+      /details (of|about)\s+(.+)/i,
+      /who is\s+(.+)/i,
+      /what is\s+(.+)/i,
+      /describe\s+(.+)/i,
+      /explain\s+(.+)/i,
+      /show me\s+(.+)/i,
+      /find\s+(.+)/i,
+      /look up\s+(.+)/i
+    ];
+    
+    return entityLookupPatterns.some(pattern => pattern.test(query));
   }
 } 

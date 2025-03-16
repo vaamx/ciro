@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import { BadRequestError } from '../utils/errors';
 import fs from 'fs';
 import path from 'path';
@@ -10,7 +10,13 @@ import { pool } from '../config/database';
 import { DocumentPipelineService } from '../services/document-pipeline.service';
 import { getContentType, getFileType } from '../utils/file-utils';
 import { configService } from '../services/config.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
+import { QdrantService } from '../services/qdrant.service';
+import { OpenAIService } from '../services/openai.service';
+import { DataSourceService } from '../services/data-source.service';
+import { ChunkingService } from '../services/chunking.service';
+import { TextSearchService } from '../services/text-search.service';
+import { HybridSearchService } from '../services/hybrid-search.service';
 
 // Define our own UnstructuredElement type since we've replaced the original service
 export interface UnstructuredElement {
@@ -38,7 +44,7 @@ interface ChunkInfo {
 export class ChunkController {
   private chunkRegistry: Map<string, ChunkInfo[]>;
   private documentPipelineService: DocumentPipelineService;
-  private logger = createLogger('ChunkController');
+  private logger = createServiceLogger('ChunkController');
 
   constructor() {
     this.chunkRegistry = new Map();

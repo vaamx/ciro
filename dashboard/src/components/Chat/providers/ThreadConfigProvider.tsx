@@ -1,6 +1,11 @@
-import React from 'react';
-import { ThreadConfigProvider as AUIThreadConfigProvider } from '@assistant-ui/react-ui';
+import React, { createContext, useContext } from 'react';
 import { assistantConfig } from '../config/assistant';
+
+// Create a context for the thread configuration
+const ThreadConfigContext = createContext(assistantConfig);
+
+// Hook to use the thread configuration
+export const useThreadConfig = () => useContext(ThreadConfigContext);
 
 interface ThreadConfigProviderProps {
   children: React.ReactNode;
@@ -8,8 +13,8 @@ interface ThreadConfigProviderProps {
 
 export const ThreadConfigProvider: React.FC<ThreadConfigProviderProps> = ({ children }) => {
   return (
-    <AUIThreadConfigProvider config={assistantConfig}>
+    <ThreadConfigContext.Provider value={assistantConfig}>
       {children}
-    </AUIThreadConfigProvider>
+    </ThreadConfigContext.Provider>
   );
 }; 

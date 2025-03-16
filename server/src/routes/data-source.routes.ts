@@ -1,21 +1,41 @@
-import { Router } from 'express';
+import { Request, Response, NextFunction, RequestHandler } from 'express-serve-static-core';
 import { authenticate } from '../middleware/auth';
 import { DataSourceController } from '../controllers/data-source.controller';
-import { RequestHandler, Response } from 'express';
-import { AuthRequest } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import multer from 'multer';
 import { ChunkController } from '../controllers/chunk.controller';
-import { json } from 'express';
 import { db } from '../infrastructure/database';
-import { NextFunction } from 'express';
-import { Request } from 'express';
-import { createLogger } from '../utils/logger';
+import * as winston from 'winston';
 import { FileService } from '../services/file.service';
-import { DocumentProcessorFactory } from '../services/document-processors/document-processor-factory';
+import { AuthRequest } from '../middleware/auth';
 
-const logger = createLogger('DataSourceRoutes');
-const router = Router();
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf((info) => {
+      const { timestamp, level, message, ...rest } = info;
+      const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DataSourceRoutes]: ${message}`;
+      return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+    })
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DataSourceRoutes]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      )
+    })
+  ]
+});
+
+// Use direct require to create router
+const router = require('express').Router();
 const dataSourceController = new DataSourceController();
 const chunkController = new ChunkController();
 
@@ -36,7 +56,7 @@ const chunkUpload = multer({
 });
 
 // Create a separate router for chunk uploads that bypass JSON body parsing
-const chunkRouter = Router();
+const chunkRouter = require('express').Router();
 
 // Apply authentication middleware to all routes
 router.use(authenticate);
@@ -44,7 +64,7 @@ chunkRouter.use(authenticate);
 
 // Add a specialized authentication middleware for chunk uploads that can fall back
 // when regular auth fails but dataSourceId is provided in headers
-const authenticateChunkUpload = async (req: AuthRequest | Request, res: Response, next: NextFunction) => {
+const authenticateChunkUpload = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // First try regular authentication
     await authenticate(req, res, next);
@@ -85,7 +105,7 @@ const authenticateChunkUpload = async (req: AuthRequest | Request, res: Response
 chunkRouter.use(authenticateChunkUpload as RequestHandler);
 
 // Configure chunk upload routes (these will bypass the JSON body parser)
-chunkRouter.post('/chunk', chunkUpload.single('chunk'), asyncHandler<AuthRequest>((req, res) => {
+chunkRouter.post('/chunk', chunkUpload.single('chunk'), (asyncHandler((req, res) => {
   console.log('Chunk upload request received:', {
     headers: {
       'x-file-id': req.headers['x-file-id'],
@@ -102,16 +122,16 @@ chunkRouter.post('/chunk', chunkUpload.single('chunk'), asyncHandler<AuthRequest
       bufferExists: !!req.file.buffer
     } : null
   });
-  return chunkController.uploadChunk(req, res);
-}));
+  return chunkController.uploadChunk(req as any, res as any);
+}) as unknown as RequestHandler));
 
 // Route to complete a chunked upload
-chunkRouter.post('/complete', asyncHandler<AuthRequest>((req, res) => 
-  chunkController.completeChunkedUpload(req, res)));
+chunkRouter.post('/complete', (asyncHandler((req, res) => 
+  chunkController.completeChunkedUpload(req as any, res as any)) as unknown as RequestHandler));
 
 // Routes
-router.get('/', asyncHandler<AuthRequest>((req, res) => dataSourceController.getDataSources(req, res)));
-router.post('/', authenticate, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', (asyncHandler((req, res) => dataSourceController.getDataSources(req as any, res as any)) as unknown as RequestHandler));
+router.post('/', authenticate, (asyncHandler(async (req: any, res: any) => {
   try {
     // Get user info from user property
     const user = req.user;
@@ -314,36 +334,344 @@ router.post('/', authenticate, asyncHandler(async (req: Request, res: Response) 
       }
     }
     
+    // Trigger processing for Snowflake data sources
+    if (dataSource.type === 'snowflake') {
+      logger.info(`Triggering Snowflake schema indexing for data source ${result.id}`);
+      
+      try {
+        // Import the Snowflake schema indexer service
+        const { SnowflakeSchemaIndexerService } = require('../services/snowflake-schema-indexer.service');
+        const snowflakeSchemaIndexerService = SnowflakeSchemaIndexerService.getInstance();
+        
+        // Extract connection details from metadata
+        const connectionDetails = {
+          account: dataSource.metadata?.snowflake_account,
+          username: dataSource.metadata?.snowflake_username,
+          password: dataSource.metadata?.snowflake_password,
+          role: dataSource.metadata?.snowflake_role,
+          database: dataSource.metadata?.snowflake_database,
+          schema: dataSource.metadata?.snowflake_schema,
+          warehouse: dataSource.metadata?.snowflake_warehouse
+        };
+        
+        // Get row-level indexing preference
+        const useRowLevelIndexing = dataSource.metadata?.use_row_level_indexing === true;
+        
+        // Queue the schema indexing task
+        Promise.resolve().then(async () => {
+          try {
+            logger.info(`Starting Snowflake schema indexing for data source ${result.id} with database ${connectionDetails.database} and schema ${connectionDetails.schema}`);
+            await snowflakeSchemaIndexerService.indexDatabaseSchema(
+              parseInt(result.id),
+              connectionDetails,
+              connectionDetails.database,
+              connectionDetails.schema,
+              { 
+                includeTableData: true, 
+                rowLimit: Number.MAX_SAFE_INTEGER,  // Use maximum possible value
+                maxTablesToIndex: Number.MAX_SAFE_INTEGER,  // Index all tables 
+                detectRelationships: true,  // Ensure relationships are detected
+                sampleRowCount: 10000000,   // Process up to 10 million rows per table
+                useRowLevelIndexing: useRowLevelIndexing   // Use the client-provided value
+              }
+            );
+            
+            // If row-level indexing is enabled, directly test it on a single table for verification
+            if (useRowLevelIndexing) {
+              logger.info(`Testing row-level indexer directly for data source ${result.id}`);
+              try {
+                // Import the row-level indexer service
+                const { RowLevelIndexerService } = require('../services/data-storage/row-level-indexer.service');
+                const rowLevelIndexerService = RowLevelIndexerService.getInstance();
+                
+                // Test index with a limit of 100 rows from TRANSACTIONS table (if it exists)
+                // This is just a validation test to make sure the indexer works correctly
+                const testResult = await rowLevelIndexerService.indexTableRows(
+                  parseInt(result.id),
+                  connectionDetails.database,
+                  connectionDetails.schema,
+                  'TRANSACTIONS', // Try with the TRANSACTIONS table as a test
+                  {
+                    chunkSize: 25,    // Small chunk size for testing
+                    maxRows: 100,     // Limit to 100 rows for testing
+                    forceReindex: true, // Always create a fresh collection
+                    createEmbeddings: true
+                  }
+                );
+                
+                logger.info(`Row-level indexing test completed: ${testResult.totalIndexed} rows indexed`);
+              } catch (rowIndexError) {
+                logger.error(`Row-level indexing test failed: ${rowIndexError.message}`);
+              }
+            }
+            
+            logger.info(`Snowflake schema indexing completed for data source ${result.id}`);
+            
+            // Update the data source status
+            await db('data_sources')
+              .where({ id: result.id })
+              .update({
+                status: 'indexed',
+                updated_at: new Date()
+              });
+          } catch (error) {
+            logger.error(`Error indexing Snowflake schema: ${error}`);
+          }
+        });
+        
+        logger.info(`Snowflake schema indexing job queued for data source ${result.id}`);
+      } catch (err) {
+        logger.error(`Error setting up Snowflake schema indexing: ${err}`);
+        // Continue even if indexing setup fails
+      }
+    }
+    
     logger.info(`Sending response with transformed ID: ${JSON.stringify(responseDataSource)}`);
     return res.status(201).json(responseDataSource);
   } catch (error) {
     logger.error(`Error creating data source: ${error}`);
     return res.status(500).json({ error: 'Failed to create data source' });
   }
-}));
+}) as unknown as RequestHandler));
 
 // Add route for local file data sources - must come before generic :id routes
-router.get('/local-files/:id', asyncHandler<AuthRequest>((req, res) => dataSourceController.getLocalFileContent(req, res)));
+router.get('/local-files/:id', (asyncHandler((req, res) => dataSourceController.getLocalFileContent(req as any, res as any)) as unknown as RequestHandler));
 
 // Generic :id routes
-router.delete('/:id', asyncHandler<AuthRequest>((req, res) => dataSourceController.deleteDataSource(req, res)));
-router.put('/:id', asyncHandler<AuthRequest>((req, res) => dataSourceController.updateDataSource(req, res)));
-router.get('/:id', asyncHandler<AuthRequest>((req, res) => dataSourceController.getDataSource(req, res)));
-router.post('/:id/content', upload.single('file'), asyncHandler<AuthRequest>((req, res) => dataSourceController.processContent(req, res)));
+router.delete('/:id', (asyncHandler((req, res) => dataSourceController.deleteDataSource(req as any, res as any)) as unknown as RequestHandler));
+router.put('/:id', (asyncHandler((req, res) => dataSourceController.updateDataSource(req as any, res as any)) as unknown as RequestHandler));
+router.get('/:id', (asyncHandler((req, res) => dataSourceController.getDataSource(req as any, res as any)) as unknown as RequestHandler));
+router.post('/:id/content', upload.single('file'), (asyncHandler((req, res) => dataSourceController.processContent(req as any, res as any)) as unknown as RequestHandler));
 
 // Add enhanced processing route with support for auto detection
-router.post('/process', asyncHandler<AuthRequest>((req, res) => {
+router.post('/process', (asyncHandler((req, res) => {
   logger.info('Enhanced processing route called', { userId: req.user?.id });
-  return dataSourceController.processContent(req, res);
-}));
+  return dataSourceController.processContent(req as any, res as any);
+}) as unknown as RequestHandler));
 
 // Sync/refresh data source content
-router.post('/:id/sync', asyncHandler<AuthRequest>((req, res) => dataSourceController.syncData(req, res)));
+router.post('/:id/sync', (asyncHandler((req, res) => dataSourceController.syncData(req as any, res as any)) as unknown as RequestHandler));
 
 // Document chunks routes
-router.post('/chunks/search', asyncHandler<AuthRequest>((req, res) => dataSourceController.searchDocumentChunks(req, res)));
-router.post('/chunks/text-search', asyncHandler<AuthRequest>((req, res) => dataSourceController.textSearchDocumentChunks(req, res)));
-router.post('/chunks', asyncHandler<AuthRequest>((req, res) => dataSourceController.storeDocumentChunk(req, res)));
+router.post('/chunks/search', (asyncHandler((req, res) => dataSourceController.searchDocumentChunks(req as any, res as any)) as unknown as RequestHandler));
+router.post('/chunks/text-search', (asyncHandler((req, res) => dataSourceController.textSearchDocumentChunks(req as any, res as any)) as unknown as RequestHandler));
+router.post('/chunks', (asyncHandler((req, res) => dataSourceController.storeDocumentChunk(req as any, res as any)) as unknown as RequestHandler));
+
+// Add new endpoint for BI-focused complete data indexing
+router.post('/:id/bi-reindex', authenticate, (asyncHandler(async (req: any, res: any) => {
+  try {
+    const dataSourceId = req.params.id;
+    logger.info(`Triggering BI-focused complete data reindexing for data source ${dataSourceId}`);
+    
+    // Get the data source
+    const dataSource = await db('data_sources')
+      .where('id', dataSourceId)
+      .first();
+    
+    if (!dataSource) {
+      return res.status(404).json({ error: 'Data source not found' });
+    }
+    
+    if (dataSource.type !== 'snowflake') {
+      return res.status(400).json({ error: 'This operation is only supported for Snowflake data sources' });
+    }
+    
+    // Extract connection details from metadata
+    const metadata = JSON.parse(dataSource.metadata || '{}');
+    const connectionDetails = {
+      account: metadata.snowflake_account,
+      username: metadata.snowflake_username,
+      password: metadata.snowflake_password,
+      role: metadata.snowflake_role,
+      database: metadata.snowflake_database,
+      schema: metadata.snowflake_schema,
+      warehouse: metadata.snowflake_warehouse
+    };
+    
+    // Get row-level indexing preference
+    const useRowLevelIndexing = metadata.use_row_level_indexing === true;
+    
+    // Import the Snowflake schema indexer service
+    const { SnowflakeSchemaIndexerService } = require('../services/snowflake-schema-indexer.service');
+    const snowflakeSchemaIndexerService = SnowflakeSchemaIndexerService.getInstance();
+    
+    // Queue the schema indexing task with complete data mode
+    Promise.resolve().then(async () => {
+      try {
+        logger.info(`Starting BI-focused Snowflake schema indexing for data source ${dataSourceId}`);
+        // Update the data source status
+        await db('data_sources')
+          .where({ id: dataSourceId })
+          .update({
+            status: 'processing',
+            updated_at: new Date()
+          });
+          
+        await snowflakeSchemaIndexerService.indexDatabaseSchema(
+          parseInt(dataSourceId),
+          connectionDetails,
+          connectionDetails.database,
+          connectionDetails.schema,
+          { 
+            completeDataMode: true,  // Enable complete data mode for BI
+            includeTableData: true, 
+            rowLimit: 50000000,  // Process up to 50 million rows per table
+            maxTablesToIndex: Number.MAX_SAFE_INTEGER,  // Index all tables 
+            detectRelationships: true,  // Ensure relationships are detected
+            sampleRowCount: 5000,   // Process up to 5000 rows for sampling
+            forceRefresh: true,  // Force refresh all data
+            useRowLevelIndexing: useRowLevelIndexing  // Use the client-provided value
+          }
+        );
+        
+        logger.info(`BI-focused Snowflake schema indexing completed for data source ${dataSourceId}`);
+        
+        // Update the data source status
+        await db('data_sources')
+          .where({ id: dataSourceId })
+          .update({
+            status: 'indexed',
+            updated_at: new Date()
+          });
+      } catch (error) {
+        logger.error(`Error in BI-focused Snowflake schema indexing: ${error}`);
+        // Update the data source status to error
+        await db('data_sources')
+          .where({ id: dataSourceId })
+          .update({
+            status: 'error',
+            updated_at: new Date()
+          });
+      }
+    });
+    
+    return res.status(202).json({ 
+      message: 'BI-focused complete data reindexing job queued',
+      dataSourceId
+    });
+    
+  } catch (error) {
+    logger.error(`Error triggering BI-focused reindexing: ${error}`);
+    return res.status(500).json({ error: 'Failed to trigger BI-focused reindexing' });
+  }
+}) as unknown as RequestHandler));
+
+// Create a data source from an existing file
+router.post('/create-from-file/:fileId', asyncHandler(async (req, res) => {
+  try {
+    logger.info(`Creating data source from existing file: ${req.params.fileId}`);
+    
+    const { fileId } = req.params;
+    const userId = (req as any).user.id;
+    const organizationId = (req as any).user.organizationId;
+    
+    if (!fileId) {
+      return res.status(400).json({ error: 'File ID is required' });
+    }
+    
+    // Get file information from database
+    const fileService = new FileService(db);
+    const file = await fileService.getFileById(Number(fileId), Number(organizationId));
+    
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    logger.info(`File found: ${file.id} (${file.original_filename})`);
+    
+    // Determine file type
+    const fileType = file.mime_type?.includes('csv') ? 'csv' :
+                    file.mime_type?.includes('excel') || file.mime_type?.includes('spreadsheet') ? 'excel' :
+                    file.mime_type?.includes('pdf') ? 'pdf' :
+                    file.mime_type?.includes('word') ? 'docx' : 'file';
+    
+    logger.info(`File type determined to be: ${fileType}`);
+    
+    // Create data source for the file
+    const [dataSource] = await db('data_sources')
+      .insert({
+        name: file.original_filename || file.filename,
+        type: 'local-files',
+        organization_id: organizationId,
+        created_by: userId,
+        status: 'connected',
+        description: `Uploaded file: ${file.original_filename || file.filename}`,
+        metadata: {
+          id: file.id,
+          fileType: fileType,
+          filename: file.original_filename || file.filename,
+          mimeType: file.mime_type,
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+          uploaded_by: userId
+        },
+        created_at: new Date(),
+        updated_at: new Date()
+      })
+      .returning('*');
+    
+    logger.info(`Data source created with ID: ${dataSource.id}`);
+    
+    // Update file metadata with data source ID
+    await fileService.updateFileMetadata(file.id.toString(), {
+      metadata: {
+        ...file.metadata,
+        dataSourceId: dataSource.id
+      }
+    });
+    
+    logger.info(`File ${file.id} updated with data source ID: ${dataSource.id}`);
+    
+    return res.status(201).json({
+      success: true,
+      message: 'Data source created successfully',
+      dataSource
+    });
+  } catch (error) {
+    logger.error(`Error creating data source from file: ${error.message}`);
+    return res.status(500).json({
+      error: 'Failed to create data source',
+      message: error.message
+    });
+  }
+}));
+
+// Admin endpoints
+router.post('/:id/sync', (asyncHandler((req, res) => dataSourceController.syncData(req as any, res as any)) as unknown as RequestHandler));
+
+// Utility endpoints
+router.post('/fix-collection-references', (asyncHandler((req, res) => dataSourceController.updateDataSourceCollectionReferences(req as any, res as any)) as unknown as RequestHandler));
+
+// Add a direct endpoint without authentication for debugging/fixing
+router.post('/fix-collection-references-debug', (asyncHandler((req, res) => {
+  console.log('Running collection references fix without authentication');
+  return dataSourceController.updateDataSourceCollectionReferences(req as any, res as any);
+}) as unknown as RequestHandler));
+
+// Chunk-related endpoints
+router.post('/chunks/search', (asyncHandler((req, res) => dataSourceController.searchDocumentChunks(req as any, res as any)) as unknown as RequestHandler));
+
+// Route to upload a chunk
+chunkRouter.post('/', upload.single('file'), (asyncHandler(async (req, res) => {
+  // Log the chunk upload request
+  logger.info('Chunk upload request received', {
+    headers: {
+      'x-file-id': req.headers['x-file-id'],
+      'x-chunk-index': req.headers['x-chunk-index'],
+      'x-total-chunks': req.headers['x-total-chunks'],
+      'content-type': req.headers['content-type']
+    },
+    hasFile: !!req.file,
+    fileDetails: req.file ? {
+      fieldname: req.file.fieldname,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      bufferExists: !!req.file.buffer
+    } : null
+  });
+  return chunkController.uploadChunk(req as any, res as any);
+}) as unknown as RequestHandler));
 
 // Export the router with named exports for the chunk router
 export { router, chunkRouter };

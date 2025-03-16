@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { AuthController } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth';
 import { db } from '../infrastructure/database';
@@ -10,6 +10,7 @@ const authController = new AuthController(db);
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.get('/verify-email', authController.verifyEmail);
+router.post('/resend-verification', authController.resendVerification);
 router.post('/request-password-reset', authController.requestPasswordReset);
 router.post('/reset-password', authController.resetPassword);
 

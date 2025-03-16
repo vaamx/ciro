@@ -1,18 +1,38 @@
 import sgMail from '@sendgrid/mail';
 
 export class SendGridService {
+  private testMode: boolean = false;
+
   constructor() {
     if (!process.env.SENDGRID_API_KEY) {
-      console.warn('SendGrid API key not configured. Email functionality will not work.');
+      console.warn('SendGrid API key not configured. Email functionality will work in TEST MODE only.');
+      this.testMode = true;
       return;
     }
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
   }
 
   private async sendEmail(to: string, subject: string, html: string) {
+    if (this.testMode) {
+      // Log the email details for testing
+      console.log('================= TEST EMAIL =================');
+      console.log(`TO: ${to}`);
+      console.log(`SUBJECT: ${subject}`);
+      console.log(`FROM: ${process.env.SENDGRID_FROM_EMAIL || 'test@example.com'}`);
+      console.log('CONTENT:');
+      console.log(html);
+      console.log('===============================================');
+      console.log('View verification URLs in the test email above.');
+      console.log(`In production, this would be sent to: ${to}`);
+      console.log('===============================================');
+      
+      // Return success in test mode
+      return true;
+    }
+
     if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
       console.warn('Email not sent: SendGrid configuration missing');
-      return;
+      return false;
     }
 
     const msg = {
@@ -25,6 +45,7 @@ export class SendGridService {
     try {
       await sgMail.send(msg);
       console.log(`Email sent successfully to ${to}`);
+      return true;
     } catch (error) {
       console.error('Error sending email:', error);
       throw error;
@@ -32,7 +53,8 @@ export class SendGridService {
   }
 
   public async sendVerificationEmail(email: string, token: string) {
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Verify your email address</h2>
@@ -50,11 +72,12 @@ export class SendGridService {
       </div>
     `;
 
-    await this.sendEmail(email, 'Verify your email address', html);
+    return await this.sendEmail(email, 'Verify your email address', html);
   }
 
   public async sendWelcomeEmail(email: string, name: string) {
-    const gettingStartedUrl = `${process.env.FRONTEND_URL}/getting-started`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const gettingStartedUrl = `${frontendUrl}/getting-started`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Welcome to our platform, ${name}!</h2>
@@ -72,11 +95,12 @@ export class SendGridService {
       </div>
     `;
 
-    await this.sendEmail(email, 'Welcome to our platform!', html);
+    return await this.sendEmail(email, 'Welcome to our platform!', html);
   }
 
   public async sendPasswordResetEmail(email: string, token: string) {
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Reset your password</h2>
@@ -95,6 +119,6 @@ export class SendGridService {
       </div>
     `;
 
-    await this.sendEmail(email, 'Reset your password', html);
+    return await this.sendEmail(email, 'Reset your password', html);
   }
 } 

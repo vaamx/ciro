@@ -1,5 +1,5 @@
 import multer from 'multer';
-import { Request } from 'express';
+import { Request } from '../types/express-types';
 import path from 'path';
 import { getOrganizationUploadPath, ensureOrganizationUploadDir } from '../utils/upload';
 

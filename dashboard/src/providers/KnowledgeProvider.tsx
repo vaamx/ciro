@@ -3,6 +3,12 @@ import { DataSource as KnowledgeDataSource, KnowledgeItem, SearchFilters, UserKn
 import { DataSource as AppDataSource } from '../types/data-source';
 import { useOrganization } from '../contexts/OrganizationContext';
 import { getAuthToken } from '../utils/authToken';
+import { useAuth } from '../contexts/AuthContext';
+import { logger } from '../utils/logger';
+import { io } from 'socket.io-client';
+
+// Component name for logging
+const COMPONENT_NAME = 'KnowledgeProvider';
 
 const DEFAULT_USER_PREFERENCES: UserKnowledgePreferences = {
   pinnedSources: [],
@@ -11,24 +17,18 @@ const DEFAULT_USER_PREFERENCES: UserKnowledgePreferences = {
   favoriteTopics: [],
 };
 
-// Use consistent API URL across the application
-const API_BASE_URL = 'http://localhost:3001';
+// Use consistent API URL and Socket URL across the application
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || API_BASE_URL;
 
-// Mock data for fallback when server is unavailable
-const MOCK_DATA_SOURCES: AppDataSource[] = [
-  {
-    id: 'mock-1',
-    name: 'Mock Data Source',
-    type: 'local-files',
-    status: 'ready',
-    lastSync: new Date().toISOString(),
-    metrics: {
-      records: 0,
-      syncRate: 0,
-      avgSyncTime: '0s'
-    }
-  }
-];
+// Extended search filters interface for API parameters
+interface ExtendedSearchFilters extends SearchFilters {
+  sourceId?: string;
+  limit?: number;
+  offset?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+}
 
 interface KnowledgeContextType {
   sources: KnowledgeDataSource[];
@@ -46,7 +46,7 @@ interface KnowledgeContextType {
   updateUserPreferences: (preferences: Partial<UserKnowledgePreferences>) => void;
   removeSource: (sourceId: string) => void;
   addSource: (source: KnowledgeDataSource) => void;
-  refreshSources: () => Promise<void>;
+  fetchDataSources: () => Promise<void>;
 }
 
 const KnowledgeContext = createContext<KnowledgeContextType | null>(null);
@@ -63,409 +63,656 @@ interface KnowledgeProviderProps {
   children: React.ReactNode;
 }
 
-export const KnowledgeProvider: React.FC<KnowledgeProviderProps> = ({
-  children,
-}) => {
-  const { currentOrganization } = useOrganization();
+export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
   const [sources, setSources] = useState<KnowledgeDataSource[]>([]);
   const [activeSource, setActiveSource] = useState<KnowledgeDataSource | null>(null);
   const [pinnedItems, setPinnedItems] = useState<KnowledgeItem[]>([]);
   const [recentItems, setRecentItems] = useState<KnowledgeItem[]>([]);
-  const [userPreferences, setUserPreferences] = useState<UserKnowledgePreferences>(DEFAULT_USER_PREFERENCES);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Helper function to get source icon
-  const getSourceIcon = useCallback((type: string): string => {
-    switch (type) {
-      case 'database':
-        return '🗄️';
-      case 'crm':
-        return '👥';
-      case 'storage':
-        return '📁';
-      case 'analytics':
-        return '📊';
-      case 'sap':
-        return '💼';
-      case 'local-files':
-        return '📄';
-      default:
-        return '🔍';
-    }
-  }, []);
-
-  // Add a direct method to remove a source
-  const removeSource = useCallback((sourceId: string) => {
-    setSources(prevSources => {
-      const updatedSources = prevSources.filter(source => source.id !== sourceId);
-      return [...updatedSources];
-    });
-    setActiveSource(prev => prev?.id === sourceId ? null : prev);
-  }, []);
-
-  // Add a method to add a new source
-  const addSource = useCallback((newSource: KnowledgeDataSource) => {
-    setSources(prevSources => {
-      if (prevSources.some(source => source.id === newSource.id)) {
-        return prevSources;
-      }
-      return [...prevSources, newSource];
-    });
-  }, []);
-
-  // Add a method to refresh sources
-  const refreshSources = useCallback(async () => {
-    if (!currentOrganization?.id) return;
-
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Use a timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      // Get the auth token for the request
-      const authToken = getAuthToken();
-      
-      const response = await fetch(`${API_BASE_URL}/api/data-sources?organization_id=${currentOrganization.id}`, {
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authToken ? `Bearer ${authToken}` : ''
-        },
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-
-      let dataSources: AppDataSource[] = [];
-      
-      if (!response.ok) {
-        console.warn(`Server returned ${response.status} when fetching knowledge sources`);
-        // Use mock data for 500 errors instead of throwing
-        if (response.status === 500) {
-          console.info('Using mock data sources due to server error');
-          dataSources = MOCK_DATA_SOURCES;
-        } else {
-          throw new Error(`Failed to fetch data sources: ${response.status}`);
-        }
-      } else {
-        dataSources = await response.json();
-      }
-      
-      // Store data sources in localStorage for cross-component access (especially for TextSearch)
-      try {
-        if (window.localStorage) {
-          window.localStorage.setItem('dataSources', JSON.stringify(dataSources));
-          console.log('Data sources stored in localStorage for TextSearch access');
-        }
-      } catch (storageErr) {
-        console.warn('Error storing data sources in localStorage:', storageErr);
-      }
-      
-      // Convert data sources to knowledge sources
-      const knowledgeSources = dataSources
-        // Include connected, processing, ready, and completed sources
-        .filter((ds: AppDataSource) => ds.status === 'connected' || ds.status === 'processing' || ds.status === 'ready' || ds.status === 'completed')
-        .map((ds: AppDataSource): KnowledgeDataSource => ({
-          id: ds.id.toString(),
-          name: ds.name,
-          type: ds.type as KnowledgeDataSource['type'],
-          icon: getSourceIcon(ds.type),
-          isActive: true,
-          lastSynced: ds.lastSync ? new Date(ds.lastSync) : new Date(),
-          originalSource: ds
-        }));
-      
-      setSources(knowledgeSources);
-      console.log('Knowledge sources refreshed:', knowledgeSources);
-    } catch (err) {
-      console.error('Error fetching data sources:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load data sources');
-      
-      // Set empty sources array on error to prevent UI issues
-      setSources([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentOrganization, getSourceIcon]);
-
-  // Fetch data sources when organization changes
-  useEffect(() => {
-    refreshSources();
-  }, [refreshSources]);
-
-  // Listen for knowledge base updates
-  useEffect(() => {
-    const handleKnowledgeBaseUpdate = (event: CustomEvent) => {
-      console.log('Knowledge base update event received:', event.detail);
-      const { deletedSourceId, addedSource, action, source, timestamp } = event.detail;
-      
-      if (deletedSourceId) {
-        removeSource(deletedSourceId);
-      }
-      
-      if (addedSource) {
-        addSource(addedSource);
-      }
-
-      // Handle the knowledgeBaseUpdated event format
-      if (action === 'add' && source) {
-        console.log('Adding source from knowledgeBaseUpdated event:', source);
-        // If we only have the ID, we need to fetch the specific source
-        if (source.id && (!source.name || source.status === 'processing')) {
-          console.log('Only ID provided or processing source, fetching source details:', source.id);
-          
-          // Fetch the specific source by ID
-          if (currentOrganization?.id) {
-            // Get the auth token for the request
-            const authToken = getAuthToken();
-            
-            fetch(`${API_BASE_URL}/api/data-sources/${source.id}`, {
-              credentials: 'include',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': authToken ? `Bearer ${authToken}` : ''
-              }
-            })
-            .then(response => {
-              if (!response.ok) {
-                throw new Error(`Failed to fetch source with ID ${source.id}`);
-              }
-              return response.json();
-            })
-            .then(dataSource => {
-              console.log('Fetched source details:', dataSource);
-              
-              // Create a knowledge source from the data source
-              const fetchedSource: KnowledgeDataSource = {
-                id: dataSource.id.toString(),
-                name: dataSource.name,
-                type: dataSource.type as KnowledgeDataSource['type'],
-                icon: getSourceIcon(dataSource.type),
-                isActive: true,
-                lastSynced: dataSource.lastSync ? new Date(dataSource.lastSync) : new Date(),
-                originalSource: dataSource
-              };
-              
-              // Check if the source already exists
-              const existingSource = sources.find(s => s.id === fetchedSource.id);
-              if (existingSource) {
-                console.log('Source already exists, updating it:', fetchedSource);
-                // Update the existing source with all fields, prioritizing the new information
-                const updatedSource: KnowledgeDataSource = {
-                  ...existingSource,
-                  name: fetchedSource.name || existingSource.name,
-                  type: fetchedSource.type || existingSource.type,
-                  icon: (fetchedSource.originalSource?.metadata?.iconType) || existingSource.icon,
-                  isActive: fetchedSource.isActive,
-                  lastSynced: fetchedSource.lastSynced,
-                  // Preserve metadata in originalSource
-                  originalSource: {
-                    ...existingSource.originalSource,
-                    ...fetchedSource.originalSource,
-                    metadata: {
-                      ...(existingSource.originalSource?.metadata || {}),
-                      ...(fetchedSource.originalSource?.metadata || {})
-                    }
-                  }
-                };
-                setSources(prevSources => 
-                  prevSources.map(s => s.id === fetchedSource.id ? updatedSource : s)
-                );
-              } else {
-                console.log('Adding new source:', fetchedSource);
-                addSource(fetchedSource);
-              }
-            })
-            .catch(error => {
-              console.error('Error fetching source details:', error);
-              // Fallback to refreshing all sources
-              refreshSources();
-            });
-          } else {
-            // If no organization ID, refresh all sources
-            refreshSources();
-          }
-        } else {
-          // Check if the source already exists
-          const existingSource = sources.find(s => s.id === source.id);
-          if (existingSource) {
-            console.log('Source already exists, updating it:', source);
-            // Update the existing source
-            const updatedSource: KnowledgeDataSource = {
-              ...existingSource,
-              name: source.name || existingSource.name,
-              type: (source.type as KnowledgeDataSource['type']) || existingSource.type,
-              icon: (source.metadata?.iconType) || existingSource.icon,
-              isActive: source.isActive ?? existingSource.isActive,
-              lastSynced: source.lastSynced ? new Date(source.lastSynced) : existingSource.lastSynced,
-              // Store all additional properties in originalSource
-              originalSource: {
-                ...existingSource.originalSource,
-                ...source,
-                status: source.status,
-                metadata: {
-                  ...(existingSource.originalSource?.metadata || {}),
-                  ...(source.metadata || {})
-                }
-              }
-            };
-            setSources(prevSources => 
-              prevSources.map(s => s.id === source.id ? updatedSource : s)
-            );
-          } else {
-            console.log('Adding new source:', source);
-            // Create a proper knowledge source object
-            const newSource: KnowledgeDataSource = {
-              id: source.id.toString(),
-              name: source.name,
-              type: source.type as KnowledgeDataSource['type'],
-              icon: source.metadata?.iconType || getSourceIcon(source.type) || 'database',
-              isActive: source.isActive ?? true,
-              lastSynced: source.lastSynced ? new Date(source.lastSynced) : new Date(),
-              // Store all additional properties in originalSource
-              originalSource: {
-                ...source,
-                description: source.description,
-                status: source.status
-              }
-            };
-            addSource(newSource);
-          }
-        }
-      } else if (action === 'delete' && source?.id) {
-        removeSource(source.id);
-      } else if (action === 'update' && source?.id) {
-        // Update the existing source
-        setSources(prevSources => 
-          prevSources.map(s => s.id === source.id ? source : s)
-        );
-      }
-
-      // If we received a timestamp, it's a general refresh request
-      if (timestamp) {
-        console.log('Refreshing sources due to timestamp update:', timestamp);
-        refreshSources();
-      }
-    };
-
-    // Listen for both event types
-    window.addEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate as EventListener);
-    window.addEventListener('knowledgeBaseUpdated', handleKnowledgeBaseUpdate as EventListener);
+  const [userPreferences, setUserPreferences] = useState<UserKnowledgePreferences>(DEFAULT_USER_PREFERENCES);
+  const [retryCount, setRetryCount] = useState(0);
+  const [lastRetryTime, setLastRetryTime] = useState(0);
+  const [lastLoadTime, setLastLoadTime] = useState(0);
+  const [sourceCache, setSourceCache] = useState<Record<string, KnowledgeDataSource[]>>({});
+  const [itemCache, setItemCache] = useState<Record<string, KnowledgeItem[]>>({});
+  const [cacheTimestamp, setCacheTimestamp] = useState<Record<string, number>>({});
+  
+  // Cache expiration time - 5 minutes
+  const CACHE_EXPIRATION = 5 * 60 * 1000;
+  // Minimum time between data source loads - 10 seconds
+  const MIN_LOAD_INTERVAL = 10000;
+  // Maximum retry count before giving up
+  const MAX_RETRY_COUNT = 5;
+  
+  const { isAuthenticated, user } = useAuth();
+  const { currentOrganization } = useOrganization();
+  
+  // Function to check if cache is valid
+  const isCacheValid = (key: string): boolean => {
+    const timestamp = cacheTimestamp[key];
+    if (!timestamp) return false;
+    return Date.now() - timestamp < CACHE_EXPIRATION;
+  };
+  
+  // Function to update cache
+  const updateCache = <T extends any>(
+    key: string, 
+    data: T, 
+    setter: React.Dispatch<React.SetStateAction<Record<string, T>>>
+  ) => {
+    setter(prev => ({ ...prev, [key]: data }));
+    setCacheTimestamp(prev => ({ ...prev, [key]: Date.now() }));
+  };
+  
+  // Function to get from cache
+  const getFromCache = <T extends any>(key: string, cache: Record<string, T>): T | null => {
+    if (!isCacheValid(key)) return null;
+    return cache[key] || null;
+  };
+  
+  // Function to clear cache for a specific organization
+  const clearCache = useCallback((organizationId: string | number) => {
+    const cacheKey = `sources_${organizationId}`;
+    logger.info(COMPONENT_NAME, `Clearing cache for organization ${organizationId}`);
     
-    return () => {
-      window.removeEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate as EventListener);
-      window.removeEventListener('knowledgeBaseUpdated', handleKnowledgeBaseUpdate as EventListener);
-    };
-  }, [removeSource, addSource, refreshSources, sources, currentOrganization, getSourceIcon]);
-
-  const searchItems = useCallback(async (searchFilters: SearchFilters): Promise<KnowledgeItem[]> => {
+    // Remove from cache
+    setSourceCache(prev => {
+      const newCache = { ...prev };
+      delete newCache[cacheKey];
+      return newCache;
+    });
+    
+    // Remove from timestamp cache
+    setCacheTimestamp(prev => {
+      const newTimestamps = { ...prev };
+      delete newTimestamps[cacheKey];
+      return newTimestamps;
+    });
+    
+    logger.info(COMPONENT_NAME, `Cache cleared for organization ${organizationId}`);
+  }, []);
+  
+  // Fetch data sources from the server
+  const fetchDataSources = useCallback(async () => {
+    // Skip if not authenticated or no organization selected
+    if (!isAuthenticated || !user || !currentOrganization?.id) {
+      logger.warn(COMPONENT_NAME, 'Skipping data source fetch - user not authenticated or no organization selected');
+      return;
+    }
+    
+    logger.info(COMPONENT_NAME, `Attempting to fetch data sources for organization ${currentOrganization.id}`);
+    
+    // Check if we're in a rate-limited state
+    const now = Date.now();
+    const timeSinceLastRetry = now - lastRetryTime;
+    const backoffTime = Math.min(30000, 1000 * Math.pow(2, retryCount));
+    
+    if (retryCount > 0 && timeSinceLastRetry < backoffTime) {
+      logger.warn(COMPONENT_NAME, `Skipping data source fetch - in backoff period. Waiting ${(backoffTime - timeSinceLastRetry) / 1000}s`);
+      return;
+    }
+    
+    // Debounce: prevent loading too frequently
+    const timeSinceLastLoad = now - lastLoadTime;
+    if (timeSinceLastLoad < MIN_LOAD_INTERVAL) {
+      logger.warn(COMPONENT_NAME, `Debouncing data source fetch - last load was ${timeSinceLastLoad / 1000}s ago`);
+      return;
+    }
+    
+    // Update last load time
+    setLastLoadTime(now);
+    
+    // Prepare cache key
+    const cacheKey = `sources_${currentOrganization.id}`;
+    const cachedSources = getFromCache(cacheKey, sourceCache);
+    
+    if (cachedSources) {
+      logger.info(COMPONENT_NAME, `Using cached data sources from ${(now - cacheTimestamp[cacheKey]) / 1000}s ago. Found ${cachedSources.length} sources.`);
+      setSources(cachedSources);
+      return;
+    }
+    
+    logger.info(COMPONENT_NAME, 'No valid cache found, fetching fresh data sources from server');
     setIsLoading(true);
     setError(null);
+    
     try {
-      if (!currentOrganization?.id) {
-        return [];
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error('Authentication token not found');
       }
-
-      const response = await fetch(`/api/knowledge/search?${new URLSearchParams({
-        query: searchFilters.query,
-        organization_id: currentOrganization.id.toString(),
-        ...(searchFilters.sources && { sources: searchFilters.sources.join(',') }),
-        ...(searchFilters.types && { types: searchFilters.types.join(',') }),
-        ...(searchFilters.tags && { tags: searchFilters.tags.join(',') }),
-        ...(searchFilters.author && { author: searchFilters.author }),
-        ...(searchFilters.dateRange && {
-          start_date: searchFilters.dateRange.start.toISOString(),
-          end_date: searchFilters.dateRange.end.toISOString()
-        })
-      })}`, {
-        credentials: 'include',
+      
+      const apiUrl = `${API_BASE_URL}/api/data-sources?organization_id=${currentOrganization.id}`;
+      logger.info(COMPONENT_NAME, `Fetching data sources from: ${apiUrl}`);
+      
+      const response = await fetch(apiUrl, {
         headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to search knowledge items');
+      
+      if (response.status === 429) {
+        logger.warn(COMPONENT_NAME, 'Server returned 429 when fetching knowledge sources');
+        logger.warn(COMPONENT_NAME, 'Rate limiting detected for knowledge sources');
+        
+        // Increment retry count and set last retry time
+        setRetryCount(prev => Math.min(MAX_RETRY_COUNT, prev + 1));
+        setLastRetryTime(now);
+        
+        throw new Error('Failed to fetch data sources: 429');
       }
-
-      const results = await response.json();
-      return results.items || [];
-    } catch (err) {
-      console.error('Error searching knowledge items:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while searching');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch data sources: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      logger.info(COMPONENT_NAME, `Fetched ${data.length} data sources from server`);
+      
+      // Reset retry count on success
+      if (retryCount > 0) {
+        setRetryCount(0);
+        setLastRetryTime(0);
+      }
+      
+      // Transform API data sources to knowledge data sources
+      const knowledgeSources: KnowledgeDataSource[] = data.map((source: AppDataSource) => ({
+        id: source.id,
+        name: source.name,
+        icon: source.metadata?.icon || 'database',
+        type: (source.type as any) || 'internal',
+        description: source.description,
+        isActive: source.status === 'ready' || source.status === 'connected' || source.status === 'completed',
+        lastSynced: source.lastSync ? new Date(source.lastSync) : undefined
+      }));
+      
+      logger.info(COMPONENT_NAME, `Transformed ${knowledgeSources.length} data sources, with ${knowledgeSources.filter(s => s.isActive).length} active sources`);
+      
+      // Update cache
+      updateCache(cacheKey, knowledgeSources, setSourceCache);
+      logger.info(COMPONENT_NAME, `Updated cache for key: ${cacheKey}`);
+      
+      // Update state
+      setSources(knowledgeSources);
+      
+      // If we have user preferences with pinned sources, set the first one as active
+      if (userPreferences.pinnedSources.length > 0) {
+        const pinnedSource = knowledgeSources.find(s => s.id === userPreferences.pinnedSources[0]);
+        if (pinnedSource) {
+          logger.info(COMPONENT_NAME, `Setting pinned source as active: ${pinnedSource.id} - ${pinnedSource.name}`);
+          setActiveSource(pinnedSource);
+        }
+      } else if (knowledgeSources.length > 0 && !activeSource) {
+        // Otherwise set the first source as active
+        logger.info(COMPONENT_NAME, `Setting first source as active: ${knowledgeSources[0].id} - ${knowledgeSources[0].name}`);
+        setActiveSource(knowledgeSources[0]);
+      }
+      
+      // Save to localStorage for future fallback
+      try {
+        localStorage.setItem('knowledge_sources', JSON.stringify(knowledgeSources));
+        logger.debug(COMPONENT_NAME, 'Saved sources to localStorage for fallback');
+      } catch (e) {
+        logger.error(COMPONENT_NAME, 'Failed to cache sources in localStorage:', e);
+      }
+    } catch (error) {
+      logger.error(COMPONENT_NAME, 'Error fetching data sources:', error);
+      
+      // Try to load from localStorage as fallback
+      try {
+        const storedSources = localStorage.getItem('knowledge_sources');
+        if (storedSources) {
+          const parsedSources = JSON.parse(storedSources) as KnowledgeDataSource[];
+          logger.info(COMPONENT_NAME, `Loaded ${parsedSources.length} sources from localStorage fallback`);
+          setSources(parsedSources);
+          
+          if (parsedSources.length > 0 && !activeSource) {
+            logger.info(COMPONENT_NAME, `Setting first fallback source as active: ${parsedSources[0].id} - ${parsedSources[0].name}`);
+            setActiveSource(parsedSources[0]);
+          }
+        }
+      } catch (localStorageError) {
+        logger.error(COMPONENT_NAME, 'Error loading sources from localStorage:', localStorageError);
+      }
+      
+      setError('Failed to load knowledge sources. Please try again later.');
+    } finally {
+      setIsLoading(false);
+      logger.info(COMPONENT_NAME, 'Completed data source fetch operation');
+    }
+  }, [
+    isAuthenticated,
+    user,
+    currentOrganization?.id,
+    retryCount,
+    lastRetryTime,
+    lastLoadTime,
+    activeSource,
+    userPreferences.pinnedSources,
+    sourceCache,
+    cacheTimestamp,
+    getFromCache,
+    updateCache
+  ]);
+  
+  // Search for knowledge items
+  const searchItems = useCallback(async (filters: SearchFilters): Promise<KnowledgeItem[]> => {
+    if (!activeSource) {
+      logger.warn(COMPONENT_NAME, 'Search attempted without an active data source');
+      return [];
+    }
+    
+    // Log the search request
+    logger.info(COMPONENT_NAME, `Searching knowledge items with filters:`, filters);
+    logger.info(COMPONENT_NAME, `Active data source:`, {
+      id: activeSource.id,
+      name: activeSource.name,
+      type: activeSource.dataSourceType || activeSource.type || 'unknown'
+    });
+    
+    // Prepare cache key
+    const cacheKey = `search_${activeSource.id}_${JSON.stringify(filters)}`;
+    const cachedItems = getFromCache(cacheKey, itemCache);
+    
+    if (cachedItems) {
+      logger.debug(COMPONENT_NAME, `Using cached search results from ${(Date.now() - cacheTimestamp[cacheKey]) / 1000}s ago`);
+      return cachedItems;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        const errorMsg = 'Authentication token not found';
+        logger.error(COMPONENT_NAME, errorMsg);
+        setError(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
+      // Build query string from filters
+      const queryParams = new URLSearchParams();
+      if (filters.query) queryParams.append('query', filters.query);
+      
+      // Convert sources array to source_id if present
+      if (filters.sources && filters.sources.length > 0) {
+        queryParams.append('source_id', filters.sources[0]);
+      } else {
+        // If no source is specified in filters, use the active source
+        queryParams.append('source_id', activeSource.id);
+      }
+      
+      // Add data source type if available
+      if (activeSource.dataSourceType) {
+        queryParams.append('data_source_type', activeSource.dataSourceType);
+      }
+      
+      // Add extended filters if present (casting to access potential extended properties)
+      const extendedFilters = filters as ExtendedSearchFilters;
+      if (extendedFilters.limit) queryParams.append('limit', extendedFilters.limit.toString());
+      if (extendedFilters.offset) queryParams.append('offset', extendedFilters.offset.toString());
+      if (extendedFilters.sortBy) queryParams.append('sort_by', extendedFilters.sortBy);
+      if (extendedFilters.sortDirection) queryParams.append('sort_direction', extendedFilters.sortDirection);
+      
+      if (currentOrganization?.id) queryParams.append('organization_id', currentOrganization.id.toString());
+      
+      // Log the API request
+      const requestUrl = `${API_BASE_URL}/api/ext/knowledge/search?${queryParams.toString()}`;
+      logger.info(COMPONENT_NAME, `Sending search request to: ${requestUrl}`);
+      
+      const response = await fetch(requestUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorMsg = `Failed to search knowledge items: ${response.status} ${response.statusText}`;
+        logger.error(COMPONENT_NAME, errorMsg);
+        setError(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
+      const data = await response.json();
+      
+      // Handle both formats: direct array or {items: [...]}
+      const items = Array.isArray(data) ? data : (data.items || []);
+      
+      // Enhance items with data source type if not already present
+      const enhancedItems = items.map((item: any) => ({
+        ...item,
+        dataSourceType: item.dataSourceType || activeSource.dataSourceType || activeSource.type || 'unknown'
+      }));
+      
+      // Log the search results
+      logger.info(COMPONENT_NAME, `Search returned ${enhancedItems.length} results`);
+      logger.debug(COMPONENT_NAME, 'Search results:', enhancedItems);
+      
+      // Update cache
+      updateCache(cacheKey, enhancedItems, setItemCache);
+      
+      return enhancedItems;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred during search';
+      logger.error(COMPONENT_NAME, 'Error searching knowledge items:', error);
+      setError(`Failed to search knowledge items: ${errorMsg}. Please try again later.`);
       return [];
     } finally {
       setIsLoading(false);
     }
-  }, [currentOrganization]);
-
+  }, [activeSource, currentOrganization?.id, itemCache, cacheTimestamp, getAuthToken]);
+  
+  // Effect to fetch data sources when the organization changes or auth status changes
+  useEffect(() => {
+    if (isAuthenticated && user && currentOrganization?.id) {
+      fetchDataSources();
+    }
+  }, [isAuthenticated, user, currentOrganization?.id]);
+  
+  // Effect to load user preferences from localStorage
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      try {
+        const storedPreferences = localStorage.getItem(`knowledge_preferences_${user.id}`);
+        if (storedPreferences) {
+          const parsedPreferences = JSON.parse(storedPreferences) as UserKnowledgePreferences;
+          setUserPreferences(parsedPreferences);
+        }
+      } catch (e) {
+        logger.error(COMPONENT_NAME, 'Error loading user preferences:', e);
+      }
+    }
+  }, [isAuthenticated, user]);
+  
+  // Function to update user preferences
+  const updateUserPreferences = useCallback((preferences: Partial<UserKnowledgePreferences>) => {
+    setUserPreferences(prev => {
+      const updated = { ...prev, ...preferences };
+      
+      // Save to localStorage
+      if (user) {
+        try {
+          localStorage.setItem(`knowledge_preferences_${user.id}`, JSON.stringify(updated));
+        } catch (e) {
+          logger.error(COMPONENT_NAME, 'Error saving user preferences:', e);
+        }
+      }
+      
+      return updated;
+    });
+  }, [user]);
+  
+  // Function to pin an item
   const pinItem = useCallback((item: KnowledgeItem) => {
     setPinnedItems(prev => {
+      // Check if already pinned
       if (prev.some(i => i.id === item.id)) {
         return prev;
       }
-      return [...prev, item];
+      
+      const updated = [...prev, item];
+      
+      // Update user preferences
+      updateUserPreferences({
+        pinnedItems: updated.map(i => i.id)
+      });
+      
+      return updated;
     });
-
-    // Update user preferences
-    setUserPreferences(prev => ({
-      ...prev,
-      pinnedItems: [...prev.pinnedItems, item.id]
-    }));
-  }, []);
-
+  }, [updateUserPreferences]);
+  
+  // Function to unpin an item
   const unpinItem = useCallback((itemId: string) => {
-    setPinnedItems(prev => prev.filter(item => item.id !== itemId));
-
-    // Update user preferences
-    setUserPreferences(prev => ({
-      ...prev,
-      pinnedItems: prev.pinnedItems.filter(id => id !== itemId)
-    }));
-  }, []);
-
+    setPinnedItems(prev => {
+      const updated = prev.filter(i => i.id !== itemId);
+      
+      // Update user preferences
+      updateUserPreferences({
+        pinnedItems: updated.map(i => i.id)
+      });
+      
+      return updated;
+    });
+  }, [updateUserPreferences]);
+  
+  // Function to add a recent item
   const addRecentItem = useCallback((item: KnowledgeItem) => {
     setRecentItems(prev => {
       // Remove if already exists
       const filtered = prev.filter(i => i.id !== item.id);
-      // Add to beginning
-      return [item, ...filtered].slice(0, 10); // Keep only 10 most recent
+      
+      // Add to beginning of array
+      const updated = [item, ...filtered].slice(0, 10); // Keep only 10 most recent
+      
+      return updated;
     });
   }, []);
-
-  const updateUserPreferences = useCallback((preferences: Partial<UserKnowledgePreferences>) => {
-    setUserPreferences(prev => ({
-      ...prev,
-      ...preferences
-    }));
+  
+  // Function to remove a data source
+  const removeSource = useCallback((sourceId: string) => {
+    setSources(prev => prev.filter(s => s.id !== sourceId));
+    
+    // If active source is removed, set to null
+    if (activeSource?.id === sourceId) {
+      setActiveSource(null);
+    }
+    
+    // Update user preferences
+    updateUserPreferences({
+      pinnedSources: userPreferences.pinnedSources.filter(id => id !== sourceId)
+    });
+  }, [activeSource, updateUserPreferences, userPreferences.pinnedSources]);
+  
+  // Function to add a data source
+  const addSource = useCallback((source: KnowledgeDataSource) => {
+    setSources(prev => [...prev, source]);
   }, []);
+  
+  // Retry loading data sources
+  const retryLoad = useCallback(() => {
+    return fetchDataSources();
+  }, [fetchDataSources]);
+  
+  // Enhance setActiveSource function to connect to the correct Qdrant collection
+  const handleActiveSourceChange = useCallback((source: KnowledgeDataSource | null) => {
+    // Check if we're just reselecting the same source - no need to do anything
+    if (source?.id === activeSource?.id) {
+      logger.debug(COMPONENT_NAME, `Selected the same source: ${source?.id}, skipping update`);
+      return;
+    }
+    
+    // Record the time of this change to help prevent unnecessary chat recovery
+    localStorage.setItem('last_data_source_change', Date.now().toString());
+    
+    // Set the active source in state
+    setActiveSource(source);
+    
+    if (source) {
+      logger.info(COMPONENT_NAME, `Setting active source: ${source.id} - ${source.name}`);
+      
+      // Store the selected data source ID in localStorage for persistence
+      localStorage.setItem('selectedDataSource', JSON.stringify({
+        id: source.id,
+        name: source.name,
+        type: source.type
+      }));
+      
+      // Connect to the correct Qdrant collection
+      const collectionName = `datasource_${source.id}`;
+      logger.info(COMPONENT_NAME, `Connecting to Qdrant collection: ${collectionName}`);
+      
+      // You could potentially trigger a test query here to ensure the collection is accessible
+      
+      // Clear any previous errors
+      setError(null);
+    } else {
+      // Clear the selected data source from localStorage
+      localStorage.removeItem('selectedDataSource');
+      logger.info(COMPONENT_NAME, 'Cleared active source');
+    }
+  }, [activeSource]);
 
+  // Try to restore active source from localStorage on init
+  useEffect(() => {
+    if (isAuthenticated && sources.length > 0) {
+      try {
+        const savedSource = localStorage.getItem('selectedDataSource');
+        if (savedSource) {
+          const parsedSource = JSON.parse(savedSource);
+          const matchingSource = sources.find(s => s.id === parsedSource.id);
+          
+          if (matchingSource) {
+            logger.info(COMPONENT_NAME, `Restoring active source: ${matchingSource.id} - ${matchingSource.name}`);
+            setActiveSource(matchingSource);
+          }
+        }
+      } catch (e) {
+        logger.error(COMPONENT_NAME, 'Error restoring active source:', e);
+      }
+    }
+  }, [isAuthenticated, sources]);
+  
+  // Set up WebSocket connection for real-time updates
+  useEffect(() => {
+    // Only set up socket if we have an organization
+    if (!currentOrganization) {
+      logger.info(COMPONENT_NAME, 'Skipping WebSocket setup - no organization selected');
+      return;
+    }
+
+    logger.info(COMPONENT_NAME, `Setting up WebSocket connection to ${SOCKET_URL} for organization ${currentOrganization.id}`);
+    
+    let isConnected = false;
+    
+    // Create socket connection
+    const socket = io(SOCKET_URL, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000, // Increase timeout to 10 seconds
+    });
+
+    // Set up event listeners
+    socket.on('connect', () => {
+      isConnected = true;
+      logger.info(COMPONENT_NAME, 'WebSocket connected for knowledge base updates');
+    });
+
+    socket.on('connect_error', (error) => {
+      logger.error(COMPONENT_NAME, 'WebSocket connection error:', error);
+    });
+
+    socket.on('disconnect', () => {
+      isConnected = false;
+      logger.info(COMPONENT_NAME, 'WebSocket disconnected from knowledge base updates');
+    });
+
+    // Listen for data source updates
+    socket.on('dataSourceUpdate', (data) => {
+      logger.info(COMPONENT_NAME, 'Received data source update via WebSocket:', data);
+      
+      // Refresh data sources when a data source is completed or ready
+      if (data && data.status && (data.status === 'completed' || data.status === 'ready')) {
+        logger.info(COMPONENT_NAME, `Data source ${data.id} is now ${data.status}, refreshing knowledge base`);
+        
+        // Clear cache to force a fresh fetch
+        if (currentOrganization) {
+          clearCache(currentOrganization.id);
+        }
+        
+        // Force refresh data sources
+        fetchDataSources().catch(err => {
+          logger.error(COMPONENT_NAME, `Error refreshing data sources after data source ${data.id} update:`, err);
+        });
+      }
+    });
+
+    // Listen for knowledge base updates
+    socket.on('knowledgeBaseUpdated', (data) => {
+      logger.info(COMPONENT_NAME, 'Received knowledge base update via WebSocket:', data);
+      
+      // Refresh data sources when we get a knowledge base update
+      if (data && data.timestamp) {
+        logger.info(COMPONENT_NAME, 'Triggering data source refresh from knowledgeBaseUpdated event');
+        
+        // Clear cache to force a fresh fetch
+        if (currentOrganization) {
+          clearCache(currentOrganization.id);
+        }
+        
+        fetchDataSources().catch(err => {
+          logger.error(COMPONENT_NAME, 'Error refreshing data sources after knowledgeBaseUpdated event:', err);
+        });
+      }
+    });
+
+    // Clean up on unmount
+    return () => {
+      logger.info(COMPONENT_NAME, 'Cleaning up WebSocket connection');
+      // Only disconnect if we're actually connected
+      if (socket && isConnected) {
+        socket.disconnect();
+      } else if (socket) {
+        // If not connected, just remove all listeners without disconnecting
+        socket.removeAllListeners();
+      }
+    };
+  }, [currentOrganization, fetchDataSources, clearCache]);
+  
+  // Listen for custom knowledgeBaseUpdate events
+  useEffect(() => {
+    const handleKnowledgeBaseUpdate = () => {
+      logger.info(COMPONENT_NAME, 'Received knowledgeBaseUpdate event, refreshing data sources');
+      
+      // Clear cache to force a fresh fetch
+      if (currentOrganization) {
+        clearCache(currentOrganization.id);
+      }
+      
+      fetchDataSources().catch(err => {
+        logger.error(COMPONENT_NAME, 'Error refreshing data sources after knowledgeBaseUpdate event:', err);
+      });
+    };
+    
+    logger.info(COMPONENT_NAME, 'Setting up event listener for knowledgeBaseUpdate events');
+    window.addEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate);
+    
+    return () => {
+      logger.info(COMPONENT_NAME, 'Removing event listener for knowledgeBaseUpdate events');
+      window.removeEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate);
+    };
+  }, [fetchDataSources, currentOrganization, clearCache]);
+  
+  const value = {
+    sources,
+    activeSource,
+    pinnedItems,
+    recentItems,
+    userPreferences,
+    isLoading,
+    error,
+    setActiveSource: handleActiveSourceChange, // Use the enhanced function
+    searchItems,
+    pinItem,
+    unpinItem,
+    addRecentItem,
+    updateUserPreferences,
+    removeSource,
+    addSource,
+    fetchDataSources,
+    retryLoad
+  };
+  
   return (
-    <KnowledgeContext.Provider
-      value={{
-        sources,
-        activeSource,
-        pinnedItems,
-        recentItems,
-        userPreferences,
-        isLoading,
-        error,
-        setActiveSource,
-        searchItems,
-        pinItem,
-        unpinItem,
-        addRecentItem,
-        updateUserPreferences,
-        removeSource,
-        addSource,
-        refreshSources,
-      }}
-    >
+    <KnowledgeContext.Provider value={value}>
       {children}
     </KnowledgeContext.Provider>
   );
-}; 
+} 

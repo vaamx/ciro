@@ -244,7 +244,7 @@ export const DashboardManager: React.FC = () => {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center space-x-2 px-3 py-2 rounded-lg 
+            className="flex items-center space-x-2 px-2.5 sm:px-3 py-2 rounded-lg 
               bg-gray-100/80 dark:bg-gray-800/80 
               hover:bg-gray-200/80 dark:hover:bg-gray-700/80 
               border border-gray-200/20 dark:border-gray-700/20
@@ -252,7 +252,7 @@ export const DashboardManager: React.FC = () => {
               transition-all duration-200"
           >
             <Icons.Layout size={16} className="text-gray-600 dark:text-gray-400" />
-            <span className="font-medium max-w-[200px] truncate text-gray-700 dark:text-gray-300">
+            <span className="font-medium max-w-[120px] sm:max-w-[200px] truncate text-gray-700 dark:text-gray-300">
               {currentDashboard?.name || 'Select Dashboard'}
             </span>
           </button>
@@ -262,7 +262,8 @@ export const DashboardManager: React.FC = () => {
               bg-gradient-to-br from-purple-500 to-purple-600 dark:from-purple-600 dark:to-purple-700
               hover:from-purple-600 hover:to-purple-700 dark:hover:from-purple-500 dark:hover:to-purple-600
               text-white shadow-lg shadow-purple-500/20 dark:shadow-purple-900/30
-              transition-all duration-200 hover:scale-105"
+              transition-all duration-200 hover:scale-105
+              active:scale-95 touch-manipulation"
             title="Create New Dashboard"
           >
             <Icons.Plus size={16} className="text-white" />
@@ -271,12 +272,12 @@ export const DashboardManager: React.FC = () => {
 
         {/* Dropdown Menu */}
         {isDropdownOpen && (
-          <div className="absolute top-full left-0 mt-2 w-72 
+          <div className="absolute top-full left-0 mt-2 w-[90vw] sm:w-72 
             bg-white dark:bg-gray-800 
             rounded-xl shadow-xl dark:shadow-gray-900/50 
             border border-gray-100/50 dark:border-gray-700/50 
             backdrop-blur-xl backdrop-saturate-150 
-            py-2 z-50">
+            py-2 z-[30]">
             <div className="p-2">
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 px-2">
                 Your Dashboards
@@ -298,7 +299,7 @@ export const DashboardManager: React.FC = () => {
                 dashboards.map((dashboard) => (
                   <div
                     key={dashboard.id}
-                    className={`group flex items-center justify-between px-2 py-2 rounded-lg 
+                    className={`group flex items-center justify-between px-2 py-2.5 rounded-lg 
                       ${currentDashboard?.id === dashboard.id
                         ? 'bg-purple-50 dark:bg-purple-900/20'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
@@ -346,7 +347,7 @@ export const DashboardManager: React.FC = () => {
                     <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => handleEdit(dashboard)}
-                        className="p-1 rounded-md text-gray-400 hover:text-purple-600 dark:text-gray-500 dark:hover:text-purple-400
+                        className="p-1.5 rounded-md text-gray-400 hover:text-purple-600 dark:text-gray-500 dark:hover:text-purple-400
                           hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-all duration-200"
                         title="Edit Dashboard"
                       >
@@ -355,7 +356,7 @@ export const DashboardManager: React.FC = () => {
                       {dashboard.id !== 'default' && (
                         <button
                           onClick={() => handleDelete(dashboard.id)}
-                          className="p-1 rounded-md text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400
+                          className="p-1.5 rounded-md text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400
                             hover:bg-red-50 dark:hover:bg-red-900/30 transition-all duration-200
                             disabled:opacity-50"
                           disabled={isDeleting === dashboard.id}

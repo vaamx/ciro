@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import { authenticate } from '../middleware/auth';
 import { DataSourceController } from '../controllers/dataSource.controller';
-import { RequestHandler } from 'express';
+import { RequestHandler } from '../types/express-types';
 
 const router = Router();
 const dataSourceController = new DataSourceController();

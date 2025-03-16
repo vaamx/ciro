@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import { db } from '../infrastructure/database';
 import { BadRequestError } from '../utils/errors';
 

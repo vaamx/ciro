@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as mammoth from 'mammoth';
 import * as cheerio from 'cheerio';
-import { createLogger } from '../../utils/logger';
+import { createServiceLogger } from '../../utils/logger-factory';
 
 // Add the MAX_TOKENS_PER_CHUNK constant at the top of the file
 const MAX_TOKENS_PER_CHUNK = 4000; // Maximum tokens per chunk for OpenAI models
@@ -42,7 +42,7 @@ interface DocumentInfo {
  */
 @Injectable()
 export class CustomDocxProcessorService extends BaseDocumentProcessor {
-    protected readonly logger = createLogger('CustomDocxProcessorService');
+    protected readonly logger = createServiceLogger('CustomDocxProcessorService');
     private readonly openAIService: OpenAIService;
 
     constructor(

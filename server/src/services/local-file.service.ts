@@ -2,7 +2,7 @@ import { injectable } from 'inversify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'csv-parse/sync';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 import { FileUploadService } from './file-upload.service';
 import { v4 as uuidv4 } from 'uuid';
 import { ensureDirectoryExists } from '../utils/file-utils';
@@ -25,7 +25,7 @@ export interface ProcessedFile {
  */
 @injectable()
 export class LocalFileService {
-  private logger = createLogger('LocalFileService');
+  private readonly logger = createServiceLogger('LocalFileService');
   private uploadService: FileUploadService;
   private uploadsDir = path.join(process.cwd(), 'uploads');
   
@@ -245,6 +245,7 @@ export class LocalFileService {
         preview: processedFile.content
       },
       organization_id: parseInt(organizationId, 10),
+      created_by: userId, // Use created_by instead of user_id 
       status: 'queued' // Set to queued so it will be picked up for processing
     };
     

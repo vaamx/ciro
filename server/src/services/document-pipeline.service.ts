@@ -1,4 +1,3 @@
-import { createLogger } from '../utils/logger';
 import * as winston from 'winston';
 import { FileType } from '../types/file-types';
 import { db } from '../infrastructure/database';
@@ -27,7 +26,30 @@ export class DocumentPipelineService {
    * Private constructor to enforce singleton pattern
    */
   private constructor() {
-    this.logger = createLogger('DocumentPipelineService');
+    this.logger = winston.createLogger({
+      level: process.env.LOG_LEVEL || 'info',
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DocumentPipelineService]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      ),
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.timestamp(),
+            winston.format.printf((info) => {
+              const { timestamp, level, message, ...rest } = info;
+              const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DocumentPipelineService]: ${message}`;
+              return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+            })
+          )
+        })
+      ]
+    });
     this.processorFactory = DocumentProcessorFactory.getInstance();
     this.qdrantService = QdrantService.getInstance();
     this.openAIService = OpenAIService.getInstance();

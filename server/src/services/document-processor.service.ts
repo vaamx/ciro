@@ -1,4 +1,3 @@
-import { createLogger } from '../utils/logger';
 import * as winston from 'winston';
 import { DocumentPipelineService } from './document-pipeline.service';
 import { FileType } from '../types/file-types';
@@ -21,7 +20,30 @@ export class DocumentProcessorService {
    * Private constructor to enforce singleton pattern
    */
   private constructor() {
-    this.logger = createLogger('DocumentProcessorService');
+    this.logger = winston.createLogger({
+      level: process.env.LOG_LEVEL || 'info',
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DocumentProcessorService]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      ),
+      transports: [
+        new winston.transports.Console({
+          format: winston.format.combine(
+            winston.format.colorize(),
+            winston.format.timestamp(),
+            winston.format.printf((info) => {
+              const { timestamp, level, message, ...rest } = info;
+              const formattedMessage = `${timestamp} [${level.toUpperCase()}] [DocumentProcessorService]: ${message}`;
+              return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+            })
+          )
+        })
+      ]
+    });
     this.logger.info('Initializing Document Processor Service');
     this.documentPipeline = DocumentPipelineService.getInstance();
     this.qdrantService = QdrantService.getInstance();
@@ -76,30 +98,103 @@ export class DocumentProcessorService {
     this.logger.info(`Deleting vectors for data source ${dataSourceId}`);
     
     try {
-      console.log(`Processing document for data source: ${dataSourceId}`);
+      console.log(`Processing vector deletion for data source: ${dataSourceId}`);
       
-      // Create a collection name based on the data source ID - ensure numeric format
+      // Create a collection name based on the data source ID
       const numericId = parseInt(dataSourceId, 10);
-      // Use only numeric ID for collection name
-      const collectionName = isNaN(numericId) ? `datasource_${dataSourceId}` : `datasource_${numericId}`;
-      console.log(`Using collection name: ${collectionName}`);
       
-      // Check if collection exists before attempting to delete
-      const collectionExists = await this.qdrantService.collectionExists(collectionName);
+      // Define all possible collection name formats
+      const possibleCollectionNames = [
+        // Standard format
+        isNaN(numericId) ? `datasource_${dataSourceId}` : `datasource_${numericId}`,
+        
+        // Snowflake formats
+        `snowflake_${dataSourceId}`,
+        `snowflake_${dataSourceId}_diana_sales_es_sales`,
+        
+        // Additional prefixed format
+        `datasource_snowflake_${dataSourceId}`,
+        `datasource_snowflake_${dataSourceId}_diana_sales_es_sales`
+      ];
+
+      // Define data source type patterns to match
+      const dataSourceTypePatterns = [
+        'snowflake',
+        'mysql',
+        '***REMOVED***',
+        'mongodb',
+        'bigquery',
+        'redshift',
+        'dynamodb',
+        'oracle',
+        'sqlserver',
+        'elasticsearch',
+        'mariadb'
+      ];
       
-      if (!collectionExists) {
-        this.logger.warn(`Collection ${collectionName} does not exist. Nothing to delete.`);
+      console.log(`Checking for collections: ${possibleCollectionNames.join(', ')}`);
+      
+      // Get list of all collections
+      const allCollections = await this.qdrantService.listCollections();
+      
+      // Filter to collections that match any of our patterns or contain the data source ID
+      const matchingCollections = allCollections.filter(name => {
+        // Check against our predefined patterns
+        if (possibleCollectionNames.includes(name)) {
+          return true;
+        }
+        
+        // Check if collection name contains the data source ID
+        if (name.includes(dataSourceId)) {
+          console.log(`Found potential match with pattern: ${name}`);
+          return true;
+        }
+
+        // Check for type-specific patterns with the data source ID
+        for (const typePattern of dataSourceTypePatterns) {
+          const combinedPattern = `${typePattern}_${dataSourceId}`;
+          if (name.includes(combinedPattern)) {
+            console.log(`Found ${typePattern} specific match: ${name}`);
+            return true;
+          }
+        }
+        
+        return false;
+      });
+      
+      if (matchingCollections.length === 0) {
+        this.logger.info(`No collections found for data source ${dataSourceId}. Nothing to delete.`);
         return true; // Return true since there's nothing to delete
       }
       
-      // Delete the entire collection
-      const deleted = await this.qdrantService.deleteCollection(collectionName);
+      console.log(`Found ${matchingCollections.length} collections to delete: ${matchingCollections.join(', ')}`);
       
-      if (deleted) {
-        this.logger.info(`Successfully deleted vectors for data source ${dataSourceId}`);
+      // Track deletion success
+      let allSuccessful = true;
+      
+      // Delete each matching collection
+      for (const collectionName of matchingCollections) {
+        try {
+          console.log(`Attempting to delete collection: ${collectionName}`);
+          const deleted = await this.qdrantService.deleteCollection(collectionName);
+          
+          if (deleted) {
+            this.logger.info(`Successfully deleted collection: ${collectionName}`);
+          } else {
+            this.logger.error(`Failed to delete collection: ${collectionName}`);
+            allSuccessful = false;
+          }
+        } catch (collectionError) {
+          this.logger.error(`Error deleting collection ${collectionName}: ${collectionError instanceof Error ? collectionError.message : String(collectionError)}`);
+          allSuccessful = false;
+        }
+      }
+      
+      if (allSuccessful) {
+        this.logger.info(`Successfully deleted all collections for data source ${dataSourceId}`);
         return true;
       } else {
-        this.logger.error(`Failed to delete vectors for data source ${dataSourceId}`);
+        this.logger.warn(`Some collections for data source ${dataSourceId} could not be deleted`);
         return false;
       }
     } catch (error) {
@@ -142,4 +237,4 @@ export class DocumentProcessorService {
     this.logger.info(`Converted string ID to numeric collection: datasource_${numericHash}`);
     return `datasource_${numericHash}`;
   }
-} 
+}

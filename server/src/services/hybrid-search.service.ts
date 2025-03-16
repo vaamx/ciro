@@ -1,7 +1,7 @@
 import { db } from '../infrastructure/database';
 import { OpenAIService } from './openai.service';
 import { QdrantService } from './qdrant.service';
-import { createLogger } from '../utils/logger';
+import { createServiceLogger } from '../utils/logger-factory';
 
 /**
  * Hybrid Search Service
@@ -11,7 +11,7 @@ import { createLogger } from '../utils/logger';
 export class HybridSearchService {
   private openaiService: OpenAIService;
   private qdrantService: QdrantService;
-  private logger = createLogger('HybridSearchService');
+  private readonly logger = createServiceLogger('HybridSearchService');
 
   constructor() {
     this.openaiService = OpenAIService.getInstance();

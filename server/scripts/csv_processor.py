@@ -222,13 +222,13 @@ class CSVProcessor:
         """Generate embeddings for a list of texts using OpenAI API."""
         try:
             response = openai.embeddings.create(
-                model="text-embedding-3-small",
+                model="text-embedding-ada-002",
                 input=texts
             )
             return [item.embedding for item in response.data]
         except Exception as e:
             logger.error(f"Error generating embeddings: {str(e)}")
-            raise
+            return []
     
     def format_record_as_text(self, record: Dict[str, Any]) -> str:
         """Format a CSV record as text for embedding."""

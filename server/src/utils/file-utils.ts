@@ -2,9 +2,32 @@ import { FileType, MIME_TYPE_MAP } from '../types/file-types';
 import { BadRequestError } from './errors';
 import * as path from 'path';
 import * as fs from 'fs';
-import { createLogger } from './logger';
+import * as winston from 'winston';
 
-const logger = createLogger('FileUtils');
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf((info) => {
+      const { timestamp, level, message, ...rest } = info;
+      const formattedMessage = `${timestamp} [${level.toUpperCase()}] [FileUtils]: ${message}`;
+      return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+    })
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [FileUtils]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      )
+    })
+  ]
+});
 
 /**
  * Detects file type based on mime type and filename

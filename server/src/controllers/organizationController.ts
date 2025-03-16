@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response } from '../types/express-types';
 import { db } from '../infrastructure/db';
 import sharp from 'sharp';
 import fs from 'fs/promises';
@@ -190,22 +190,27 @@ export const organizationController = {
         // Ensure upload directory exists
         await fs.mkdir(UPLOAD_PATH, { recursive: true });
 
-        // Process the uploaded image
-        const optimizedImageBuffer = await sharp(logoFile.path)
+        // Process the uploaded image from buffer instead of path
+        const optimizedImageBuffer = await sharp(logoFile.buffer)
           .resize(256, 256, { fit: 'cover' })
           .jpeg({ quality: 80 })
           .toBuffer();
 
-        // Save the optimized image
-        const optimizedFilename = path.parse(logoFile.filename).name + '_optimized.jpg';
+        // Generate a unique filename
+        const optimizedFilename = `logo_${id}_${Date.now()}.jpg`;
         const optimizedPath = path.join(UPLOAD_PATH, optimizedFilename);
-        await fs.writeFile(optimizedPath, optimizedImageBuffer);
+        
+        console.log('Saving optimized image:', { 
+          filename: optimizedFilename,
+          path: optimizedPath 
+        });
 
-        // Delete the original file
-        await fs.unlink(logoFile.path);
+        // Save the optimized image
+        await fs.writeFile(optimizedPath, optimizedImageBuffer);
 
         // Set the logo URL - store only the relative path
         logo_url = createUrlPath(ORGANIZATIONS_DIR, optimizedFilename);
+        console.log('Setting logo URL:', { logo_url });
 
         // Delete old logo if it exists
         const oldOrg = await db('organizations').where('id', id).first();
@@ -237,15 +242,6 @@ export const organizationController = {
 
       res.json(organization);
     } catch (error) {
-      // Clean up uploaded file if something went wrong
-      if (logoFile) {
-        try {
-          await fs.unlink(logoFile.path).catch(() => {});
-        } catch (unlinkError) {
-          console.error('Error cleaning up uploaded file:', unlinkError);
-        }
-      }
-
       console.error('Error updating organization:', error);
       res.status(500).json({ error: 'Failed to update organization' });
     }

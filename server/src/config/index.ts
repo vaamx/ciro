@@ -24,7 +24,25 @@ const config: Config = {
     expiresIn: process.env.JWT_EXPIRES_IN || '24h',
   },
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: function(origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      // Get allowed origins from environment variables
+      const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+        .split(',')
+        .map(o => o.trim());
+      
+      // Check if the origin is allowed
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        // Return the specific requesting origin
+        callback(null, origin);
+      } else {
+        console.log(`CORS blocked origin: ${origin}`);
+        console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: [

@@ -1,8 +1,10 @@
-import { Router } from 'express';
+// import express from '../types/express-types';
+// import * as core from 'express-serve-static-core';
+import { Request, Response, NextFunction } from 'express-serve-static-core';
 import multer from 'multer';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
-import { authenticate } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { QdrantService } from '../services/qdrant.service';
 import { pool } from '../config/database';
@@ -10,8 +12,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { DocumentProcessorService } from '../services/document-processor.service';
 import { FileType } from '../types/file-types';
 import { OpenAIService } from '../services/openai.service';
+import { createServiceLogger } from '../utils/logger-factory';
 
-const router = Router();
+// Define interface for multer requests
+interface MulterRequest extends AuthRequest {
+  file?: Express.Multer.File;
+}
+
+// Use direct require to create router
+const router = require('express').Router();
+const logger = createServiceLogger('UploadRoutes');
 const documentProcessor = DocumentProcessorService.getInstance();
 const qdrantService = QdrantService.getInstance();
 const openAIService = OpenAIService.getInstance();
@@ -59,7 +69,7 @@ const upload = multer({
 });
 
 // Define the upload endpoint
-router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
+router.post('/', upload.single('file'), asyncHandler(async (req: MulterRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -108,11 +118,45 @@ router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
         userId,
         organizationId,
         'uploaded',
-        JSON.stringify({ dataSourceId })
+        JSON.stringify({ dataSourceId, filename: file.filename, originalFilename: file.originalname })
       ]
     );
     
     const fileId = fileResult.rows[0].id;
+    
+    // Create a data source record for this file
+    const dataSourceResult = await pool.query(
+      `INSERT INTO data_sources
+       (name, type, organization_id, created_by, status, metadata, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        file.originalname,
+        'file',
+        organizationId,
+        userId,
+        'processing',
+        JSON.stringify({
+          id: dataSourceId,
+          fileId: fileId,
+          filename: file.filename,
+          originalFilename: file.originalname,
+          mimeType: file.mimetype,
+          size: file.size,
+          fileType: fileType
+        }),
+        `File upload: ${file.originalname}`
+      ]
+    );
+    
+    const dataSourceNumericId = dataSourceResult.rows[0].id;
+    
+    // Link the file to the data source
+    await pool.query(
+      `INSERT INTO file_to_data_source (file_id, data_source_id)
+       VALUES ($1, $2)`,
+      [dataSourceId, dataSourceNumericId.toString()]
+    );
     
     // Generate a collection name based on the numerical ID
     const collectionName = documentProcessor.getCollectionName(fileId.toString());
@@ -127,7 +171,7 @@ router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
     
     // Start background processing
     // Note: In a production system, this would be handled by a queue/worker system
-    processFileInBackground(filePath, fileType, collectionName, fileId);
+    processFileInBackground(filePath, fileType, collectionName, fileId, dataSourceNumericId);
     
     res.status(201).json({
       id: fileId,
@@ -141,7 +185,7 @@ router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error uploading file:', error);
+    logger.error('Error uploading file:', error);
     res.status(500).json({
       error: 'Failed to upload file',
       message: error.message
@@ -154,16 +198,25 @@ async function processFileInBackground(
   filePath: string,
   fileType: FileType,
   collectionName: string,
-  fileId: number
+  fileId: number,
+  dataSourceId?: number
 ) {
   try {
-    console.log(`Starting background processing for file ${fileId} (${filePath})`);
+    logger.info(`Starting background processing for file ${fileId} (${filePath})`);
     
     // Update status to processing
     await pool.query(
       `UPDATE files SET status = $1, metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{collectionName}', $2::jsonb) WHERE id = $3`,
       ['processing', JSON.stringify(collectionName), fileId]
     );
+    
+    // Update data source status if a data source ID was provided
+    if (dataSourceId) {
+      await pool.query(
+        `UPDATE data_sources SET status = $1, metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{collectionName}', $2::jsonb) WHERE id = $3`,
+        ['processing', JSON.stringify(collectionName), dataSourceId]
+      );
+    }
     
     // Process the document
     await documentProcessor.processDocument(filePath, fileType, collectionName);
@@ -174,20 +227,36 @@ async function processFileInBackground(
       ['processed', fileId]
     );
     
-    console.log(`File ${fileId} processed successfully`);
+    // Update data source status if a data source ID was provided
+    if (dataSourceId) {
+      await pool.query(
+        `UPDATE data_sources SET status = $1 WHERE id = $2`,
+        ['ready', dataSourceId]
+      );
+    }
+    
+    logger.info(`File ${fileId} processed successfully`);
   } catch (error) {
-    console.error(`Error processing file ${fileId}:`, error);
+    logger.error(`Error processing file ${fileId}:`, error);
     
     // Update status to error
     await pool.query(
       `UPDATE files SET status = $1, metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{error}', $2::jsonb) WHERE id = $3`,
-      ['error', JSON.stringify({ message: error.message }), fileId]
+      ['error', JSON.stringify({ message: error instanceof Error ? error.message : String(error) }), fileId]
     );
+    
+    // Update data source status if a data source ID was provided
+    if (dataSourceId) {
+      await pool.query(
+        `UPDATE data_sources SET status = $1, metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{error}', $2::jsonb) WHERE id = $3`,
+        ['error', JSON.stringify({ message: error instanceof Error ? error.message : String(error) }), dataSourceId]
+      );
+    }
   }
 }
 
 // Get all uploaded files
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', asyncHandler(async (req: AuthRequest, res) => {
   const userId = req.user?.id;
   const organizationId = req.user?.organizationId;
   
@@ -204,7 +273,7 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // Get file by ID
-router.get('/:id', asyncHandler(async (req, res) => {
+router.get('/:id', asyncHandler(async (req: AuthRequest & { params: { id: string } }, res) => {
   const userId = req.user?.id;
   const organizationId = req.user?.organizationId;
   const fileId = req.params.id;
@@ -226,7 +295,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 }));
 
 // Delete file
-router.delete('/:id', asyncHandler(async (req, res) => {
+router.delete('/:id', asyncHandler(async (req: AuthRequest & { params: { id: string } }, res) => {
   const userId = req.user?.id;
   const organizationId = req.user?.organizationId;
   const fileId = req.params.id;
@@ -253,7 +322,7 @@ router.delete('/:id', asyncHandler(async (req, res) => {
     try {
       await qdrantService.deleteCollection(collectionName);
     } catch (error) {
-      console.error(`Error deleting collection ${collectionName}:`, error);
+      logger.error(`Error deleting collection ${collectionName}:`, error);
       // Continue with file deletion even if collection deletion fails
     }
   }
@@ -269,7 +338,7 @@ router.delete('/:id', asyncHandler(async (req, res) => {
     const fs = require('fs').promises;
     await fs.unlink(file.path);
   } catch (error) {
-    console.error(`Error deleting file from disk:`, error);
+    logger.error(`Error deleting file from disk:`, error);
     // Continue even if file deletion fails
   }
   

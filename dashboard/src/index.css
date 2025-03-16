@@ -1,108 +1,147 @@
+/* Import reset CSS */
+@import './styles/reset.css';
+
+/* Import component-specific Tailwind styles first */
+@import './styles/enhanced-visualization.tailwind.css';
+
+/* Tailwind directives */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --brand-purple: 111 44 255;
+/* Custom base styles */
+:root {
+  --brand-purple: 111 44 255;
+}
+
+/* Mobile-specific styles */
+.mobile-view main {
+  padding-bottom: 70px; /* Add bottom padding for mobile to avoid overlapping with fixed action buttons */
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .card {
+    @apply rounded-lg shadow-sm;
+  }
+  
+  /* Adjust font sizes for mobile */
+  h1 {
+    @apply text-xl;
+  }
+  
+  h2 {
+    @apply text-lg;
+  }
+  
+  .btn-primary, .btn-secondary, .btn-danger {
+    @apply px-3 py-1.5 text-sm;
   }
 }
 
-@layer components {
-  .stat-card {
-    @apply bg-white rounded-lg shadow-sm p-6 transition-all duration-200 hover:shadow-md border border-gray-100;
-  }
+/* Custom component styles */
+.stat-card {
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  padding: 1.5rem;
+  transition-property: all;
+  transition-duration: 200ms;
+  border: 1px solid rgba(229, 231, 235, 1);
+}
+.stat-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
 
-  .nav-item {
-    @apply w-full flex items-center px-4 py-3 rounded-lg mb-1 transition-all duration-300;
-  }
+.nav-item {
+  @apply w-full flex items-center px-4 py-3 rounded-lg mb-1 transition-all duration-300;
+}
 
-  .nav-item-active {
-    @apply bg-purple-50 text-purple-600;
-  }
+.nav-item-active {
+  @apply bg-purple-50 text-purple-600;
+}
 
-  .nav-item-inactive {
-    @apply text-gray-600 hover:bg-gray-50;
-  }
+.nav-item-inactive {
+  @apply text-gray-600 hover:bg-gray-50;
+}
 
-  .btn-primary {
-    @apply px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors;
-  }
+.btn-primary {
+  @apply px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors;
+}
 
-  .btn-secondary {
-    @apply px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700;
-  }
+.btn-secondary {
+  @apply px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700;
+}
 
-  .btn-danger {
-    @apply px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors;
-  }
+.btn-danger {
+  @apply px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors;
+}
 
-  .input-primary {
-    @apply w-full p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent;
-  }
+.input-primary {
+  @apply w-full p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent;
+}
 
-  .select-primary {
-    @apply w-full p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent;
-  }
+.select-primary {
+  @apply w-full p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent;
+}
 
-  .card {
-    @apply bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow;
-  }
+.card {
+  @apply bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 hover:shadow-md transition-shadow;
+}
 
-  .card-header {
-    @apply flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700;
-  }
+.card-header {
+  @apply flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700;
+}
 
-  .card-body {
-    @apply p-4;
-  }
+.card-body {
+  @apply p-4;
+}
 
-  .badge {
-    @apply px-2.5 py-0.5 rounded-full text-xs font-medium;
-  }
+.badge {
+  @apply px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
 
-  .badge-success {
-    @apply bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300;
-  }
+.badge-success {
+  @apply bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300;
+}
 
-  .badge-error {
-    @apply bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300;
-  }
+.badge-error {
+  @apply bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300;
+}
 
-  .badge-warning {
-    @apply bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300;
-  }
+.badge-warning {
+  @apply bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300;
+}
 
-  .badge-info {
-    @apply bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300;
-  }
+.badge-info {
+  @apply bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300;
+}
 
-  .section-card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-100;
-  }
+.section-card {
+  @apply bg-white rounded-lg shadow-sm border border-gray-100;
+}
 
-  /* Sidebar transitions */
-  .sidebar-transition {
-    @apply transition-all duration-300 ease-in-out;
-  }
+/* Sidebar transitions */
+.sidebar-transition {
+  @apply transition-all duration-300 ease-in-out;
+}
 
-  .sidebar-expanded {
-    @apply w-72;
-  }
+.sidebar-expanded {
+  @apply w-72;
+}
 
-  .sidebar-collapsed {
-    @apply w-20;
-  }
+.sidebar-collapsed {
+  @apply w-20;
+}
 
-  /* Tooltip styles */
-  .tooltip {
-    @apply invisible absolute z-10 px-2 py-1 text-xs text-white bg-gray-900 rounded;
-    white-space: nowrap;
-  }
+/* Tooltip styles */
+.tooltip {
+  @apply invisible absolute z-10 px-2 py-1 text-xs text-white bg-gray-900 rounded;
+  white-space: nowrap;
+}
 
-  .has-tooltip:hover .tooltip {
-    @apply visible;
-  }
+.has-tooltip:hover .tooltip {
+  @apply visible;
 }
 
 /* Animations */
@@ -113,4 +152,24 @@
 
 .animate-fade-in {
   animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Mobile-specific enhancements */
+@media (max-width: 640px) {
+  /* Adjust paddings for mobile */
+  .card-body, .card-header {
+    @apply p-3;
+  }
+  
+  /* Make form controls easier to tap */
+  .input-primary, .select-primary, button {
+    @apply min-h-[44px];
+  }
+  
+  /* Ensure dropdown menus don't overflow screen */
+  .dropdown-menu {
+    max-width: 90vw;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
 }

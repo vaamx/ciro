@@ -7,12 +7,74 @@ import { runMigrations } from './infrastructure/database/migrate';
 import Server from './server';
 import path from 'path';
 import knex from 'knex';
-import { createLogger } from './utils/logger';
+import * as winston from 'winston';
 import { getServiceRegistry } from './services/service-registry';
 import runEnvironmentChecks from './utils/check-env';
+import { RagService } from './services/rag.service';
+import { db } from './infrastructure/database';
 
 // Initialize logger
-const logger = createLogger('Server');
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf((info) => {
+      const { timestamp, level, message, ...rest } = info;
+      const formattedMessage = `${timestamp} [${level.toUpperCase()}] [Server]: ${message}`;
+      return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+    })
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.timestamp(),
+        winston.format.printf((info) => {
+          const { timestamp, level, message, ...rest } = info;
+          const formattedMessage = `${timestamp} [${level.toUpperCase()}] [Server]: ${message}`;
+          return Object.keys(rest).length ? `${formattedMessage} ${JSON.stringify(rest)}` : formattedMessage;
+        })
+      )
+    })
+  ]
+});
+
+// Function to ensure collection_name column exists and update references
+async function updateCollectionReferences() {
+  try {
+    logger.info('Checking for collection_name column in data_sources table...');
+    
+    // Check if column exists
+    const result = await db.raw(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'data_sources' AND column_name = 'collection_name'
+    `);
+    
+    if (result.rows.length === 0) {
+      logger.info('collection_name column does not exist, adding it to data_sources table');
+      
+      // Add the column
+      await db.schema.table('data_sources', table => {
+        table.string('collection_name').nullable();
+      });
+      
+      logger.info('Added collection_name column to data_sources table');
+    } else {
+      logger.info('collection_name column already exists');
+    }
+    
+    // Run the collection references fix
+    logger.info('Running collection references fix...');
+    const ragService = new RagService();
+    const result2 = await ragService.updateDataSourceCollectionReferences();
+    logger.info(`Collection references fix completed: Updated ${result2.updated} data sources, ${result2.errors} errors`);
+    return true;
+  } catch (error) {
+    logger.error('Error updating collection references:', error);
+    return false;
+  }
+}
 
 // Create necessary directories
 async function createMissingDirectories() {
@@ -115,6 +177,13 @@ async function startServer() {
       logger.warn('Continuing without migrations. Some features may not work correctly.');
     }
     
+    // Run the collection references fix
+    try {
+      await updateCollectionReferences();
+    } catch (error) {
+      logger.error('Error updating collection references, continuing anyway:', error);
+    }
+    
     // Initialize services via service registry to ensure proper singleton management
     const serviceRegistry = getServiceRegistry();
     
@@ -128,6 +197,31 @@ async function startServer() {
     try {
       server.start();
       logger.info(`Server running on port ${config.port}`);
+
+      // Add logging middleware to track RAG requests/responses
+      const express = require('express');
+      const app = express();
+      app.use('/api/rag/*', (req, res, next) => {
+        const originalSend = res.send;
+        const requestId = req.headers['x-request-id'] || `req_${Date.now()}`;
+        
+        console.log(`[${requestId}] RAG request received: ${req.method} ${req.originalUrl}`);
+        
+        // Override send method to log responses
+        res.send = function(body) {
+          // Convert response to string if it's an object
+          const responseStr = typeof body === 'object' ? JSON.stringify(body) : body;
+          const responsePreview = responseStr.substring(0, 100) + (responseStr.length > 100 ? '...' : '');
+          
+          console.log(`[${requestId}] RAG response sent: ${responsePreview}`);
+          console.log(`[${requestId}] Response size: ${responseStr.length} bytes`);
+          
+          // Call the original send method
+          return originalSend.call(this, body);
+        };
+        
+        next();
+      });
 
       return true;
     } catch (error) {

@@ -26,7 +26,7 @@ export class TextSearch {
   // Constructor to ensure we never use mock data
   constructor() {
     // Always use the direct server connection
-    this.apiBaseUrl = 'http://localhost:3001';
+    this.apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
     console.log(`TextSearch initialized with API URL: ${this.apiBaseUrl}`);
     console.log('Mock data is DISABLED - only real server data will be used');
     this.defaultLimit = 50;

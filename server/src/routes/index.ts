@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../types/express-types';
 import authRoutes from './auth.routes';
 import dataSourceRoutes from './data-source.routes';
 import fileRoutes from './file.routes';
