@@ -1,4 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
+import { buildApiUrl } from '../api-config';
 
 export interface Team {
   id: string;
@@ -25,20 +26,26 @@ class TeamApiService {
   }
 
   async getItems(organizationId: number): Promise<Team[]> {
-    const response = await fetch(`/api/organizations/${organizationId}/teams`, {
-      headers: this.getHeaders(),
-      credentials: 'include'
-    });
+    try {
+      const apiUrl = buildApiUrl(`/api/organizations/${organizationId}/teams`);
+      const response = await fetch(apiUrl, {
+        headers: this.getHeaders(),
+        credentials: 'include'
+      });
 
-    if (!response.ok) {
+      if (!response.ok) {
+        throw new Error('Failed to fetch teams');
+      }
+
+      return response.json();
+    } catch (error) {
       throw new Error('Failed to fetch teams');
     }
-
-    return response.json();
   }
 
   async createItem(team: Partial<Team>): Promise<Team> {
-    const response = await fetch(this.baseUrl, {
+    const apiUrl = buildApiUrl(this.baseUrl);
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -53,7 +60,8 @@ class TeamApiService {
   }
 
   async updateItem(id: string, team: Partial<Team>): Promise<Team> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
+    const response = await fetch(apiUrl, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -68,7 +76,8 @@ class TeamApiService {
   }
 
   async deleteItem(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
+    const response = await fetch(apiUrl, {
       method: 'DELETE',
       headers: this.getHeaders(),
       credentials: 'include'

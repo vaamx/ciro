@@ -10,6 +10,7 @@ import { config } from './config';
 import { QdrantService } from './services/qdrant.service';
 import { rateLimiter, speedLimiter, securityHeaders } from './middleware';
 import { authenticate } from './middleware/auth';
+import { corsMiddleware } from './middleware/security';
 import dataSourceRoutes, { chunkRouter } from './routes/data-source.routes';
 import path from 'path';
 import { RagService } from './services/rag.service';
@@ -71,6 +72,9 @@ const logger = winston.createLogger({
 // Initialize app
 const app = express();
 
+// Configure CORS for cookie support
+app.use(corsMiddleware);
+
 // Configure security headers
 app.use(securityHeaders);
 
@@ -92,9 +96,20 @@ app.use(morgan('combined'));
 
 // Custom CORS middleware
 app.use((req, res, next) => {
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
-    .split(',')
-    .map(origin => origin.trim());
+  // Define allowed origins for different environments
+  let allowedOrigins = ['http://localhost:5173']; // Default for development
+  
+  if (process.env.NODE_ENV === 'production') {
+    // Production origins (add both http and https variants)
+    allowedOrigins = [
+      'https://app.ciroai.us',
+      'https://www.ciroai.us',
+      'https://ciroai.us'
+    ];
+  } else if (process.env.CORS_ORIGIN) {
+    // Use environment variable if set (for custom environments)
+    allowedOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+  }
   
   const origin = req.headers.origin;
   
@@ -103,8 +118,25 @@ app.use((req, res, next) => {
     return next();
   }
   
-  // Always set CORS headers for all origins during development
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  // Check if the origin is allowed or in development mode
+  if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // For security, don't send CORS headers for unknown origins in production
+    console.warn(`Blocked request from unauthorized origin: ${origin}`);
+    if (process.env.NODE_ENV === 'production') {
+      // In production, log detailed info about blocked requests
+      console.warn('CORS blocked request details:', {
+        origin,
+        path: req.path,
+        method: req.method, 
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+    }
+  }
+  
+  // Always set these headers regardless of origin validation
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Credentials');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -251,19 +283,11 @@ const publicPath = path.join(process.cwd(), 'server/public');
 logger.info(`Serving static files from ${publicPath}`);
 app.use(express.static(publicPath));
 
-// Setup routes
-app.use('/api/chat', authenticate, chatRoutes);
+// These unique routes should stay
 app.use('/api/users', userRoutes);
-app.use('/api/organizations', organizationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/data-sources', dataSourceRoutes);
-app.use('/api/files', fileRoutes);
 app.use('/api/reset-password', resetPasswordRouter);
-app.use('/api/ext', apiRoutes);
-app.use('/api/qdrant', qdrantRoutes);
-app.use('/api/rag', ragRoutes);
-app.use('/api/qdrant', vectorSearchRoutes);
 
 // Add a dedicated Collections endpoint for the frontend
 app.get('/api/collections', authenticate, async (req, res) => {

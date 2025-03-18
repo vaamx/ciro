@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useOrganization } from '../../contexts/OrganizationContext';
+import { buildApiUrl } from '../../api-config';
 
 interface Category {
   id: number;
@@ -30,24 +31,35 @@ export function DashboardForm({ onSubmit, onCancel, isSubmitting }: DashboardFor
     team_id: '',
     category_id: '',
   });
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
 
   // Load categories when organization changes
   useEffect(() => {
-    const loadCategories = async () => {
+    const fetchCategories = async () => {
       if (!formData.organization_id) return;
       
       try {
-        const response = await fetch(`/api/organizations/${formData.organization_id}/categories`);
+        setIsLoadingCategories(true);
+        // Use buildApiUrl to get the correct URL for the current environment
+        const apiUrl = buildApiUrl(`/api/organizations/${formData.organization_id}/categories`);
+        const response = await fetch(apiUrl, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+          },
+          credentials: 'include'
+        });
         if (!response.ok) throw new Error('Failed to load categories');
         const data = await response.json();
         setCategories(data);
       } catch (error) {
         console.error('Error loading categories:', error);
         setCategories([]);
+      } finally {
+        setIsLoadingCategories(false);
       }
     };
 
-    loadCategories();
+    fetchCategories();
   }, [formData.organization_id]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -145,6 +157,7 @@ export function DashboardForm({ onSubmit, onCancel, isSubmitting }: DashboardFor
                     value={formData.category_id}
                     onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
                     className="w-full bg-gray-700 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={isLoadingCategories}
                   >
                     <option value="">No Category</option>
                     {categories.map((category) => (
@@ -153,6 +166,9 @@ export function DashboardForm({ onSubmit, onCancel, isSubmitting }: DashboardFor
                       </option>
                     ))}
                   </select>
+                  {isLoadingCategories && (
+                    <div className="text-sm text-gray-400 mt-1">Loading categories...</div>
+                  )}
                 </div>
               )}
 

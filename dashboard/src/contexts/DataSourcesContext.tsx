@@ -7,7 +7,14 @@ import {
 } from '../types/shared-types';
 import { refreshKnowledgeBase } from '../refresh-knowledge-base';
 // Import our API configuration
-import { API_URL, SOCKET_URL } from '../api-config';
+import { API_URL, SOCKET_URL, buildApiUrl } from '../api-config';
+
+// Add global declaration for window.emitAuthError
+declare global {
+  interface Window {
+    emitAuthError?: (message: string) => void;
+  }
+}
 
 // Use the imported API URL instead of the environment variable
 const API_BASE_URL = API_URL;
@@ -89,21 +96,111 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     try {
       setIsLoading(true);
-      const response = await fetch(
-        `${API_BASE_URL}/api/data-sources?organization_id=${currentOrganization.id}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const token = localStorage.getItem('auth_token');
+      
+      if (!token) {
+        console.log('No authentication token, skipping data source fetch');
+        setIsLoading(false);
+        return;
+      }
+      
+      const apiUrl = buildApiUrl(`/api/data-sources?organization_id=${currentOrganization.id}`);
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch data sources: ${response.statusText}`);
+      // Check for HTML response which indicates authentication issues
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/html')) {
+        console.warn('Received HTML response when fetching data sources - likely an authentication issue', {
+          status: response.status,
+          url: response.url
+        });
+        
+        // If we're getting HTML when expecting JSON, it's likely an auth issue
+        localStorage.removeItem('auth_token');
+        
+        // Use window.emitAuthError if available
+        if (window.emitAuthError) {
+          window.emitAuthError('Authentication required. Please log in.');
+        }
+        
+        setIsLoading(false);
+        return;
       }
 
-      const data = await response.json();
+      if (!response.ok) {
+        // Try to get the response text to check if it's HTML
+        const text = await response.text();
+        
+        // Check if the response looks like HTML
+        if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
+          console.warn('Response looks like HTML even though content type was not set properly');
+          localStorage.removeItem('auth_token');
+          
+          // Use window.emitAuthError if available
+          if (window.emitAuthError) {
+            window.emitAuthError('Authentication required. Please log in.');
+          }
+          
+          setIsLoading(false);
+          return;
+        }
+        
+        let errorData;
+        try {
+          // Try to parse as JSON
+          errorData = JSON.parse(text);
+        } catch (e) {
+          console.error('Failed to parse error response:', e);
+          errorData = { error: 'Failed to parse server response' };
+        }
+        
+        throw new Error(errorData.error || `Failed to fetch data sources: ${response.statusText}`);
+      }
+
+      // Try parsing the response and check if it's actually HTML
+      let data;
+      const responseText = await response.text();
+      
+      try {
+        // Check if the response looks like HTML before trying to parse
+        if (responseText.trim().startsWith('<!doctype') || responseText.trim().startsWith('<html')) {
+          console.warn('Response looks like HTML even though status was OK');
+          localStorage.removeItem('auth_token');
+          
+          // Use window.emitAuthError if available
+          if (window.emitAuthError) {
+            window.emitAuthError('Authentication required. Please log in.');
+          }
+          
+          setIsLoading(false);
+          return;
+        }
+        
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response as JSON:', parseError);
+        
+        // If parsing fails, it's likely an auth issue (HTML login page)
+        if (responseText.includes('<!doctype') || responseText.includes('<html')) {
+          localStorage.removeItem('auth_token');
+          
+          // Use window.emitAuthError if available
+          if (window.emitAuthError) {
+            window.emitAuthError('Authentication required. Please log in.');
+          }
+          
+          setIsLoading(false);
+          return;
+        }
+        
+        throw new Error('Failed to parse server response');
+      }
       
       // Check if data has actually changed
       const newDataHash = generateDataHash(data);
@@ -111,10 +208,12 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lastDataHashRef.current = newDataHash;
         setDataSources(data);
         
-        // Only refresh knowledge base if data actually changed
-        setTimeout(() => {
-          refreshKnowledgeBase(false);
-        }, 0);
+        // Only refresh knowledge base if data actually changed AND we have a valid token
+        if (localStorage.getItem('auth_token')) {
+          setTimeout(() => {
+            refreshKnowledgeBase(false);
+          }, 0);
+        }
       }
       
       setError(null);

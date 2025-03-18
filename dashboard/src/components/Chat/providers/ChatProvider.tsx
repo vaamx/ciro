@@ -6,8 +6,6 @@ import type { ChatSession } from '../../../services/api';
 import { useOrganization } from '../../../contexts/OrganizationContext';
 import { useDashboard } from '../../../contexts/DashboardContext';
 import { useAuth } from '../../../contexts/AuthContext';
-import type { ChatContext as ApiChatContext } from '../../../services/api';
-import { notification } from '../../../utils/notification';
 import { useDocumentState } from '../hooks/useDocumentState';
 
 interface ChatContextType {
@@ -125,7 +123,142 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [sessionCache, setSessionCache] = useState<Record<string, ChatSession[]>>({});
   const [cacheTimestamp, setCacheTimestamp] = useState<Record<string, number>>({});
   const [sessionMessages, setSessionMessages] = useState<Record<string, ChatMessage[]>>({});
-  const [messagesCache, setMessagesCache] = useState<Record<string, ChatMessage[]>>({});
+  
+  // Context version tracking to detect changes
+  const [contextVersion, setContextVersion] = useState(0);
+  
+  // State machine for tracking complex operations
+  const [operationState, setOperationState] = useState<{
+    type: 'idle' | 'loading-sessions' | 'creating-session' | 'selecting-session' | 'deleting-session' | 'context-switch';
+    inProgress: boolean;
+    operationId?: string;
+    startTime: number;
+    contextVersionAtStart: number;
+  }>({
+    type: 'idle',
+    inProgress: false,
+    startTime: 0,
+    contextVersionAtStart: 0
+  });
+  
+  // Track if a session creation is in progress to prevent duplicates
+  const sessionCreationInProgress = useRef(false);
+  
+  // Create refs for tracking previous organization and dashboard IDs
+  const prevOrgId = useRef<number | undefined>(undefined);
+  const prevDashboardId = useRef<string | undefined>(undefined);
+  
+  // Mutex mechanism for operations
+  const operationMutex = useRef<{
+    locked: boolean;
+    queue: Array<() => Promise<void>>;
+    currentOperation: string | null;
+  }>({
+    locked: false,
+    queue: [],
+    currentOperation: null
+  });
+  
+  // Helper to acquire the mutex for an operation
+  const acquireMutex = useCallback(async (operationName: string): Promise<boolean> => {
+    if (operationMutex.current.locked) {
+      console.log(`Mutex locked by ${operationMutex.current.currentOperation}, ${operationName} is waiting...`);
+      return false;
+    }
+    
+    operationMutex.current.locked = true;
+    operationMutex.current.currentOperation = operationName;
+    console.log(`Mutex acquired for ${operationName}`);
+    return true;
+  }, []);
+  
+  // Helper to release the mutex
+  const releaseMutex = useCallback(() => {
+    const prevOp = operationMutex.current.currentOperation;
+    operationMutex.current.locked = false;
+    operationMutex.current.currentOperation = null;
+    console.log(`Mutex released from ${prevOp}`);
+    
+    // Process next operation in queue if any
+    if (operationMutex.current.queue.length > 0) {
+      const nextOperation = operationMutex.current.queue.shift();
+      if (nextOperation) {
+        console.log(`Processing next operation from queue (${operationMutex.current.queue.length} remaining)`);
+        nextOperation();
+      }
+    }
+  }, []);
+  
+  // Helper to run an operation with mutex protection
+  const runWithMutex = useCallback(async <T,>(
+    operationName: string, 
+    operation: () => Promise<T>, 
+    timeout: number = 10000
+  ): Promise<T> => {
+    // Check if mutex is already locked
+    if (operationMutex.current.locked) {
+      // Create a promise that will resolve when the operation completes
+      return new Promise((resolve, reject) => {
+        console.log(`Queuing ${operationName} (mutex locked by ${operationMutex.current.currentOperation})`);
+        
+        // Add this operation to the queue
+        operationMutex.current.queue.push(async () => {
+          try {
+            // Set a timeout to prevent deadlocks
+            const timeoutId = setTimeout(() => {
+              console.error(`Operation ${operationName} timed out after ${timeout}ms`);
+              releaseMutex();
+              reject(new Error(`Operation ${operationName} timed out`));
+            }, timeout);
+            
+            // Acquire mutex and run operation
+            operationMutex.current.locked = true;
+            operationMutex.current.currentOperation = operationName;
+            
+            try {
+              const result = await operation();
+              clearTimeout(timeoutId);
+              resolve(result);
+            } catch (error) {
+              clearTimeout(timeoutId);
+              reject(error);
+            } finally {
+              releaseMutex();
+            }
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+    }
+    
+    // If mutex is not locked, acquire it and run operation immediately
+    try {
+      // Set a timeout to prevent deadlocks
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Operation ${operationName} timed out after ${timeout}ms`));
+        }, timeout);
+      });
+      
+      // Acquire mutex
+      operationMutex.current.locked = true;
+      operationMutex.current.currentOperation = operationName;
+      
+      // Run operation with timeout protection
+      const result = await Promise.race([
+        operation(),
+        timeoutPromise
+      ]);
+      
+      return result;
+    } catch (error) {
+      console.error(`Error in ${operationName}:`, error);
+      throw error;
+    } finally {
+      releaseMutex();
+    }
+  }, [releaseMutex]);
   
   // Cache expiration time - 5 minutes
   const CACHE_EXPIRATION = 5 * 60 * 1000;
@@ -145,6 +278,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const { currentDashboard } = useDashboard();
   const { isAuthenticated, user } = useAuth();
 
+  // Update context version when organization or dashboard changes
+  useEffect(() => {
+    // Increment context version whenever organization or dashboard changes
+    setContextVersion(prev => prev + 1);
+    console.log(`Context changed: incrementing context version to ${contextVersion + 1}`);
+    
+    // Update previous values for comparison
+    prevOrgId.current = currentOrganization?.id;
+    prevDashboardId.current = currentDashboard?.id;
+  }, [currentOrganization?.id, currentDashboard?.id]);
+
   const getChatContext = useCallback((): { organization_id: number, dashboard_id?: string } => {
     // Get organization ID from context
     const organizationId = currentOrganization?.id || 1;
@@ -158,10 +302,46 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       dashboard_id: dashboardId
     };
   }, [currentOrganization, currentDashboard]);
-
-  // Track if a session creation is in progress to prevent duplicates
-  const sessionCreationInProgress = useRef(false);
   
+  // Unified context validation function
+  const validateSessionContext = useCallback((session: ChatSession | null): boolean => {
+    if (!session) return false;
+    
+    const context = getChatContext();
+    
+    // Always validate organization ID
+    const validOrg = session.organization_id === context.organization_id;
+    
+    // Only validate dashboard ID if it's specified in the current context
+    const validDashboard = !context.dashboard_id || session.dashboard_id === context.dashboard_id;
+    
+    if (!validOrg || !validDashboard) {
+      console.warn(`Session ${session.id} has invalid context: ` + 
+        `org=${session.organization_id} (expected ${context.organization_id}), ` + 
+        `dashboard=${session.dashboard_id} (expected ${context.dashboard_id || 'any'})`);
+      return false;
+    }
+    
+    return true;
+  }, [getChatContext]);
+  
+  // Utility function to filter sessions by current context
+  const filterSessionsByContext = useCallback((sessionsToFilter: ChatSession[]): ChatSession[] => {
+    const context = getChatContext();
+    
+    return sessionsToFilter.filter(session => {
+      const validOrg = session.organization_id === context.organization_id;
+      const validDashboard = !context.dashboard_id || session.dashboard_id === context.dashboard_id;
+      
+      if (!validOrg || !validDashboard) {
+        console.warn(`Filtering out session ${session.id} with mismatched context - ` +
+          `org: ${session.organization_id}, dashboard: ${session.dashboard_id}`);
+        return false;
+      }
+      return true;
+    });
+  }, [getChatContext]);
+
   // Load messages for a specific session
   const loadMessagesForSession = async (
     session: ChatSession, 
@@ -192,11 +372,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               setMessages(localStorageMessages);
               
               // Also update the caches
-              setMessagesCache(prev => ({
-                ...prev,
-                [session.id]: localStorageMessages
-              }));
-              
               setSessionMessages(prev => ({
                 ...prev,
                 [session.id]: localStorageMessages
@@ -225,11 +400,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setMessages(history);
             
             // Update the caches
-            setMessagesCache(prev => ({
-              ...prev,
-              [session.id]: history
-            }));
-            
             setSessionMessages(prev => ({
               ...prev,
               [session.id]: history
@@ -256,11 +426,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setMessages([welcomeMessage]);
             
             // Update the caches
-            setMessagesCache(prev => ({
-              ...prev,
-              [session.id]: [welcomeMessage]
-            }));
-            
             setSessionMessages(prev => ({
               ...prev,
               [session.id]: [welcomeMessage]
@@ -273,11 +438,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setMessages([]);
             
             // Update the caches
-            setMessagesCache(prev => ({
-              ...prev,
-              [session.id]: []
-            }));
-            
             setSessionMessages(prev => ({
               ...prev,
               [session.id]: []
@@ -294,11 +454,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setMessages(localStorageMessages);
             
             // Update the caches
-            setMessagesCache(prev => ({
-              ...prev,
-              [session.id]: localStorageMessages
-            }));
-            
             setSessionMessages(prev => ({
               ...prev,
               [session.id]: localStorageMessages
@@ -322,11 +477,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setMessages([welcomeMessage]);
             
             // Update the caches
-            setMessagesCache(prev => ({
-              ...prev,
-              [session.id]: [welcomeMessage]
-            }));
-            
             setSessionMessages(prev => ({
               ...prev,
               [session.id]: [welcomeMessage]
@@ -346,188 +496,121 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // Create a new chat session immediately, bypassing normal initialization flow
-  const createNewSessionImmediately = useCallback(async (force_create: boolean = false, skipWelcomeMessage: boolean = false): Promise<ChatSession | null> => {
-    // Check if we're changing data sources, in which case we should NOT create a new session
-    const changingDataSource = localStorage.getItem('changing_data_source') === 'true';
-    if (changingDataSource) {
-      console.log('Data source change in progress - preventing new session creation');
-      
-      // If we're preserving the welcome screen, ensure messages are empty
-      const preserveWelcomeScreen = localStorage.getItem('preserve_welcome_screen') === 'true';
-      if (preserveWelcomeScreen && activeSessionId) {
-        console.log('Preserving welcome screen during data source switch');
-        setMessages([]);
-      }
-      
-      return null;
-    }
-    
-    // Prevent multiple simultaneous session creations
-    if (sessionCreationInProgress.current) {
-      console.log('Session creation already in progress, skipping duplicate request');
-      return null;
-    }
-    
-    sessionCreationInProgress.current = true;
-    console.log('Creating new session immediately, bypassing loading');
-    
-    try {
-      // Check if we already have an active session
-      if (!force_create && activeSessionId && sessions.some(s => s.id === activeSessionId)) {
-        console.log(`Already have active session ${activeSessionId}, skipping creation`);
-        sessionCreationInProgress.current = false;
-        return sessions.find(s => s.id === activeSessionId) || null;
-      }
-      
-      // Get the current context
-      const context = getChatContext();
-      
-      // Clear messages immediately to prevent old messages from being displayed
-      setMessages([]);
-      
-      // Generate a unique title for the new session
-      const sessionTitle = `New Chat ${new Date().toLocaleTimeString()}`;
-      
-      // Create a new session
-      const newSession = await apiService.createChatSession(sessionTitle, context);
-      console.log(`Created immediate new session: ${newSession.id}`);
-      
-      // Add to our sessions list first, checking for duplicates
-      setSessions(prev => {
-        // Check if this session already exists
-        const exists = prev.some(s => s.id === newSession.id);
-        if (exists) {
-          console.log(`Session ${newSession.id} already exists, not adding duplicate`);
-          return prev;
-        }
-        return [newSession, ...prev];
+  const createNewSessionImmediately = useCallback(async (forceCreate: boolean = false, skipWelcomeMessage: boolean = false): Promise<ChatSession | null> => {
+    // Use mutex to protect session creation
+    return runWithMutex('createSession', async () => {
+      // Update operation state
+      setOperationState({
+        type: 'creating-session',
+        inProgress: true,
+        startTime: Date.now(),
+        contextVersionAtStart: contextVersion
       });
       
-      // Set as active session
-      setActiveSessionId(newSession.id);
+      // Capture current context version
+      const operationContextVersion = contextVersion;
       
-      if (skipWelcomeMessage) {
-        // For a new session, ensure no messages are carried over from previous sessions
-        // Clear the session messages cache for the new session
-        setMessagesCache(prev => ({
-          ...prev,
-          [newSession.id]: []
-        }));
-      }
-      
-      return newSession;
-    } catch (error) {
-      console.error('Error creating new session immediately:', error);
-      return null;
-    } finally {
-      // Reset the flag regardless of success or failure
-      sessionCreationInProgress.current = false;
-    }
-  }, [activeSessionId, sessions, getChatContext, apiService]);
-
-  // Load sessions from the server
-  const loadSessions = useCallback(async () => {
-    // Skip if not authenticated
-    if (!isAuthenticated || !user) {
-      console.log('Skipping session loading - user not authenticated');
-      return;
-    }
-    
-    // Check if we're in a rate-limited state
-    const now = Date.now();
-    const timeSinceLastRetry = now - lastRetryTime;
-    const backoffTime = Math.min(30000, 1000 * Math.pow(2, retryCount));
-    
-    if (retryCount > 0 && timeSinceLastRetry < backoffTime) {
-      console.log(`Skipping session load - in backoff period. Waiting ${(backoffTime - timeSinceLastRetry) / 1000}s`);
-      return;
-    }
-    
-    // Debounce: prevent loading too frequently
-    const timeSinceLastLoad = now - lastLoadTime;
-    if (timeSinceLastLoad < MIN_LOAD_INTERVAL) {
-      console.log(`Debouncing session load - last load was ${timeSinceLastLoad / 1000}s ago`);
-      return;
-    }
-    
-    // Update last load time
-    setLastLoadTime(now);
-    
-    // Prepare context for API call
-    const context: ApiChatContext = {
-      organization_id: currentOrganization?.id,
-      dashboard_id: currentDashboard?.id
-    };
-    
-    // Check if we have a valid cache for all sessions
-    const cacheKey = `sessions_${JSON.stringify(context)}`;
-    if (isCacheValid(cacheKey) && sessionCache[cacheKey]) {
-      console.log(`Using cached sessions from ${(now - cacheTimestamp[cacheKey]) / 1000}s ago`);
-      setSessions(sessionCache[cacheKey]);
-      setIsLoadingSessions(false);
-      return;
-    }
-    
-    // If we have an active session, prioritize loading that one
-    if (activeSessionId) {
-      // Look for the active session in all cached session arrays
-      for (const [key, sessions] of Object.entries(sessionCache)) {
-        if (isCacheValid(key)) {
-          const cachedSession = sessions.find(s => s.id === activeSessionId);
-          if (cachedSession) {
-            console.log(`Using cached session ${activeSessionId} from cache key ${key}`);
-            // Load messages for this session
-            await loadMessagesForSession(cachedSession);
-            return;
+      try {
+        // Check if we're changing data sources, in which case we should NOT create a new session
+        const changingDataSource = localStorage.getItem('changing_data_source') === 'true';
+        if (changingDataSource) {
+          console.log('Data source change in progress - preventing new session creation');
+          
+          // If we're preserving the welcome screen, ensure messages are empty
+          const preserveWelcomeScreen = localStorage.getItem('preserve_welcome_screen') === 'true';
+          if (preserveWelcomeScreen && activeSessionId) {
+            console.log('Preserving welcome screen during data source switch');
+            setMessages([]);
+          }
+          
+          setOperationState(prev => ({...prev, inProgress: false}));
+          return null;
+        }
+        
+        // Check if we already have an active session
+        if (!forceCreate && activeSessionId && sessions.some(s => s.id === activeSessionId)) {
+          const activeSession = sessions.find(s => s.id === activeSessionId);
+          
+          // Validate if session matches current context
+          if (activeSession && validateSessionContext(activeSession)) {
+            console.log(`Already have active valid session ${activeSessionId}, skipping creation`);
+            setOperationState(prev => ({...prev, inProgress: false}));
+            return activeSession || null;
+          } else {
+            console.log(`Active session ${activeSessionId} exists but doesn't match current context, will create new one`);
           }
         }
-      }
-    }
-    
-    // If we get here, we need to load from the server
-    setIsLoadingSessions(true);
-    
-    try {
-      // Fetch sessions from the server
-      const fetchedSessions = await apiService.getChatSessions(context);
-      console.log(`Successfully fetched ${fetchedSessions.length} chat sessions`);
-      
-      // Reset retry count on success
-      if (retryCount > 0) {
-        setRetryCount(0);
-        setLastRetryTime(0);
-      }
-      
-      // Cache all sessions
-      setSessionCache(prev => ({ ...prev, [cacheKey]: fetchedSessions }));
-      setCacheTimestamp(prev => ({ ...prev, [cacheKey]: Date.now() }));
-      
-      // Create a map for quick lookup
-      const sessionsMap: Record<string, ChatSession> = {};
-      fetchedSessions.forEach(session => {
-        sessionsMap[session.id] = session;
-      });
-      
-      // Update state
-      setSessions(fetchedSessions);
-      
-      // If we have an active session, load its messages
-      if (activeSessionId && sessionsMap[activeSessionId]) {
-        await loadMessagesForSession(sessionsMap[activeSessionId]);
-      } else if (fetchedSessions.length > 0 && !activeSessionId) {
-        // If no active session but we have sessions, select the most recent one
-        const mostRecent = fetchedSessions.sort((a, b) => 
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )[0];
         
-        setActiveSessionId(mostRecent.id);
-        await loadMessagesForSession(mostRecent);
-      } else if (fetchedSessions.length === 0) {
-        // If no sessions exist, create a new one
-        const newSession = await createNewSessionImmediately(true, true);
+        // If context has changed during operation, abort
+        if (contextVersion !== operationContextVersion) {
+          console.log(`Context changed during session creation preparation (v${operationContextVersion} -> v${contextVersion}), aborting operation`);
+          setOperationState(prev => ({...prev, inProgress: false}));
+          return null;
+        }
         
-        // If we successfully created a new session, add a simple welcome message
-        if (newSession) {
+        // Get the current context
+        const context = getChatContext();
+        
+        // Validate context
+        if (!context.organization_id) {
+          console.error('Missing organization_id in context, cannot create session');
+          setOperationState(prev => ({...prev, inProgress: false}));
+          return null;
+        }
+        
+        // Clear messages immediately to prevent old messages from being displayed
+        setMessages([]);
+        
+        // Generate a unique title for the new session
+        const sessionTitle = `New Chat ${new Date().toLocaleTimeString()}`;
+        
+        // Create a new session
+        console.log(`Creating new session with title "${sessionTitle}" and context: org=${context.organization_id}, dashboard=${context.dashboard_id || 'none'}`);
+        const newSession = await apiService.createChatSession(sessionTitle, context);
+        console.log(`Created immediate new session: ${newSession.id} with org=${newSession.organization_id}, dashboard=${newSession.dashboard_id}`);
+        
+        // If context has changed during API call, abort
+        if (contextVersion !== operationContextVersion) {
+          console.log(`Context changed during session creation API call (v${operationContextVersion} -> v${contextVersion}), discarding result`);
+          setOperationState(prev => ({...prev, inProgress: false}));
+          return null;
+        }
+        
+        // Verify the session was created with the expected organization/dashboard
+        if (newSession.organization_id !== context.organization_id) {
+          console.warn(`Session created with wrong organization. Expected: ${context.organization_id}, Got: ${newSession.organization_id}`);
+        }
+        
+        if (context.dashboard_id && newSession.dashboard_id !== context.dashboard_id) {
+          console.warn(`Session created with wrong dashboard. Expected: ${context.dashboard_id}, Got: ${newSession.dashboard_id}`);
+        }
+        
+        // Verify this session doesn't already exist in our list
+        // Use functional update to prevent stale state issues
+        let sessionExists = false;
+        setSessions(prev => {
+          sessionExists = prev.some(s => s.id === newSession.id);
+          
+          // Add to our sessions list if it doesn't already exist
+          if (!sessionExists) {
+            return [newSession, ...prev];
+          }
+          console.log(`Session ${newSession.id} already exists in sessions list, not adding again`);
+          return prev;
+        });
+        
+        // Set as active session
+        setActiveSessionId(newSession.id);
+        
+        if (skipWelcomeMessage) {
+          // For a new session, ensure no messages are carried over from previous sessions
+          // Clear the session messages cache for the new session
+          setSessionMessages(prev => ({
+            ...prev,
+            [newSession.id]: []
+          }));
+        } else {
+          // Add welcome message for new session
           const welcomeMessage: ChatMessage = {
             id: `welcome-${newSession.id}-${Date.now()}`,
             role: 'assistant' as MessageRole,
@@ -548,44 +631,229 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const localStorageKey = `chat_messages_${newSession.id}`;
           localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
           
-          // Update the messages cache
-          setMessagesCache(prev => ({
+          // Update the session messages cache
+          setSessionMessages(prev => ({
             ...prev,
             [newSession.id]: [welcomeMessage]
           }));
         }
+        
+        return newSession;
+      } catch (error) {
+        console.error('Error creating new session immediately:', error);
+        return null;
+      } finally {
+        // Reset the operation state
+        setOperationState(prev => ({...prev, inProgress: false}));
       }
-    } catch (error) {
-      console.error('Error loading sessions:', error);
+    });
+  }, [
+    activeSessionId, 
+    sessions, 
+    getChatContext, 
+    apiService, 
+    setMessages, 
+    contextVersion,
+    runWithMutex,
+    validateSessionContext
+  ]);
+
+  // Load sessions from the server
+  const loadSessions = useCallback(async () => {
+    // Skip if not authenticated
+    if (!isAuthenticated || !user) {
+      console.log('Skipping session loading - user not authenticated');
+      return;
+    }
+    
+    // Execute session loading with mutex protection
+    return runWithMutex('loadSessions', async () => {
+      // Update operation state
+      setOperationState({
+        type: 'loading-sessions',
+        inProgress: true,
+        startTime: Date.now(),
+        contextVersionAtStart: contextVersion
+      });
       
-      // Increment retry count and set last retry time
-      setRetryCount(prev => Math.min(MAX_RETRY_COUNT, prev + 1));
-      setLastRetryTime(now);
+      // Capture current context version at start of operation
+      const operationContextVersion = contextVersion;
       
-      // Try to load from localStorage as fallback
+      // Check if we're in a rate-limited state
+      const now = Date.now();
+      const timeSinceLastRetry = now - lastRetryTime;
+      const backoffTime = Math.min(30000, 1000 * Math.pow(2, retryCount));
+      
+      if (retryCount > 0 && timeSinceLastRetry < backoffTime) {
+        console.log(`Skipping session load - in backoff period. Waiting ${(backoffTime - timeSinceLastRetry) / 1000}s`);
+        setOperationState(prev => ({...prev, inProgress: false}));
+        return;
+      }
+      
+      // Debounce: prevent loading too frequently
+      const timeSinceLastLoad = now - lastLoadTime;
+      if (timeSinceLastLoad < MIN_LOAD_INTERVAL) {
+        console.log(`Debouncing session load - last load was ${timeSinceLastLoad / 1000}s ago`);
+        setOperationState(prev => ({...prev, inProgress: false}));
+        return;
+      }
+      
+      // Update last load time
+      setLastLoadTime(now);
+      
+      // Get current context using the helper function
+      const context = getChatContext();
+      const contextKey = `org=${context.organization_id},dash=${context.dashboard_id || 'none'}`;
+      console.log(`Loading sessions with context: ${contextKey}`);
+      
+      // If context has changed since operation started, abort
+      if (contextVersion !== operationContextVersion) {
+        console.log(`Context changed during session loading (v${operationContextVersion} -> v${contextVersion}), aborting operation`);
+        setOperationState(prev => ({...prev, inProgress: false}));
+        return;
+      }
+      
+      // Set loading state
+      setIsLoadingSessions(true);
+      
       try {
-        const storedSessions = localStorage.getItem('chat_sessions');
-        if (storedSessions) {
-          const parsedSessions = JSON.parse(storedSessions) as ChatSession[];
-          console.log(`Loaded ${parsedSessions.length} sessions from localStorage fallback`);
-          setSessions(parsedSessions);
+        // Check if we have a valid cache for all sessions
+        const cacheKey = `sessions_${JSON.stringify(context)}`;
+        if (isCacheValid(cacheKey) && sessionCache[cacheKey]) {
+          console.log(`Using cached sessions from ${(now - cacheTimestamp[cacheKey]) / 1000}s ago`);
           
-          // If we have an active session, try to load its messages from localStorage
+          // Apply context filter to cached sessions to be safe
+          const validSessions = filterSessionsByContext(sessionCache[cacheKey]);
+          
+          // Update with a functional update to avoid stale state
+          setSessions(validSessions);
+          setIsLoadingSessions(false);
+          
+          // Verify if active session is still valid in this context
           if (activeSessionId) {
-            const activeSession = parsedSessions.find(s => s.id === activeSessionId);
-            if (activeSession) {
-              await loadMessagesForSession(activeSession, true);
+            const validSession = validSessions.find(s => s.id === activeSessionId);
+            if (!validSession) {
+              console.log(`Active session ${activeSessionId} is not valid in current context, clearing it`);
+              setActiveSessionId(null);
+              setMessages([]);
             }
           }
+          
+          setOperationState(prev => ({...prev, inProgress: false}));
+          return;
         }
-      } catch (localStorageError) {
-        console.error('Error loading sessions from localStorage:', localStorageError);
+        
+        // Fetch sessions from the server
+        const fetchedSessions = await apiService.getChatSessions(context);
+        console.log(`Successfully fetched ${fetchedSessions.length} chat sessions for context: ${contextKey}`);
+        
+        // Check if context has changed during fetch
+        if (contextVersion !== operationContextVersion) {
+          console.log(`Context changed during fetch (v${operationContextVersion} -> v${contextVersion}), discarding results`);
+          setOperationState(prev => ({...prev, inProgress: false}));
+          return;
+        }
+        
+        // Reset retry count on success
+        if (retryCount > 0) {
+          setRetryCount(0);
+          setLastRetryTime(0);
+        }
+        
+        // Verify each session has correct context using our validation function
+        const validSessions = filterSessionsByContext(fetchedSessions);
+        
+        if (validSessions.length !== fetchedSessions.length) {
+          console.warn(`Filtered out ${fetchedSessions.length - validSessions.length} sessions with invalid context`);
+        }
+        
+        // Cache filtered sessions
+        setSessionCache(prev => ({ ...prev, [cacheKey]: validSessions }));
+        setCacheTimestamp(prev => ({ ...prev, [cacheKey]: Date.now() }));
+        
+        // Create a map for quick lookup
+        const sessionsMap: Record<string, ChatSession> = {};
+        validSessions.forEach(session => {
+          sessionsMap[session.id] = session;
+        });
+        
+        // Update state with functional updates
+        setSessions(validSessions);
+        
+        // If we have an active session, check if it's still valid
+        if (activeSessionId && sessionsMap[activeSessionId]) {
+          // The active session is still valid in the new context, load its messages
+          await loadMessagesForSession(sessionsMap[activeSessionId]);
+        } else if (validSessions.length > 0 && !activeSessionId) {
+          // If no active session but we have sessions, select the most recent one
+          const mostRecent = validSessions.sort((a, b) => 
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+          )[0];
+          
+          console.log(`No active session, selecting most recent: ${mostRecent.id}`);
+          setActiveSessionId(mostRecent.id);
+          await loadMessagesForSession(mostRecent);
+        } else if (validSessions.length === 0) {
+          // If no sessions exist for this context, create a new one
+          console.log('No sessions exist for this context, creating a new one');
+          
+          // Clear any existing active session first
+          if (activeSessionId) {
+            setActiveSessionId(null);
+            setMessages([]);
+          }
+          
+          // Create a new session with current context
+          await createNewSessionImmediately(true, true);
+        }
+      } catch (error) {
+        console.error('Error loading sessions:', error);
+        
+        // Increment retry count and set last retry time
+        setRetryCount(prev => Math.min(MAX_RETRY_COUNT, prev + 1));
+        setLastRetryTime(now);
+        
+        // Try to load from localStorage as fallback
+        try {
+          const storedSessions = localStorage.getItem('chat_sessions');
+          if (storedSessions) {
+            const parsedSessions = JSON.parse(storedSessions) as ChatSession[];
+            console.log(`Loaded ${parsedSessions.length} sessions from localStorage fallback`);
+            
+            // Filter sessions by current context using our validation function
+            const filteredSessions = filterSessionsByContext(parsedSessions);
+            
+            console.log(`Filtered to ${filteredSessions.length} sessions matching current context`);
+            setSessions(filteredSessions);
+            
+            // If we have an active session, verify it's valid in current context
+            if (activeSessionId) {
+              const activeSession = filteredSessions.find(s => s.id === activeSessionId);
+              if (activeSession) {
+                await loadMessagesForSession(activeSession, true);
+              } else {
+                // Clear invalid active session
+                setActiveSessionId(null);
+                setMessages([]);
+                
+                // Select another valid session if available
+                if (filteredSessions.length > 0) {
+                  setActiveSessionId(filteredSessions[0].id);
+                  await loadMessagesForSession(filteredSessions[0], true);
+                }
+              }
+            }
+          }
+        } catch (localStorageError) {
+          console.error('Error loading sessions from localStorage:', localStorageError);
+        }
+        
+        setError('Failed to load chat sessions. Please try again later.');
+      } finally {
+        setIsLoadingSessions(false);
+        setOperationState(prev => ({...prev, inProgress: false}));
       }
-      
-      setError('Failed to load chat sessions. Please try again later.');
-    } finally {
-      setIsLoadingSessions(false);
-    }
+    });
   }, [
     activeSessionId,
     isAuthenticated,
@@ -593,772 +861,78 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     retryCount,
     lastRetryTime,
     lastLoadTime,
-    currentDashboard,
     sessionCache,
-    cacheTimestamp
+    cacheTimestamp,
+    getChatContext,
+    loadMessagesForSession,
+    createNewSessionImmediately,
+    contextVersion,
+    runWithMutex,
+    filterSessionsByContext,
+    isCacheValid
   ]);
-
-  // Add a new effect to save messages to localStorage whenever they change
-  useEffect(() => {
-    // Only save if we have an active session and messages
-    if (activeSessionId && messages.length > 0) {
-      try {
-        // Save to localStorage
-        const localStorageKey = `chat_messages_${activeSessionId}`;
-        localStorage.setItem(localStorageKey, JSON.stringify(messages));
-        
-        // Also save to the server
-        const context = getChatContext();
-        apiService.saveChatHistory(activeSessionId, messages, context).catch(error => {
-          console.error(`Error saving chat history to server for session ${activeSessionId}:`, error);
-          
-          // If server save fails, ensure we have a reliable local backup
-          try {
-            // Create a backup with timestamp
-            const backupKey = `chat_messages_backup_${activeSessionId}_${Date.now()}`;
-            localStorage.setItem(backupKey, JSON.stringify(messages));
-            console.log(`Created backup of messages at ${backupKey}`);
-          } catch (backupError) {
-            console.error(`Failed to create backup of messages: ${backupError}`);
-          }
-        });
-      } catch (error) {
-        console.error(`Error saving messages to localStorage for session ${activeSessionId}:`, error);
-        
-        // Try an alternative approach if standard localStorage fails
-        try {
-          // Use a more compact representation for storage
-          const compactMessages = messages.map(m => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            timestamp: m.timestamp,
-            status: m.status
-          }));
-          
-          const compactKey = `chat_compact_${activeSessionId}`;
-          localStorage.setItem(compactKey, JSON.stringify(compactMessages));
-          console.log(`Saved compact message backup to ${compactKey}`);
-        } catch (compactError) {
-          console.error(`All attempts to save messages failed: ${compactError}`);
-        }
-      }
-    }
-  }, [activeSessionId, messages, getChatContext]);
-
-  // Reset state when switching between chats
-  useEffect(() => {
-    if (activeSessionId) {
-      console.log('Active session changed in provider:', activeSessionId);
-      
-      // Reset error state
-      setError(null);
-      
-      // Reset generating state
-      setIsGenerating(false);
-    }
-  }, [activeSessionId]);
-
-  // Load sessions when component mounts or when authentication/organization changes
-  useEffect(() => {
-    // Only attempt to load sessions if the user is authenticated
-    if (isAuthenticated && user) {
-      loadSessions();
-    } else {
-      console.log('Skipping session loading - user not authenticated');
-      setSessions([]);
-    }
-  }, [isAuthenticated, user]);
 
   // Document state for persistence between sessions
   const documentState = useDocumentState();
 
-  // Function to select a chat session
-  const selectChatSession = useCallback(async (sessionId: string) => {
-    console.log('Selecting chat session', sessionId);
+  // Add a cleanup effect to detect and fix stale operation states
+  useEffect(() => {
+    // Only run cleanup if an operation is in progress
+    if (!operationState.inProgress) return;
     
-    // Prevent selecting the same session
-    if (activeSessionId === sessionId && messagesCache[sessionId]) {
-      console.log('Already on this session, skipping selection');
-      return;
-    }
-    
-    // Set loading state for messages
-    setIsLoadingMessages(true);
-    
-    // Set the active session ID immediately to update the UI
-    setActiveSessionId(sessionId);
-    
-    try {
-      // Check if session already exists in messagesCache
-      if (messagesCache[sessionId] && messagesCache[sessionId].length > 0) {
-        console.log('Using cached messages for session', sessionId);
-        
-        // Get the cached messages
-        const cachedMessages = messagesCache[sessionId];
-        
-        // Log the cached messages for debugging
-        console.log(`Found ${cachedMessages.length} cached messages for session ${sessionId}`, 
-          cachedMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-        
-        // Update the messages state directly
-        setMessages(cachedMessages);
-        
-        // Check if there's document state for this session
-        const savedDocState = documentState.getDocumentStateForSession(sessionId);
-        if (savedDocState) {
-          console.log(`Restored document state for session ${sessionId}, type ${savedDocState.type}`);
-        }
-        
-        // Also ensure we have the document type metadata properly saved
-        cachedMessages.forEach(message => {
-          if (message.metadata?.content_type || message.metadata?.file_type) {
-            // Ensure document type info is preserved
-            console.log('Preserving document type info for message', message.id);
-            // Store document state for this message if not already stored
-            documentState.setDocumentStateForMessage(message, sessionId);
-          }
-        });
-        
-        // Finish loading
-        setIsLoadingMessages(false);
-        return;
-      }
-      
-      // Session not in cache or cache is empty, fetch messages from API
-      console.log(`Fetching messages for session ${sessionId} from API`);
-      const fetchedMessages = await apiService.getChatHistory(sessionId, getChatContext());
-      
-      console.log(`Fetched ${fetchedMessages.length} messages for session ${sessionId}`, 
-        fetchedMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-      
-      // If we didn't get any messages from the API but we have a session, create a welcome message
-      if (fetchedMessages.length === 0) {
-        console.log(`No messages found for session ${sessionId}, creating welcome message`);
-        
-        // Create a welcome message
-        const welcomeMessage: ChatMessage = {
-          id: `welcome-${sessionId}-${Date.now()}`,
-          role: 'assistant' as MessageRole,
-          content: 'Welcome! How can I help you today?',
-          timestamp: Date.now(),
-          status: 'complete',
-          metadata: {
-            sessionId: sessionId,
-            isWelcomeMessage: true,
-            isSimpleWelcome: true
-          }
-        };
-        
-        // Update the messages state with the welcome message
-        setMessages([welcomeMessage]);
-        
-        // Cache the welcome message
-        setMessagesCache(prev => ({
-          ...prev,
-          [sessionId]: [welcomeMessage]
-        }));
-        
-        // Update the session messages in the session cache
-        setSessionMessages(prev => ({
-          ...prev,
-          [sessionId]: [welcomeMessage]
-        }));
-        
-        // Finish loading
-        setIsLoadingMessages(false);
-        return;
-      }
-      
-      // Cache the messages
-      setMessagesCache(prev => ({
-        ...prev,
-        [sessionId]: fetchedMessages
-      }));
-      
-      // Update the session messages in the session cache
-      setSessionMessages(prev => ({
-        ...prev,
-        [sessionId]: fetchedMessages
-      }));
-      
-      // Preserve document type metadata for proper rendering
-      fetchedMessages.forEach(message => {
-        if (message.metadata?.content_type || message.metadata?.file_type) {
-          // Ensure document type info is preserved
-          console.log('Document type metadata found for message', message.id);
-          // Store document state for this message
-          documentState.setDocumentStateForMessage(message, sessionId);
-        }
-      });
-      
-      // Update the messages state directly
-      setMessages(fetchedMessages);
-    } catch (error) {
-      console.error('Error fetching messages for session', sessionId, error);
-      notification({
-        type: 'error',
-        message: 'Failed to load chat history'
-      });
-      
-      // Create a simple welcome message as fallback
-      const fallbackMessage: ChatMessage = {
-        id: `fallback-${sessionId}-${Date.now()}`,
-        role: 'assistant' as MessageRole,
-        content: 'Welcome! How can I help you today?',
-        timestamp: Date.now(),
-        status: 'complete',
-        metadata: {
-          sessionId: sessionId,
-          isWelcomeMessage: true,
-          isSimpleWelcome: true
-        }
-      };
-      
-      // Set fallback message
-      setMessages([fallbackMessage]);
-      
-      // Cache the fallback message
-      setMessagesCache(prev => ({
-        ...prev,
-        [sessionId]: [fallbackMessage]
-      }));
-      
-      // Update the session messages in the session cache
-      setSessionMessages(prev => ({
-        ...prev,
-        [sessionId]: [fallbackMessage]
-      }));
-    } finally {
-      setIsLoadingMessages(false);
-    }
-  }, [activeSessionId, messagesCache, apiService, getChatContext, documentState]);
-
-  const createSession = useCallback(async (title?: string, skipWelcomeMessage: boolean = false): Promise<ChatSession> => {
-    try {
-      const context = getChatContext();
-      if (!context.organization_id || !context.dashboard_id) {
-        throw new Error('Organization ID and Dashboard ID are required to create a chat session');
-      }
-
-      // Set loading state
-      setIsLoadingMessages(true);
-      setError(null);
-      
-      // Generate a default title if none provided
-      const sessionTitle = title || `New Chat ${new Date().toLocaleTimeString()}`;
-      console.log(`Creating new session with title: ${sessionTitle}`);
-      
-      // Create the session via API
-      const newSession = await apiService.createChatSession(sessionTitle, context);
-      console.log(`Successfully created session with ID: ${newSession.id}`);
-      
-      // Update sessions list with the new session at the beginning
-      setSessions(prev => {
-        // Check if this session already exists to prevent duplicates
-        const exists = prev.some(s => s.id === newSession.id);
-        if (exists) {
-          console.log(`Session ${newSession.id} already exists, not adding duplicate`);
-          return prev;
-        }
-        return [newSession, ...prev];
-      });
-      
-      // Set the active session ID immediately to update the UI
-      setActiveSessionId(newSession.id);
-      
-      // If skipWelcomeMessage is true, we'll handle loading the session with the flag
-      if (skipWelcomeMessage) {
-        // Load the session but skip creating a welcome message
-        await loadMessagesForSession(newSession, false, true);
-      } else {
-        // Create a welcome message for the new session
-        const welcomeMessage: ChatMessage = {
-          id: `welcome-${newSession.id}-${Date.now()}`,
-          role: 'assistant' as MessageRole,
-          content: 'Welcome! How can I help you today?',
-          timestamp: Date.now(),
-          status: 'complete',
-          metadata: {
-            sessionId: newSession.id,
-            isWelcomeMessage: true,
-            isSimpleWelcome: true
-          }
-        };
-        
-        // Update the messages state
-        setMessages([welcomeMessage]);
-        
-        // Update the caches
-        setMessagesCache(prev => ({
-          ...prev,
-          [newSession.id]: [welcomeMessage]
-        }));
-        
-        setSessionMessages(prev => ({
-          ...prev,
-          [newSession.id]: [welcomeMessage]
-        }));
-        
-        // Save the welcome message to localStorage
-        const localStorageKey = `chat_messages_${newSession.id}`;
-        localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
-      }
-      
-      return newSession;
-    } catch (error) {
-      console.error('Error creating chat session:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create chat session');
-      throw error; // Re-throw to allow proper handling
-    } finally {
-      setIsLoadingMessages(false);
-    }
-  }, [getChatContext, loadMessagesForSession]);
-
-  const deleteSession = useCallback(async (sessionId: string) => {
-    try {
-      await apiService.deleteChatSession(sessionId, getChatContext());
-      
-      // Update the sessions list
-      setSessions(prev => prev.filter(session => session.id !== sessionId));
-      
-      // Get the updated list of sessions
-      const remainingSessions = sessions.filter(session => session.id !== sessionId);
-      
-      // If the deleted session was active
-      if (sessionId === activeSessionId) {
-        if (remainingSessions.length > 0) {
-          // If we have other sessions, select the first one
-          await selectChatSession(remainingSessions[0].id);
-          
-          // Show success notification
-          if (window.notificationContext) {
-            window.notificationContext.showNotification({
-              type: 'success',
-              message: 'Chat deleted successfully'
-            });
-          }
-        } else {
-          // If no sessions left, clear active session
-          setActiveSessionId(null);
-          setMessages([]);
-          
-          // Prevent multiple session creations
-          if (sessionCreationInProgress.current) {
-            console.log("Session creation already in progress, skipping duplicate creation");
-            return;
-          }
-          
-          // Set flag to prevent multiple creations
-          sessionCreationInProgress.current = true;
-          
-          // Create a new session automatically
-          try {
-            const newSession = await createSession("New Chat", true);
-            console.log("Created new session after deleting last session:", newSession.id);
-            
-            // Show notification
-            if (window.notificationContext) {
-              window.notificationContext.showNotification({
-                type: 'success',
-                message: 'Chat deleted. Created a new chat for you.'
-              });
-            }
-          } catch (err) {
-            console.error("Failed to create new session after deletion:", err);
-          } finally {
-            // Reset the flag
-            sessionCreationInProgress.current = false;
-          }
-        }
-      } else {
-        // If we deleted a non-active session
-        if (window.notificationContext) {
-          window.notificationContext.showNotification({
-            type: 'success',
-            message: 'Chat deleted successfully'
-          });
-        }
-      }
-      
-      // Clear document state for this session
-      documentState.clearDocumentStateForSession(sessionId);
-    } catch (error) {
-      console.error('Error deleting chat session:', error);
-      
-      // Show error notification
-      if (window.notificationContext) {
-        window.notificationContext.showNotification({
-          type: 'error',
-          message: 'Failed to delete chat. Please try again.'
-        });
-      }
-    }
-  }, [sessions, activeSessionId, selectChatSession, getChatContext, createSession, documentState]);
-
-  // Add or update a message in the current session
-  const addOrUpdateMessage = useCallback((message: ChatMessage) => {
-    if (!activeSessionId) return;
-    
-    const updatedMessages = messages.map(m => 
-      m.id === message.id ? message : m
-    );
-    
-    // If the message wasn't found, add it
-    if (!updatedMessages.find(m => m.id === message.id)) {
-      updatedMessages.push(message);
-    }
-    
-    // Update both current messages and session cache
-    setMessages(updatedMessages);
-    setSessionMessages(prev => ({
-      ...prev,
-      [activeSessionId]: updatedMessages
-    }));
-  }, [activeSessionId, messages]);
-
-  // Define saveChatHistory function at the top level
-  const saveChatHistory = useCallback(async (sessionId: string, messagesToSave: ChatMessage[]) => {
-    try {
-      await apiService.saveChatHistory(sessionId, messagesToSave, getChatContext());
-    } catch (error: any) {
-      console.error('Failed to save chat history:', error);
-    }
-  }, [getChatContext]);
-
-  const updateMessagesForSession = useCallback((sessionId: string, newMessages: ChatMessage[]) => {
-    // Always update the current messages state
-    setMessages(newMessages);
-    
-    // Log for debugging
-    console.log(`Updating messages for session ${sessionId}. Message count: ${newMessages.length}`, 
-      newMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-    
-    // Always update the session cache regardless of message type
-    setSessionMessages(prev => ({
-      ...prev,
-      [sessionId]: newMessages
-    }));
-    
-    // Also update the messages cache
-    setMessagesCache(prev => ({
-      ...prev,
-      [sessionId]: newMessages
-    }));
-    
-    // Check if the last message is from the assistant
-    const isFromAssistant = newMessages.length > 0 && 
-      newMessages[newMessages.length - 1].role === 'assistant';
-    
-    // Only save to server if it's not an assistant message
-    // (assistant messages are handled separately during streaming)
-    if (!isFromAssistant) {
-      // Save to server
-      saveChatHistory(sessionId, newMessages).catch((error: any) => {
-        console.error('Failed to save chat history:', error);
-      });
-    }
-  }, [saveChatHistory]);
-
-  const sendMessage = useCallback(async (content: any, isAssistantMessage = false): Promise<void> => {
-    if (!activeSessionId) {
-      console.error('No active session to send message to');
-      setError('No active chat session. Please create a new chat or select an existing one.');
-      return;
-    }
-
-    // Handle both structured (object) and string messages
-    let messageContent = '';
-    let messageMetadata: MessageMetadata = {};
-
-    if (typeof content === 'object' && content !== null) {
-      // Process structured message
-      if (content.content) {
-        messageContent = content.content;
-      } else {
-        messageContent = JSON.stringify(content);
-      }
-      
-      if (content.metadata) {
-        messageMetadata = { ...content.metadata };
-      } else if (content.structuredResponse) {
-        // Store structured response in metadata
-        messageMetadata.structuredResponse = content.structuredResponse;
-      }
-    } else {
-      // Simple string message
-      messageContent = String(content);
-    }
-
-    // Create a properly formatted message object
-    const messageObj: ChatMessage = {
-      id: isAssistantMessage ? `assistant-${Date.now()}` : `user-${Date.now()}`,
-      role: isAssistantMessage ? 'assistant' : 'user' as MessageRole,
-      content: messageContent,
-      timestamp: Date.now(),
-      status: 'complete',
-      metadata: messageMetadata
+    // Maximum duration for various operations
+    const maxDurations: Record<string, number> = {
+      'loading-sessions': 30000, // 30 seconds
+      'creating-session': 15000, // 15 seconds
+      'selecting-session': 10000, // 10 seconds
+      'deleting-session': 10000, // 10 seconds
+      'context-switch': 20000, // 20 seconds
+      'idle': 10000 // Default for idle (shouldn't happen, but just in case)
     };
-
-    try {
-      // Get the current messages
-      const currentMessages = sessionMessages[activeSessionId] || messages;
-      
-      // Add the user message to the current messages
-      const messagesWithUserInput = isAssistantMessage 
-        ? currentMessages 
-        : [...currentMessages, messageObj];
-      
-      // IMPORTANT: Always update the messages state directly to ensure user message is visible
-      setMessages(messagesWithUserInput);
-      
-      // Also update the session cache
-      setSessionMessages(prev => ({
-        ...prev,
-        [activeSessionId]: messagesWithUserInput
-      }));
-      
-      if (!isAssistantMessage) {
-        console.log(`Added user message to chat. Total messages: ${messagesWithUserInput.length}`, 
-          messagesWithUserInput.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-      }
-      
-      // Create placeholder for assistant response
-      const assistantMsgId = `assistant-${Date.now()}`;
-      const assistantMsg: ChatMessage = {
-        id: assistantMsgId,
-        role: 'assistant',
-        content: 'Thinking...',
-        timestamp: Date.now(),
-        status: 'loading',
-        metadata: {
-          isLoading: true,
-          isSimpleLoading: true, // Flag to indicate this is a simple loading message
-          suppressVisualization: true, // Flag to prevent visualization
-          forceSimpleDisplay: true, // Flag to force simple display
-          skipEnhancedVisualization: true // Flag to skip enhanced visualization
-        }
-      };
-      
-      // Add loading message to both current view and session cache
-      const updatedWithAssistant = [...messagesWithUserInput, assistantMsg];
-      
-      // IMPORTANT: Always update the messages state directly
-      setMessages(updatedWithAssistant);
-      
-      // Also update the session cache
-      setSessionMessages(prev => ({
-        ...prev,
-        [activeSessionId]: updatedWithAssistant
-      }));
-      
-      console.log(`Added assistant loading message. Total messages: ${updatedWithAssistant.length}`, 
-        updatedWithAssistant.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-      
-      try {
-        setIsGenerating(true);
-        setError(null);
-        
-        // Call the API service to generate a response
-        const response = await apiService.sendMessage(
-          activeSessionId,
-          messageContent,
-          getChatContext(),
-          settings
-        );
-        
-        // Use type guard to check for suppression flag
-        if (response && response.metadata && 
-            typeof response.metadata === 'object' && 
-            'suppressDuplicateDisplay' in response.metadata && 
-            response.metadata.suppressDuplicateDisplay === true) {
-          console.log('Message has suppressDuplicateDisplay flag, updating message display');
-          
-          const updatedAssistantMsg: ChatMessage = {
-            ...assistantMsg,
-            content: response.content,
-            status: 'complete',
-            metadata: {
-              ...assistantMsg.metadata,
-              // First apply the original metadata
-              ...(response.metadata as MessageMetadata),
-              // Ensure these flags are set
-              suppressDirectDisplay: true,
-              useStructuredDisplay: true
-            }
-          };
-          
-          // Save document state if this is a document-related message
-          documentState.setDocumentStateForMessage(updatedAssistantMsg, activeSessionId);
-          
-          // Update messages - ensure we keep the user message
-          const finalMessages = updatedWithAssistant.map(m => 
-            m.id === assistantMsgId ? updatedAssistantMsg : m
-          );
-          
-          // IMPORTANT: Always update the messages state directly
-          setMessages(finalMessages);
-          
-          // Also update the session cache
-          setSessionMessages(prev => ({
-            ...prev,
-            [activeSessionId]: finalMessages
-          }));
-          
-          console.log(`Updated assistant message with response. Total messages: ${finalMessages.length}`, 
-            finalMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-          
-          // Update the session with the latest message and count
-          try {
-            // Find the current session
-            const currentSession = sessions.find(s => s.id === activeSessionId);
-            if (currentSession) {
-              // Get the last message content
-              const lastMessageContent = response.content || 'AI response';
-              
-              // Calculate new message count (user message + assistant response)
-              const newMessageCount = (currentSession.message_count || 0) + 2;
-              
-              // Update the session metadata
-              apiService.updateChatSession(
-                activeSessionId,
-                currentSession.title,
-                lastMessageContent,
-                newMessageCount,
-                getChatContext()
-              ).then(() => {
-                // Update the sessions list
-                setSessions(prev => prev.map(session => 
-                  session.id === activeSessionId ? { 
-                    ...session, 
-                    last_message: lastMessageContent,
-                    message_count: newMessageCount
-                  } : session
-                ));
-              }).catch(error => {
-                console.error('Error updating session metadata after response:', error);
-              });
-            }
-          } catch (updateError) {
-            console.error('Error updating session metadata:', updateError);
-          }
-          
-          setIsGenerating(false);
-        } else {
-          // Process the response
-          const updatedAssistantMsg: ChatMessage = {
-            ...assistantMsg,
-            content: response.content,
-            status: 'complete',
-            metadata: {
-              ...(response.metadata || {}),
-              // Convert tokens format if needed
-              tokens: typeof response.metadata?.tokens === 'object' 
-                ? response.metadata.tokens.total
-                : response.metadata?.tokens
-            }
-          };
-          
-          // Save document state if this is a document-related message
-          documentState.setDocumentStateForMessage(updatedAssistantMsg, activeSessionId);
-          
-          // Update messages - ensure we keep the user message
-          const finalMessages = updatedWithAssistant.map(m => 
-            m.id === assistantMsgId ? updatedAssistantMsg : m
-          );
-          
-          // IMPORTANT: Always update the messages state directly
-          setMessages(finalMessages);
-          
-          // Also update the session cache
-          setSessionMessages(prev => ({
-            ...prev,
-            [activeSessionId]: finalMessages
-          }));
-          
-          console.log(`Updated assistant message with response. Total messages: ${finalMessages.length}`, 
-            finalMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-          
-          setIsGenerating(false);
-        }
-      } catch (error) {
-        console.error('Error generating response:', error);
-        
-        // Update the assistant message to show the error
-        const errorAssistantMsg: ChatMessage = {
-          ...assistantMsg,
-          content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          status: 'error'
-        };
-        
-        // Update messages - ensure we keep the user message
-        const errorMessages = updatedWithAssistant.map(m => 
-          m.id === assistantMsgId ? errorAssistantMsg : m
-        );
-        
-        // IMPORTANT: Always update the messages state directly
-        setMessages(errorMessages);
-        
-        // Also update the session cache
-        setSessionMessages(prev => ({
-          ...prev,
-          [activeSessionId]: errorMessages
-        }));
-        
-        setError(`Failed to generate response: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        setIsGenerating(false);
-      }
-    } catch (error) {
-      console.error('Error saving chat history:', error);
-      setError(`Failed to save message: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }, [activeSessionId, messages, getChatContext, settings, sessionMessages, updateMessagesForSession, documentState, addOrUpdateMessage]);
-
-  const regenerateMessage = useCallback(async (message: ChatMessage) => {
-    if (!activeSessionId) {
-      console.error('Cannot regenerate message: No active session');
-      return;
-    }
     
-    try {
-      setIsGenerating(true);
-      setError(null);
+    // Set a timeout to detect stale operations
+    const timeoutId = setTimeout(() => {
+      const now = Date.now();
+      const operationDuration = now - operationState.startTime;
+      const maxDuration = maxDurations[operationState.type] || 10000;
       
-      // Logic to regenerate the message
-      console.log(`Regenerating message ${message.id} for session ${activeSessionId}`);
-      
-      // Replace the message with loading message
-      setMessages(prev => {
-        const updated = [...prev];
-        const index = updated.findIndex(m => m.id === message.id);
-        if (index !== -1) {
-          updated[index] = { ...updated[index], content: 'Regenerating...' };
-        }
-        return updated;
-      });
-      
-      // For now, just create a simple regenerated message
-      setTimeout(() => {
-        setMessages(prev => {
-          const updated = [...prev];
-          const index = updated.findIndex(m => m.id === message.id);
-          if (index !== -1) {
-            updated[index] = { 
-              ...updated[index], 
-              content: `Regenerated at ${new Date().toLocaleTimeString()}`
-            };
-          }
-          return updated;
+      if (operationDuration > maxDuration) {
+        console.warn(`Operation ${operationState.type} has been running for ${operationDuration}ms, exceeding max duration of ${maxDuration}ms. Forcing cleanup.`);
+        
+        // Force reset operation state
+        setOperationState({
+          type: 'idle',
+          inProgress: false,
+          startTime: 0,
+          contextVersionAtStart: contextVersion
         });
-        setIsGenerating(false);
-      }, 1000);
-      
-    } catch (error: any) {
-      console.error('Error regenerating message:', error);
-      setError(`Error regenerating message: ${error.message}`);
-      setIsGenerating(false);
-    }
-  }, [activeSessionId]);
+        
+        // Release mutex if it's locked
+        if (operationMutex.current.locked) {
+          console.warn(`Mutex locked by ${operationMutex.current.currentOperation}, forcing release`);
+          operationMutex.current.locked = false;
+          operationMutex.current.currentOperation = null;
+          
+          // Process any queued operations
+          if (operationMutex.current.queue.length > 0) {
+            console.log(`Processing next operation from queue after forced cleanup (${operationMutex.current.queue.length} remaining)`);
+            const nextOperation = operationMutex.current.queue.shift();
+            if (nextOperation) nextOperation();
+          }
+        }
+        
+        // Force loading state to false
+        setIsLoadingSessions(false);
+        setIsLoadingMessages(false);
+        
+        // Reset session creation flag
+        sessionCreationInProgress.current = false;
+      }
+    }, maxDurations[operationState.type] || 10000);
+    
+    // Cleanup timeout on unmount
+    return () => clearTimeout(timeoutId);
+  }, [operationState, contextVersion]);
 
   // Add global emergency reset command
   useEffect(() => {
@@ -1402,7 +976,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     },
     createSession,
-    selectSession: selectChatSession,
+    selectSession,
     deleteSession,
     settings,
     updateSettings: (newSettings: Partial<ChatContextType['settings']>) => setSettings(prev => ({ ...prev, ...newSettings })),
@@ -1414,7 +988,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSessions(loadedSessions);
         
         if (loadedSessions.length > 0) {
-          await selectChatSession(loadedSessions[0].id);
+          await selectSession(loadedSessions[0].id);
         }
       } catch (error) {
         console.error('Error retrying session load:', error);
@@ -1448,4 +1022,94 @@ export const useChat = () => {
   }
   
   return context;
-}; 
+};
+
+const selectSession = useCallback(async (sessionId: string): Promise<void> => {
+  return runWithMutex('selectSession', async () => {
+    // Update operation state
+    setOperationState({
+      type: 'selecting-session',
+      inProgress: true,
+      operationId: sessionId,
+      startTime: Date.now(),
+      contextVersionAtStart: contextVersion
+    });
+    
+    // Capture current context version
+    const operationContextVersion = contextVersion;
+    
+    try {
+      console.log(`Attempting to select session: ${sessionId}`);
+      
+      // Find the session in our current sessions list using functional update
+      // to avoid stale state references
+      let selectedSession: ChatSession | undefined;
+      
+      // Use a safer approach to find the session
+      selectedSession = sessions.find(s => s.id === sessionId);
+      
+      // If session not found, try looking in the cache
+      if (!selectedSession) {
+        for (const [key, cachedSessions] of Object.entries(sessionCache)) {
+          if (isCacheValid(key)) {
+            const cachedSession = cachedSessions.find(s => s.id === sessionId);
+            if (cachedSession) {
+              selectedSession = cachedSession;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!selectedSession) {
+        console.error(`Session ${sessionId} not found in current sessions list or cache`);
+        throw new Error('Session not found in the current context');
+      }
+      
+      // Check if context has changed during operation
+      if (contextVersion !== operationContextVersion) {
+        console.log(`Context changed during session selection (v${operationContextVersion} -> v${contextVersion}), aborting operation`);
+        setOperationState(prev => ({...prev, inProgress: false}));
+        return;
+      }
+      
+      // Use our unified validation function to check if session can be selected in current context
+      if (!validateSessionContext(selectedSession)) {
+        console.error(`Session ${sessionId} is not valid in the current context`);
+        throw new Error(`This chat session belongs to a different context and cannot be selected`);
+      }
+      
+      // Set loading state
+      setIsLoadingMessages(true);
+      setError(null);
+      
+      // Load messages for this session
+      await loadMessagesForSession(selectedSession);
+      
+      console.log(`Successfully loaded messages for session ${sessionId}`);
+    } catch (error) {
+      console.error('Error selecting chat session:', error);
+      setError(error instanceof Error ? error.message : 'Failed to select chat session');
+      
+      // If selection fails, try to create a new session instead
+      console.log('Creating a new fallback session');
+      try {
+        await createSession("New Chat", true);
+      } catch (createError) {
+        console.error('Error creating fallback session:', createError);
+      }
+    } finally {
+      setIsLoadingMessages(false);
+      setOperationState(prev => ({...prev, inProgress: false}));
+    }
+  });
+}, [
+  sessions, 
+  sessionCache, 
+  loadMessagesForSession, 
+  createSession, 
+  validateSessionContext, 
+  contextVersion, 
+  runWithMutex,
+  isCacheValid
+]); 

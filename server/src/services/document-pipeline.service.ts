@@ -6,14 +6,12 @@ import path from 'path';
 import { QdrantService } from './qdrant.service';
 import { DocumentProcessorFactory } from './document-processors/document-processor-factory';
 import { ProcessingResult } from './document-processors/base-document-processor';
-import { injectable } from 'inversify';
 import { OpenAIService } from './openai.service';
 import { ChunkingService } from './chunking.service';
 
 /**
  * Service for processing documents through the pipeline
  */
-@injectable()
 export class DocumentPipelineService {
   private logger: winston.Logger;
   private processorFactory: DocumentProcessorFactory;

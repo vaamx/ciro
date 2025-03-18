@@ -59,10 +59,32 @@ export class ResponseHandlerFactory {
       // Get the API base URL from environment or use default backend URL
       const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
       
+      // Get the currently selected data source from localStorage
+      let dataSourceId = null;
+      try {
+        const selectedDataSource = localStorage.getItem('selectedDataSource');
+        if (selectedDataSource) {
+          const sourceData = JSON.parse(selectedDataSource);
+          if (sourceData && sourceData.id) {
+            dataSourceId = sourceData.id.toString();
+            console.log(`Using selected data source ID: ${dataSourceId} for clock data`);
+          }
+        }
+      } catch (error) {
+        console.warn('Error parsing selectedDataSource from localStorage:', error);
+      }
+      
+      // If no data source is selected, use mock data and return early
+      if (!dataSourceId) {
+        console.warn('No data source selected, using mock clock data instead');
+        this.mockClockData();
+        return;
+      }
+      
       // Determine if we should use the proxy (for development) or direct API URL
       const useProxy = import.meta.env.DEV && !import.meta.env.VITE_DISABLE_PROXY;
-      const apiUrl = useProxy ? '/api/qdrant/clock-data/datasource_237/0' : 
-                              `${API_BASE_URL}/api/qdrant/clock-data/datasource_237/0`;
+      const apiUrl = useProxy ? `/api/qdrant/clock-data/datasource_${dataSourceId}/0` : 
+                              `${API_BASE_URL}/api/qdrant/clock-data/datasource_${dataSourceId}/0`;
       
       console.log(`Fetching clock data from: ${apiUrl}`);
       
@@ -75,7 +97,7 @@ export class ResponseHandlerFactory {
         this.clockData = await response.json();
         console.log('Clock data loaded successfully');
       } else {
-        console.warn('Could not load clock data:', response.statusText);
+        console.warn(`Could not load clock data for datasource_${dataSourceId}: ${response.statusText}`);
         // Use mock clock data instead
         this.mockClockData();
       }
@@ -136,9 +158,6 @@ export class ResponseHandlerFactory {
     const preparedData = this.prepareDataForProcessing(data, dataSourceType);
     
     try {
-      // Get the system prompt for this data source type
-      const prompt = this.getPromptForDataSource(dataSourceType, true);
-      
       // Process the query using the universal processor
       const result = await this.universalProcessor.processDataQuery(
         query,

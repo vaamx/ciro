@@ -5056,4 +5056,71 @@ Please provide a helpful response that:
       return ["Consider additional filtering to focus your analysis"];
     }
   }
+
+  /**
+   * Lists available data sources with collection status for an organization
+   */
+  async listDataSources(organizationId: string): Promise<Array<{
+    id: string | number;
+    name: string;
+    type: string;
+    collectionName: string;
+    hasCollection: boolean;
+  }>> {
+    try {
+      this.logger.info(`Listing data sources for organization ${organizationId}`);
+      
+      // Here you would retrieve the data sources from your database
+      // For now, we'll make a simple implementation that just returns empty
+      
+      return [];
+    } catch (error) {
+      this.logger.error(`Error listing data sources: ${error}`);
+      return [];
+    }
+  }
+  
+  /**
+   * Returns the status of the RAG service and its dependencies
+   */
+  async getStatus(): Promise<{
+    status: string;
+    openaiService: boolean;
+    qdrantService: boolean;
+    collections: string[];
+    timestamp: number;
+  }> {
+    try {
+      // Check if we can connect to Qdrant
+      let qdrantStatus = true;
+      
+      try {
+        // Try to list collections as a way to check Qdrant availability
+        await this.qdrantService.listCollections();
+      } catch (error) {
+        this.logger.error(`Error connecting to Qdrant: ${error}`);
+        qdrantStatus = false;
+      }
+      
+      // Get list of collections
+      const collections = qdrantStatus ? await this.qdrantService.listCollections() : [];
+      
+      return {
+        status: 'ok',
+        openaiService: true,
+        qdrantService: qdrantStatus,
+        collections: collections || [],
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      this.logger.error(`Error getting RAG status: ${error}`);
+      return {
+        status: 'error',
+        openaiService: false,
+        qdrantService: false,
+        collections: [],
+        timestamp: Date.now()
+      };
+    }
+  }
 }

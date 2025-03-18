@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import slowDown from 'express-slow-down';
 import * as winston from 'winston';
 import { authRateLimiter } from './security';
+import { corsMiddleware } from './security';
 
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -29,8 +30,8 @@ const logger = winston.createLogger({
   ]
 });
 
-// Re-export auth rate limiter
-export { authRateLimiter };
+// Re-export auth rate limiter and other middleware
+export { authRateLimiter, corsMiddleware };
 
 // Rate limiter middleware
 export const rateLimiter = rateLimit({

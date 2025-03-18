@@ -339,14 +339,14 @@ export class DashboardController {
       const trx = await this.db.transaction();
 
       try {
-        // Create the dashboard with the user ID directly
+        // Create the dashboard with the user ID as a UUID string
         const [dashboard] = await trx('dashboards')
           .insert({
             name,
             description,
             team,
             category,
-            created_by: parseInt(created_by, 10),
+            created_by: created_by || userId,
             organization_id,
           })
           .returning('*');

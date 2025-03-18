@@ -2,6 +2,25 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { Upload, X } from 'lucide-react';
 
+// Add global declaration for window.emitAuthError
+declare global {
+  interface Window {
+    emitAuthError?: (message: string) => void;
+  }
+}
+
+// Add environment detection helper
+const isProduction = window.location.hostname === 'app.ciroai.us';
+const getApiUrl = (endpoint: string): string => {
+  // Ensure endpoint starts with /
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  
+  // In production, use full URL; in development, use relative path (for proxy)
+  return isProduction
+    ? `https://api.ciroai.us${normalizedEndpoint}`
+    : normalizedEndpoint;
+};
+
 interface OrganizationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -137,14 +156,17 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
         });
       }
 
-      const url = organization
-        ? `/api/organizations/${organization.id}`
-        : `/api/organizations`;
+      // Use environment-aware URL helper
+      const apiUrl = getApiUrl(
+        organization
+          ? `/api/organizations/${organization.id}`
+          : `/api/organizations`
+      );
       
       const token = localStorage.getItem('auth_token');
-      console.log('Sending request to:', url);
+      console.log('Sending request to:', apiUrl);
       
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl, {
         method: organization ? 'PUT' : 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -154,8 +176,71 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
         body: formDataToSend,
       });
 
+      // Check for HTML response which indicates authentication issues
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/html')) {
+        console.warn('Received HTML response when saving organization - likely an authentication issue', {
+          status: response.status,
+          url: response.url
+        });
+        
+        // If we're getting HTML when expecting JSON, it's likely an auth issue
+        localStorage.removeItem('auth_token');
+        
+        // Use window.emitAuthError if available
+        if (window.emitAuthError) {
+          window.emitAuthError('Authentication required. Please log in.');
+        } else {
+          alert('Authentication required. Please log in.');
+        }
+        
+        throw new Error('Authentication error: Please log in');
+      }
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+        // Try to parse as JSON, but handle HTML responses properly
+        let errorData: any;
+        const text = await response.text();
+        
+        try {
+          // Check if the response looks like HTML
+          if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
+            console.warn('Response looks like HTML even though content type was not set properly');
+            localStorage.removeItem('auth_token');
+            
+            // Use window.emitAuthError if available  
+            if (window.emitAuthError) {
+              window.emitAuthError('Authentication required. Please log in.');
+            } else {
+              alert('Authentication required. Please log in.');
+            }
+            
+            throw new Error('Authentication error: Please log in');
+          }
+          
+          // Try to parse as JSON
+          errorData = JSON.parse(text);
+        } catch (parseError) {
+          console.error('Failed to parse error response as JSON:', parseError);
+          console.log('Response text:', text.substring(0, 200) + '...'); // Log first 200 chars
+          
+          if (text.includes('<!doctype') || text.includes('<html')) {
+            // If HTML parsing fails, it's likely an auth issue (HTML login page)
+            localStorage.removeItem('auth_token');
+            
+            // Use window.emitAuthError if available
+            if (window.emitAuthError) {
+              window.emitAuthError('Authentication required. Please log in.');
+            } else {
+              alert('Authentication required. Please log in.');
+            }
+            
+            throw new Error('Authentication error: Please log in');
+          }
+          
+          errorData = { error: 'Failed to parse error response' };
+        }
+        
         console.error('Server response:', {
           status: response.status,
           statusText: response.statusText,
@@ -166,7 +251,45 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
         throw new Error(errorData.error || `Failed to save organization (${response.status})`);
       }
 
-      const responseData = await response.json();
+      // Try parsing the successful response and check for HTML issues
+      let responseData: any;
+      const responseText = await response.text();
+      
+      try {
+        // Check if the response looks like HTML before trying to parse
+        if (responseText.trim().startsWith('<!doctype') || responseText.trim().startsWith('<html')) {
+          console.warn('Success response looks like HTML even though status was OK');
+          localStorage.removeItem('auth_token');
+          
+          // Use window.emitAuthError if available
+          if (window.emitAuthError) {
+            window.emitAuthError('Authentication required. Please log in.');
+          } else {
+            alert('Authentication required. Please log in.');
+          }
+          
+          throw new Error('Authentication error: Please log in');
+        }
+        
+        responseData = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse success response as JSON:', parseError);
+        if (responseText.includes('<!doctype') || responseText.includes('<html')) {
+          // If HTML parsing fails, it's likely an auth issue (HTML login page)
+          localStorage.removeItem('auth_token');
+          
+          // Use window.emitAuthError if available
+          if (window.emitAuthError) {
+            window.emitAuthError('Authentication required. Please log in.');
+          } else {
+            alert('Authentication required. Please log in.');
+          }
+          
+          throw new Error('Authentication error: Please log in');
+        }
+        throw new Error('Failed to parse server response');
+      }
+      
       console.log('Success response:', responseData);
 
       await loadOrganizations();

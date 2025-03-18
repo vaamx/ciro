@@ -96,21 +96,6 @@ echo "Created ECS cluster: $ECS_CLUSTER_NAME"
 S3_BUCKET_NAME="$STACK_NAME-frontend-$(date +%s)"
 echo "Creating S3 bucket for frontend..."
 aws s3 mb s3://$S3_BUCKET_NAME --region $AWS_REGION
-aws s3 website s3://$S3_BUCKET_NAME --index-document index.html --error-document index.html
-BUCKET_POLICY='{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": "*",
-      "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::'$S3_BUCKET_NAME'/*"
-    }
-  ]
-}'
-echo "$BUCKET_POLICY" > bucket-policy.json
-aws s3api put-bucket-policy --bucket $S3_BUCKET_NAME --policy file://bucket-policy.json
-rm bucket-policy.json
 echo "Created S3 bucket: $S3_BUCKET_NAME"
 
 # Output configuration details

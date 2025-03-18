@@ -449,7 +449,7 @@ export class ManufacturingDataService {
         query, 
         dataSourceIds,
         sessionId,
-        8 // More context for manufacturing queries
+        "8" // More context for manufacturing queries - converted to string to match type
       );
       
       // Extract statistics if requested

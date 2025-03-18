@@ -1,4 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
+import { buildApiUrl } from '../api-config';
 
 export interface DataSource {
   id: string;
@@ -30,7 +31,8 @@ class DataSourceApiService {
   }
 
   async getItems(organizationId: number): Promise<DataSource[]> {
-    const response = await fetch(`${this.baseUrl}?organization_id=${organizationId}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}?organization_id=${organizationId}`);
+    const response = await fetch(apiUrl, {
       headers: this.getHeaders(),
       credentials: 'include'
     });
@@ -43,7 +45,8 @@ class DataSourceApiService {
   }
 
   async createItem(dataSource: Partial<DataSource>): Promise<DataSource> {
-    const response = await fetch(this.baseUrl, {
+    const apiUrl = buildApiUrl(this.baseUrl);
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -58,7 +61,8 @@ class DataSourceApiService {
   }
 
   async updateItem(id: string, dataSource: Partial<DataSource>): Promise<DataSource> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
+    const response = await fetch(apiUrl, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -73,7 +77,8 @@ class DataSourceApiService {
   }
 
   async deleteItem(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
+    const response = await fetch(apiUrl, {
       method: 'DELETE',
       headers: this.getHeaders(),
       credentials: 'include'
@@ -86,7 +91,8 @@ class DataSourceApiService {
 
   // Additional data source specific methods
   async testConnection(id: string): Promise<{ success: boolean; error?: string }> {
-    const response = await fetch(`${this.baseUrl}/${id}/test`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/test`);
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include'
@@ -96,7 +102,8 @@ class DataSourceApiService {
   }
 
   async syncData(id: string): Promise<{ success: boolean; error?: string }> {
-    const response = await fetch(`${this.baseUrl}/${id}/sync`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/sync`);
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include'

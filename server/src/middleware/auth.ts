@@ -24,9 +24,14 @@ export interface AuthRequest extends Request {
   organizationId?: string;
 }
 
+// Define a custom interface for the request with organizationId
+interface RequestWithOrganization extends Request {
+  organizationId?: string;
+}
+
 // Middleware to check if user is authenticated
 export const authenticate = async (
-  req: Request,
+  req: RequestWithOrganization,
   res: Response,
   next: NextFunction
 ): Promise<void | Response> => {
@@ -34,6 +39,7 @@ export const authenticate = async (
     // Multipart request debugging
     const contentType = req.headers['content-type'] || '';
     const isMultipart = contentType.includes('multipart/form-data');
+    const isProduction = process.env.NODE_ENV === 'production';
     
     if (isMultipart) {
       console.log('=== MULTIPART REQUEST DEBUG ===');
@@ -46,12 +52,23 @@ export const authenticate = async (
       console.log('=== END MULTIPART DEBUG ===');
     }
 
+    // Enhanced debugging in production to understand token issues
+    if (isProduction) {
+      console.log('=== AUTH DEBUG [PRODUCTION] ===');
+      console.log('Path:', req.path);
+      console.log('Method:', req.method);
+      console.log('Authorization header present:', !!req.headers.authorization);
+      console.log('Auth cookie present:', !!req.cookies?.auth_token);
+      console.log('Query params:', req.query);
+      console.log('=== END AUTH DEBUG ===');
+    }
+
     // For testing: check if test mode is enabled
     const isTestMode = req.headers['x-test-mode'] === 'true';
-    if (isTestMode && process.env.NODE_ENV !== 'production') {
+    if (isTestMode && !isProduction) {
       // Use a mock user for testing
       console.log('Using test mode authentication');
-      req.user = {
+      (req as AuthRequest).user = {
         id: '00000000-0000-0000-0000-000000000001',
         email: 'test@example.com',
         role: 'admin',
@@ -112,6 +129,7 @@ export const authenticate = async (
         .first();
 
       if (!userResult) {
+        console.log(`User not found in database: ${decoded.id}`);
         throw new UnauthorizedError('User not found');
       }
 
@@ -124,13 +142,36 @@ export const authenticate = async (
         return;
       }
 
+      // Get organization ID from various sources with preference order
+      // 1. Request query params (highest priority)
+      // 2. User's database record 
+      // 3. Token's organizationId claim
+      const organizationId = 
+        (req.query.organization_id as string) || 
+        userResult.organization_id || 
+        decoded.organizationId || 
+        '';
+      
+      // Log organization ID source for debugging
+      if (isProduction) {
+        console.log('Organization ID source:', {
+          fromQuery: !!req.query.organization_id,
+          fromUserRecord: !!userResult.organization_id,
+          fromToken: !!decoded.organizationId,
+          finalValue: organizationId
+        });
+      }
+
       // Attach user to request
-      req.user = {
+      (req as AuthRequest).user = {
         id: userResult.id,
         email: userResult.email,
         role: userResult.role,
-        organizationId: userResult.organization_id || decoded.organizationId || ''
+        organizationId
       };
+
+      // Also attach organizationId directly to request object for easier access
+      req.organizationId = organizationId;
 
       console.log('JWT verification successful - user authenticated');
       next();
@@ -214,4 +255,4 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
     console.error('Session refresh error:', error);
     next();
   }
-}; 
+};

@@ -113,8 +113,7 @@ export class DocumentProcessorFactory {
         const excelProcessor = new EnhancedExcelProcessorService(
           configService,
           chunkingService,
-          qdrantService,
-          this.websocketService
+          qdrantService
         );
         // Register with multiple keys to ensure it's found regardless of how it's referenced
         this.registerProcessor(['.xlsx', '.xls', '.ods', 'excel', 'xlsx', 'xls', 'ods', 'excel-processor'], excelProcessor);

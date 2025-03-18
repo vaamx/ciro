@@ -1,4 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
+import { buildApiUrl } from '../api-config';
 
 export interface Automation {
   id: string;
@@ -36,7 +37,8 @@ class AutomationApiService {
   }
 
   async getItems(organizationId: number): Promise<Automation[]> {
-    const response = await fetch(`${this.baseUrl}?organization_id=${organizationId}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}?organization_id=${organizationId}`);
+    const response = await fetch(apiUrl, {
       headers: this.getHeaders(),
       credentials: 'include'
     });
@@ -49,7 +51,8 @@ class AutomationApiService {
   }
 
   async createItem(automation: Partial<Automation>): Promise<Automation> {
-    const response = await fetch(this.baseUrl, {
+    const apiUrl = buildApiUrl(this.baseUrl);
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -64,7 +67,8 @@ class AutomationApiService {
   }
 
   async updateItem(id: string, automation: Partial<Automation>): Promise<Automation> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
+    const response = await fetch(apiUrl, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -79,7 +83,8 @@ class AutomationApiService {
   }
 
   async deleteItem(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/${id}`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
+    const response = await fetch(apiUrl, {
       method: 'DELETE',
       headers: this.getHeaders(),
       credentials: 'include'
@@ -92,7 +97,8 @@ class AutomationApiService {
 
   // Additional automation specific methods
   async toggleStatus(id: string, active: boolean): Promise<Automation> {
-    const response = await fetch(`${this.baseUrl}/${id}/status`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/status`);
+    const response = await fetch(apiUrl, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -107,7 +113,8 @@ class AutomationApiService {
   }
 
   async runNow(id: string): Promise<{ success: boolean; error?: string }> {
-    const response = await fetch(`${this.baseUrl}/${id}/run`, {
+    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/run`);
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include'
