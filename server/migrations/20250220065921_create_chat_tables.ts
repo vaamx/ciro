@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+export async function up(knex: Knex): Promise<void> {
   return knex.transaction(async (trx) => {
     // Drop existing tables if they exist
     await trx.schema.dropTableIfExists('chat_messages');
@@ -49,7 +46,7 @@ exports.up = async function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = async function(knex) {
+export async function down(knex: Knex): Promise<void> {
   return knex.transaction(async (trx) => {
     await trx.schema.dropTableIfExists('chat_messages');
     await trx.schema.dropTableIfExists('chat_sessions');

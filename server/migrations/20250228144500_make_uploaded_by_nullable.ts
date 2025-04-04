@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = function(knex) {
+import { Knex } from 'knex';
+export function up(knex: Knex): Promise<void> {
   return knex.schema.alterTable('files', (table) => {
     // First drop the foreign key constraint
     table.dropForeign('uploaded_by');
@@ -24,7 +21,7 @@ exports.up = function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = function(knex) {
+export function down(knex: Knex): Promise<void> {
   return knex.schema.alterTable('files', (table) => {
     // No rollback needed as we're just ensuring nullable which is likely the desired state
   });

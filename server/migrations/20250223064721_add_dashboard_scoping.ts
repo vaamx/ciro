@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+export async function up(knex: Knex): Promise<void> {
   // Check if chat_sessions table exists
   const hasSessionsTable = await knex.schema.hasTable('chat_sessions');
   if (!hasSessionsTable) {
@@ -64,7 +61,7 @@ exports.up = async function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = async function(knex) {
+export async function down(knex: Knex): Promise<void> {
   // Remove indexes if they exist
   const indexExists = await knex.raw(`
     SELECT 1 FROM pg_indexes 

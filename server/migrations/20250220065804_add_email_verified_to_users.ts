@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = function(knex) {
+import { Knex } from 'knex';
+export function up(knex: Knex): Promise<void> {
   return knex.schema.alterTable('users', function(table) {
     table.boolean('email_verified').defaultTo(false).notNullable();
   });
@@ -12,7 +9,7 @@ exports.up = function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = function(knex) {
+export function down(knex: Knex): Promise<void> {
   return knex.schema.alterTable('users', function(table) {
     table.dropColumn('email_verified');
   });

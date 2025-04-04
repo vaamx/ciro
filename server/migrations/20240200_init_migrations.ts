@@ -1,8 +1,6 @@
-/**
- * Initial migration to set up the knex_migrations table and enable required extensions
- */
+import { Knex } from 'knex';
 
-exports.up = async function(knex) {
+export async function up(knex: Knex): Promise<void> {
   console.log('Running initial migration to set up the database...');
   
   // Enable core PostgreSQL extensions directly with raw queries
@@ -48,7 +46,7 @@ exports.up = async function(knex) {
   return Promise.resolve();
 };
 
-exports.down = function(knex) {
+export function down(knex: Knex): Promise<void> {
   // We don't want to drop extensions on rollback
   return Promise.resolve();
 }; 

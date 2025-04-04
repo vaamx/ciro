@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+export async function up(knex: Knex): Promise<void> {
   try {
     // Check if conversations table exists
     const hasConversationsTable = await knex.schema.hasTable('conversations');
@@ -77,7 +74,7 @@ exports.up = async function(knex) {
       });
       console.log('Created messages table');
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in create_conversations_tables migration:', error.message);
     throw error;
   }
@@ -87,14 +84,14 @@ exports.up = async function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = async function(knex) {
+export async function down(knex: Knex): Promise<void> {
   try {
     // Drop tables in reverse order of creation
     await knex.schema.dropTableIfExists('messages');
     await knex.schema.dropTableIfExists('conversation_participants');
     await knex.schema.dropTableIfExists('conversations');
     console.log('Dropped conversations tables');
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in create_conversations_tables down migration:', error.message);
     throw error;
   }

@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+export async function up(knex: Knex): Promise<void> {
   await knex.schema.alterTable('dashboards', function(table) {
     // Drop the old column
     table.dropColumn('created_by');
@@ -18,7 +15,7 @@ exports.up = async function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = async function(knex) {
+export async function down(knex: Knex): Promise<void> {
   await knex.schema.alterTable('dashboards', function(table) {
     // Drop the UUID column
     table.dropColumn('created_by');

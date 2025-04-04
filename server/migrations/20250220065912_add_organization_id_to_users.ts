@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+export async function up(knex: Knex): Promise<void> {
   // Step 1: Add the organization_id column without constraints
   await knex.schema.alterTable('users', (table) => {
     table.integer('organization_id').nullable();
@@ -26,7 +23,7 @@ exports.up = async function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = async function(knex) {
+export async function down(knex: Knex): Promise<void> {
   // Step 1: Drop the index
   await knex.schema.alterTable('users', (table) => {
     table.dropIndex([], 'users_organization_id_index');

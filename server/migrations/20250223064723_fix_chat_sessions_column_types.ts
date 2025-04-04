@@ -1,8 +1,5 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+export async function up(knex: Knex): Promise<void> {
   // Check and drop foreign key constraints if they exist
   const constraints = await knex.raw(`
     SELECT constraint_name
@@ -67,7 +64,7 @@ exports.up = async function(knex) {
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = async function(knex) {
+export async function down(knex: Knex): Promise<void> {
   await knex.schema.dropTableIfExists('chat_messages');
   await knex.schema.dropTableIfExists('chat_sessions');
 }; 

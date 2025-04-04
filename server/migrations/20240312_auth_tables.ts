@@ -1,4 +1,6 @@
-exports.up = async function(knex) {
+import { Knex } from 'knex';
+
+export async function up(knex: Knex): Promise<void> {
   // Check if users table exists
   const usersTableExists = await knex.schema.hasTable('users');
   const systemSettingsTableExists = await knex.schema.hasTable('system_settings');
@@ -33,7 +35,7 @@ exports.up = async function(knex) {
   });
 };
 
-exports.down = function(knex) {
+export function down(knex: Knex): Promise<void> {
   return knex.schema
     .dropTableIfExists('users')
     .dropTableIfExists('system_settings');
