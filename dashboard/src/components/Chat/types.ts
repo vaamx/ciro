@@ -117,6 +117,13 @@ export interface ChatSettings {
   systemPrompt?: string;
 }
 
+export interface ChatService {
+  sendMessage(content: string, settings: ChatSettings): Promise<{
+    content: string;
+    metadata?: MessageMetadata;
+  }>;
+}
+
 export interface ChatUIConfig {
   showTimestamps?: boolean;
   showAvatars?: boolean;

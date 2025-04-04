@@ -76,4 +76,95 @@ debugUtils.help() - Show this help message
 };
 
 // Export the function for use in application startup
-export default initDebugHelpers; 
+export default initDebugHelpers;
+
+// Debug logging control for Studio components
+export const disableStudioDebugLogs = () => {
+  const originalConsoleLog = console.log;
+  const originalConsoleWarn = console.warn;
+  
+  // Filter out logs from Studio components
+  console.log = function(...args: any[]) {
+    const message = args[0]?.toString() || '';
+    if (
+      // Skip studio-related debugging logs
+      message.includes('Studio') ||
+      message.includes('Workspace') ||
+      message.includes('Chart') ||
+      message.includes('cursor') ||
+      message.includes('collaboration') ||
+      message.includes('Mock sending message')
+    ) {
+      // Skip these messages
+      return;
+    }
+    
+    // Pass through other logs
+    originalConsoleLog.apply(console, args);
+  };
+  
+  // Also filter warnings
+  console.warn = function(...args: any[]) {
+    const message = args[0]?.toString() || '';
+    if (
+      message.includes('Studio') ||
+      message.includes('Workspace') ||
+      message.includes('Chart') ||
+      message.includes('cursor')
+    ) {
+      // Skip these messages
+      return;
+    }
+    
+    // Pass through other warnings
+    originalConsoleWarn.apply(console, args);
+  };
+  
+  // Return a function to restore original behavior
+  return () => {
+    console.log = originalConsoleLog;
+    console.warn = originalConsoleWarn;
+  };
+};
+
+// Auto-apply debug log filtering in non-development environments
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'development') {
+  disableStudioDebugLogs();
+}
+
+// Setup global debug utilities
+export const setupDebugUtils = () => {
+  if (typeof window !== 'undefined') {
+    // Add debug utilities to window object
+    (window as any).debugUtils = {
+      // Show helpful commands
+      help: () => {
+        console.log('Debug Utilities:');
+        console.log('  debugUtils.disableStudioLogs() - Disable Studio component debug logs');
+        console.log('  debugUtils.enableStudioLogs() - Re-enable Studio component debug logs');
+        console.log('  debugUtils.help() - Show this help message');
+      },
+      
+      // Toggle Studio debug logs
+      disableStudioLogs: disableStudioDebugLogs,
+      enableStudioLogs: null as (() => void) | null,
+      
+      // Toggle logging
+      toggleStudioLogs: () => {
+        if ((window as any).debugUtils.enableStudioLogs) {
+          (window as any).debugUtils.enableStudioLogs();
+          (window as any).debugUtils.enableStudioLogs = null;
+          console.log('Studio debug logs enabled');
+        } else {
+          (window as any).debugUtils.enableStudioLogs = disableStudioDebugLogs();
+          console.log('Studio debug logs disabled');
+        }
+      }
+    };
+    
+    console.log('Debug utilities available as "debugUtils" in the console. Type debugUtils.help() for usage.');
+  }
+};
+
+// Auto-setup debug utils
+setupDebugUtils(); 

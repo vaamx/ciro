@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 
-// Lazy load visualization components
+// Lazy load visualization components - using the ECharts-based implementation
 const LazyVisualization = lazy(() => 
   import('../../Visualization').then(module => ({ default: module.Visualization }))
 );

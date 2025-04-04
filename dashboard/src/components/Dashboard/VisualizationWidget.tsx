@@ -1,5 +1,15 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react';
-import { AlertCircle, BarChart2, LineChart, PieChart, Activity, Table, HelpCircle, Maximize2, Minimize2 } from 'lucide-react';
+import { AlertCircle, BarChart2, LineChart, PieChart, Activity, Table, HelpCircle, Maximize2, Minimize2, MapPin } from 'lucide-react';
+
+// Import debug logger
+const DEBUG_MODE = true;
+
+// Debug logging function
+const logDebug = (message: string, ...args: any[]) => {
+  if (DEBUG_MODE) {
+    console.log(`[VisualizationWidget] ${message}`, ...args);
+  }
+};
 
 // Lazy load the Visualization component
 const LazyVisualization = lazy(() => import('../../Visualization').then(module => ({ default: module.Visualization })));
@@ -14,16 +24,24 @@ const LoadingVisualization = () => (
   </div>
 );
 
-// No data component
-const NoDataVisualization = () => (
+// Enhanced NoDataVisualization to show more helpful information
+const NoDataVisualization = ({ debugInfo }: { debugInfo?: any }) => (
   <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
     <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-800/30 flex items-center justify-center mb-3">
       <HelpCircle className="w-6 h-6 text-amber-500 dark:text-amber-400" />
     </div>
     <h3 className="text-base font-medium text-amber-700 dark:text-amber-300 mb-1">No Visualization Data</h3>
-    <p className="text-sm text-amber-600 dark:text-amber-400">
+    <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
       The widget is configured correctly but no data is available to display.
     </p>
+    {DEBUG_MODE && debugInfo && (
+      <details className="mt-2 text-xs text-amber-600 dark:text-amber-500">
+        <summary className="cursor-pointer">Debug Information</summary>
+        <div className="mt-1 p-2 bg-amber-100 dark:bg-amber-900/40 rounded text-left whitespace-pre-wrap max-h-40 overflow-y-auto">
+          {JSON.stringify(debugInfo, null, 2)}
+        </div>
+      </details>
+    )}
   </div>
 );
 
@@ -51,6 +69,13 @@ const getChartIcon = (type: string) => {
       return <Activity className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />;
     case 'table':
       return <Table className="w-5 h-5 text-gray-500 dark:text-gray-400" />;
+    case 'map':
+    case 'geospatial':
+      return <MapPin className="w-5 h-5 text-red-500 dark:text-red-400" />;
+    case 'radar':
+      return <Activity className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />;
+    case 'heatmap':
+      return <Activity className="w-5 h-5 text-orange-500 dark:text-orange-400" />;
     default:
       return <BarChart2 className="w-5 h-5 text-blue-500 dark:text-blue-400" />;
   }
@@ -106,15 +131,20 @@ export const VisualizationWidget: React.FC<VisualizationWidgetProps> = ({
     setLoading(true);
     setError(null);
     
+    // Debug info
+    logDebug('Initializing visualization with settings:', settings);
+    
     // Validate visualization data
     if (!visualization) {
       setError('Invalid Visualization Configuration');
       setLoading(false);
+      logDebug('Error: Invalid visualization configuration');
       return;
     }
     
     if (!visualization.data || !Array.isArray(visualization.data) || visualization.data.length === 0) {
       setLoading(false);
+      logDebug('Warning: No data available for visualization');
       // Instead of showing an error, we'll show a "No Data" message
       return;
     }
@@ -122,14 +152,17 @@ export const VisualizationWidget: React.FC<VisualizationWidgetProps> = ({
     try {
       // Process chart data
       setChartData(visualization);
+      logDebug('Visualization data processed successfully', visualization);
       
       // Short delay to show loading state
       setTimeout(() => {
         setLoading(false);
       }, 300);
     } catch (err) {
-      setError('Error processing visualization data: ' + (err instanceof Error ? err.message : String(err)));
+      const errorMessage = 'Error processing visualization data: ' + (err instanceof Error ? err.message : String(err));
+      setError(errorMessage);
       setLoading(false);
+      logDebug('Error:', errorMessage);
     }
   }, [visualization]);
   
@@ -139,7 +172,7 @@ export const VisualizationWidget: React.FC<VisualizationWidgetProps> = ({
     
     // Get theme from document or settings
     const isDarkMode = document.documentElement.classList.contains('dark');
-    const theme = isDarkMode ? 'dark' : 'light';
+    const theme = isDarkMode ? 'dark' : 'light' as 'dark' | 'light';
     
     // Enhanced text styling for better readability in both modes
     const textStyles = {
@@ -165,155 +198,56 @@ export const VisualizationWidget: React.FC<VisualizationWidgetProps> = ({
         fill: isDarkMode ? '#9ca3af' : '#6b7280',
         fontSize: isWidgetExpanded ? 12 : 10,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
-      },
-      legend: {
-        fill: isDarkMode ? '#e5e7eb' : '#374151',
-        fontSize: isWidgetExpanded ? 12 : 10,
-        fontWeight: 500,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
       }
     };
-    
-    // Enhanced grid styling
-    const gridStyles = {
-      stroke: isDarkMode ? 'rgba(75, 85, 99, 0.2)' : 'rgba(229, 231, 235, 0.8)',
-      strokeDasharray: '3 3'
-    };
-    
-    // Enhanced tooltip styling
-    const tooltipStyles = {
-      contentStyle: {
-        backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
-        borderColor: isDarkMode ? '#374151' : '#e5e7eb',
-        color: isDarkMode ? '#f3f4f6' : '#1f2937',
-        boxShadow: isDarkMode ? '0 4px 6px -1px rgba(0, 0, 0, 0.2)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-        borderRadius: '0.375rem',
-        padding: '0.5rem 0.75rem',
-        fontSize: isWidgetExpanded ? '0.875rem' : '0.75rem',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
-      },
-      itemStyle: {
-        color: isDarkMode ? '#d1d5db' : '#4b5563',
-        fontSize: isWidgetExpanded ? '0.875rem' : '0.75rem',
-        padding: '0.25rem 0'
-      },
-      labelStyle: {
-        color: isDarkMode ? '#f3f4f6' : '#1f2937',
-        fontWeight: 600,
-        marginRight: '0.5rem'
-      }
-    };
-    
-    // Create visualization props from chart data with enhanced styling
+
+    // Create visualization props
     const visualizationProps = {
-      type: chartData.type || 'bar',
+      type: chartData.type,
       data: chartData.data,
       xKey: chartData.xKey,
       yKey: chartData.yKey,
       series: chartData.series,
-      labels: {
-        ...chartData.labels,
-        // Enhanced text styling for better readability
-        style: textStyles
-      },
+      labels: chartData.labels,
+      width: '100%',
+      height: isWidgetExpanded ? 350 : 200,
+      theme,
       options: {
-        ...chartData.options,
-        useMultipleColors: chartData.type === 'bar' ? true : false,
-        theme,
-        darkMode: isDarkMode,
-        // Enhanced options for better dark mode support
-        grid: gridStyles,
-        tooltip: tooltipStyles,
-        // Enhanced legend options
-        legend: {
-          enabled: true,
-          position: 'bottom',
-          align: 'center',
-          verticalAlign: 'bottom',
-          layout: 'horizontal',
-          itemStyle: textStyles.legend
-        },
-        // Enhanced axis options
-        xAxis: {
-          tickSize: isWidgetExpanded ? 5 : 3,
-          tickPadding: isWidgetExpanded ? 8 : 5,
-          tickRotation: 0,
-          legendOffset: isWidgetExpanded ? 40 : 30,
-          legendPosition: 'middle',
-          textStyle: textStyles.tick
-        },
-        yAxis: {
-          tickSize: isWidgetExpanded ? 5 : 3,
-          tickPadding: isWidgetExpanded ? 8 : 5,
-          tickRotation: 0,
-          legendOffset: isWidgetExpanded ? -40 : -30,
-          legendPosition: 'middle',
-          textStyle: textStyles.tick
-        },
-        // Enhanced animation for expanded view
-        animate: true,
-        animationDuration: isWidgetExpanded ? 800 : 500,
-        // Enhanced padding for expanded view
-        padding: isWidgetExpanded ? { top: 30, right: 30, bottom: 50, left: 60 } : { top: 20, right: 20, bottom: 40, left: 50 },
-        // Enhanced responsive options
+        // Base settings
+        animation: true,
         responsive: true,
-        maintainAspectRatio: false
-      },
-      height: isWidgetExpanded ? 500 : 300,
-      width: '100%'
+        
+        // Text styles from above
+        textStyle: textStyles,
+        
+        // Grid and axis settings
+        showGrid: true,
+        showLegend: true,
+        
+        // Pass widget expansion state to allow component to optimize
+        isExpanded: isWidgetExpanded,
+        
+        // Pass through original settings
+        ...(chartData.options || {})
+      }
     };
-    
-    // Add specific enhancements for different chart types
-    if (chartData.type === 'pie') {
-      visualizationProps.options = {
-        ...visualizationProps.options,
-        // Enhanced pie chart options
-        innerRadius: isWidgetExpanded ? 0.3 : 0.2,
-        padAngle: 0.5,
-        cornerRadius: 4,
-        activeOuterRadiusOffset: isWidgetExpanded ? 10 : 8,
-        arcLabelsTextColor: isDarkMode ? '#f3f4f6' : '#1f2937',
-        arcLabelsSkipAngle: 10,
-        arcLinkLabelsColor: isDarkMode ? '#9ca3af' : '#6b7280',
-        arcLinkLabelsThickness: 2,
-        arcLinkLabelsStraightLength: isWidgetExpanded ? 16 : 12
-      };
-    } else if (chartData.type === 'bar') {
-      visualizationProps.options = {
-        ...visualizationProps.options,
-        // Enhanced bar chart options
-        borderRadius: 4,
-        borderWidth: 0,
-        padding: isWidgetExpanded ? 0.3 : 0.2,
-        labelTextColor: isDarkMode ? '#f3f4f6' : '#1f2937',
-        gridYValues: 5
-      };
-    } else if (chartData.type === 'line' || chartData.type === 'area') {
-      visualizationProps.options = {
-        ...visualizationProps.options,
-        // Enhanced line/area chart options
-        lineWidth: isWidgetExpanded ? 3 : 2,
-        pointSize: isWidgetExpanded ? 8 : 6,
-        pointBorderWidth: isWidgetExpanded ? 2 : 1,
-        pointBorderColor: isDarkMode ? '#1f2937' : '#ffffff',
-        enableArea: chartData.type === 'area',
-        areaOpacity: isDarkMode ? 0.2 : 0.15,
-        enablePointLabel: isWidgetExpanded,
-        pointLabelYOffset: -12
-      };
+
+    // Safety check: ensure data exists and has items
+    if (!chartData.data || chartData.data.length === 0) {
+      return <NoDataVisualization debugInfo={visualizationProps} />;
     }
-    
-        return (
-      <div className={`visualization-content h-full transition-all duration-300 ${isWidgetExpanded ? 'scale-100' : 'scale-95'}`}>
+
+    return (
+      <div className="h-full w-full">
         <Suspense fallback={<LoadingVisualization />}>
           <LazyVisualization {...visualizationProps} />
         </Suspense>
-          </div>
-        );
+      </div>
+    );
   };
   
   // Main render
-      return (
+  return (
     <div className={`visualization-widget h-full flex flex-col overflow-hidden ${isWidgetExpanded ? 'expanded-widget' : ''}`}>
       {/* Chart header with type icon and expand button */}
       {visualization?.type && (
@@ -347,7 +281,7 @@ export const VisualizationWidget: React.FC<VisualizationWidgetProps> = ({
               <Maximize2 className="w-4 h-4" />
             )}
           </button>
-                  </div>
+        </div>
       )}
       
       {/* Chart content */}
@@ -357,11 +291,11 @@ export const VisualizationWidget: React.FC<VisualizationWidgetProps> = ({
         ) : error ? (
           <ErrorVisualization error={error} />
         ) : !visualization?.data || visualization.data.length === 0 ? (
-          <NoDataVisualization />
+          <NoDataVisualization debugInfo={visualization} />
         ) : (
           renderVisualization()
         )}
-                  </div>
+      </div>
       
       {/* Optional footer with data summary */}
       {!loading && !error && visualization?.data && visualization.data.length > 0 && (

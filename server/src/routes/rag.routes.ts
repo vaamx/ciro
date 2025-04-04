@@ -543,7 +543,8 @@ router.post('/direct-query', async (req, res) => {
     logger.info(`Processing direct query: "${query.substring(0, 50)}${query.length > 50 ? '...' : ''}" for data source: ${dataSourceId}`);
     
     // Get embedding for query
-    const openaiService = new OpenAIService();
+    const qdrantService = QdrantService.getInstance();
+    const openaiService = OpenAIService.getInstance();
     const embedding = await openaiService.createEmbeddings([query]);
     
     if (!embedding || embedding.length === 0) {
@@ -552,8 +553,6 @@ router.post('/direct-query', async (req, res) => {
     
     // Format the collection name
     const collectionName = `datasource_${dataSourceId}`;
-    
-    const qdrantService = new QdrantService();
     
     // Check if collection exists
     const exists = await qdrantService.collectionExists(collectionName);
@@ -768,7 +767,8 @@ router.post('/answer-sales-query', async (req, res) => {
     logger.info(`Processing sales query: "${query}" for data source: ${dataSourceId}`);
     
     // Get embedding for query
-    const openaiService = new OpenAIService();
+    const qdrantService = QdrantService.getInstance();
+    const openaiService = OpenAIService.getInstance();
     const embedding = await openaiService.createEmbeddings([query]);
     
     if (!embedding || embedding.length === 0) {
@@ -777,8 +777,6 @@ router.post('/answer-sales-query', async (req, res) => {
     
     // Format the collection name
     const collectionName = `datasource_${dataSourceId}`;
-    
-    const qdrantService = new QdrantService();
     
     // Check if collection exists
     const exists = await qdrantService.collectionExists(collectionName);

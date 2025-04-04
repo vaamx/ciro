@@ -102,6 +102,39 @@ declare interface IStatisticalAnalysisService {
 }
 
 /**
+ * Visualization configuration interface
+ */
+interface VisualizationConfig {
+  theme: string;
+  title: string;
+  showLegend: boolean;
+  xKey?: string;
+  yKey?: string;
+  nameKey?: string;
+  valueKey?: string;
+  xAxisType?: string;
+  sorted?: boolean;
+  sortDirection?: 'asc' | 'desc';
+  showTrendLine?: boolean;
+  showRegressionLine?: boolean;
+  showLabels?: boolean;
+  labelFormat?: string;
+  shape?: string;
+  showArea?: boolean;
+  colorBy?: string;
+  sizeKey?: string;
+  // YoY specific properties
+  isYoYComparison?: boolean;
+  previousYearData?: any[];
+  previousYearKey?: string;
+  changePercentages?: Array<{index: number, value: number}>;
+  acpyLabels?: boolean;
+  colorScheme?: string;
+  // Other optional properties
+  [key: string]: any;
+}
+
+/**
  * RAG (Retrieval Augmented Generation) service
  */
 export class RagService {
@@ -164,14 +197,29 @@ export class RagService {
       complexity: 'medium' as 'high' | 'medium' | 'low'
     };
     
+    // Check for aggregation/total operations (domain-agnostic)
+    const isAggregationQuery = /total|sum|all|aggregate|entire|count|overall/i.test(lowerQuery);
+    const isNumericalQuery = /average|mean|median|statistics|distribution|price|cost|amount|revenue|sales|quantity|number/i.test(lowerQuery);
+    
+    // If query is explicitly asking for totals/aggregations
+    if (isAggregationQuery && isNumericalQuery) {
+      result.isAnalytical = true;
+      result.limit = 25000; // Very high limit for aggregation queries
+      result.similarityThreshold = 0.2; // Very low threshold for maximum recall
+      result.complexity = 'high';
+      return result;
+    }
+    
     // Check for analytical intent
     const analyticalPatterns = [
-      /analyze|analysis|trend|compare|comparison|statistics|statistical|correlation|correlate|percentage|proportion|distribution|average|mean|median|frequency|count/i
+      /analyze|analysis|trend|compare|comparison|statistics|statistical|correlation|correlate|percentage|proportion|distribution|average|mean|median|frequency|count/i,
+      /total|sum|all|entire|overall/i,
+      /how many|how much/i
     ];
     
     if (analyticalPatterns.some(pattern => pattern.test(query))) {
       result.isAnalytical = true;
-      result.limit = 50; // Higher limit for analytical queries
+      result.limit = 100; // Higher limit for analytical queries
       result.similarityThreshold = 0.5; // Lower threshold for analytical queries
       result.complexity = 'high';
     }
@@ -180,7 +228,8 @@ export class RagService {
     const entityPatterns = [
       { pattern: /investor|vc|fund|venture capital/i, type: 'investor' },
       { pattern: /company|startup|business/i, type: 'company' },
-      { pattern: /person|individual|founder|executive/i, type: 'person' }
+      { pattern: /person|individual|founder|executive/i, type: 'person' },
+      { pattern: /product|item|service/i, type: 'product' }
     ];
     
     for (const { pattern, type } of entityPatterns) {
@@ -194,6 +243,12 @@ export class RagService {
       result.complexity = 'high';
     } else if (query.length < 50 && !query.includes('?')) {
       result.complexity = 'low';
+    }
+    
+    // If query explicitly mentions "all data" or similar phrases, increase limit
+    if (/all.*data|entire.*dataset|complete.*information/i.test(lowerQuery)) {
+      result.limit = Math.max(result.limit, 1000);
+      result.similarityThreshold = Math.min(result.similarityThreshold, 0.4);
     }
     
     return result;
@@ -1118,10 +1173,22 @@ Format your response in a clear, structured way.`;
       // Fallback implementation if the service is not available
     const analyticalKeywords = [
         'analyze', 'compare', 'trend', 'distribution', 'correlation',
-        'statistics', 'insights', 'patterns', 'breakdown', 'metrics'
+        'statistics', 'insights', 'patterns', 'breakdown', 'metrics',
+        'total', 'sales', 'revenue', 'price', 'cost', 'sum',
+        'average', 'mean', 'median', 'max', 'min', 'count',
+        'aggregate', 'overall', 'complete'
       ];
       
       const normalizedQuery = query.toLowerCase();
+      
+      // Check for numerical operations with any type of data (domain-agnostic)
+      const isNumericalOperation = /total|sum|average|mean|median|max|min|count|aggregate/i.test(normalizedQuery);
+      const hasDataReference = /data|information|records|dataset|values|numbers|results|items|products|services|entries/i.test(normalizedQuery);
+      
+      // If query mentions both a numerical operation and data, it's analytical
+      if (isNumericalOperation && hasDataReference) {
+        return true;
+      }
       
       // Check for analytical keywords
       for (const keyword of analyticalKeywords) {
@@ -1140,7 +1207,10 @@ Format your response in a clear, structured way.`;
         /correlation between/i,
         /trend (of|in)/i,
         /over (time|the past|the last)/i,
-        /growth (rate|percentage)/i
+        /growth (rate|percentage)/i,
+        /total .* for/i,
+        /all .* (in|from)/i,
+        /calculate|compute|determine/i
       ];
       
       for (const pattern of analyticalPatterns) {
@@ -2033,7 +2103,7 @@ Format your response in a clear, structured way.`;
   }
 
   /**
-   * Retrieve relevant documents from the vector store
+   * Retrieve relevant documents from the vector store, using bulk retrieval for aggregation queries
    */
   private async retrieveDocuments(
     query: string, 
@@ -2046,13 +2116,77 @@ Format your response in a clear, structured way.`;
   }> {
     this.logger.info(`Retrieving documents for query: "${query}" from sources: ${dataSourceIds.join(', ')}`);
     
+    // Common car manufacturers to explicitly check for
+    const carCompanies = [
+      'volvo', 'bmw', 'mercedes', 'audi', 'toyota', 'honda', 'ford', 'chevrolet',
+      'tesla', 'nissan', 'hyundai', 'kia', 'subaru', 'volkswagen', 'ferrari',
+      'porsche', 'jaguar', 'lexus', 'mazda', 'fiat', 'jeep', 'dodge'
+    ];
+    
+    // Extract mentions of car manufacturers from the query
+    const lowerQuery = query.toLowerCase();
+    const mentionedCompanies = carCompanies.filter(company => lowerQuery.includes(company));
+    
+    // Special case for company-specific total queries (e.g., "total sales for Volvo")
+    const isCompanyTotalQuery = mentionedCompanies.length > 0 && 
+      (lowerQuery.includes('total') || lowerQuery.includes('sales') || lowerQuery.includes('sum'));
+    
+    // Force exhaustive retrieval for company total queries
+    if (isCompanyTotalQuery) {
+      needsExhaustiveResults = true;
+      this.logger.info(`Detected company-specific total query for: ${mentionedCompanies.join(', ')}. Forcing exhaustive retrieval.`);
+    }
+    
     // Improve query analysis
     const isAnalyticalQuery = this.isAnalyticalQuery(query);
     const isEntityLookup = this.isEntityLookupQuery(query);
     const isEntityListingQuery = query.match(/list|enumerate|show all|find all|get all/i) !== null;
-    const needsExhaustiveRetrieval = needsExhaustiveResults || isEntityLookup || isAnalyticalQuery;
     
-    this.logger.info(`Query analysis: analytical=${isAnalyticalQuery}, entityLookup=${isEntityLookup}, entityListing=${isEntityListingQuery}, exhaustiveMode=${needsExhaustiveRetrieval}`);
+    // Enhance detection for aggregation operations with more inclusive patterns
+    const isAggregationQuery = /total|sum|all|aggregate|entire|each|every|count|overall/i.test(query);
+    const isNumericalQuery = /average|mean|median|statistics|distribution|price|cost|amount|revenue|sales|quantity|number/i.test(query);
+    
+    // Special case for "total X for Y" pattern which is a common aggregation pattern
+    const isTotalForEntityPattern = /total\s+(\w+)\s+for\s+(\w+)/i.test(query);
+    
+    // Update the exhaustive retrieval flag to include more cases
+    const needsExhaustiveRetrieval = needsExhaustiveResults || 
+                                    isEntityLookup || 
+                                    isAnalyticalQuery || 
+                                    isAggregationQuery ||
+                                    isTotalForEntityPattern ||
+                                    isCompanyTotalQuery ||
+                                    (isNumericalQuery && /total|sum|all/i.test(query));
+    
+    this.logger.info(`Query analysis: analytical=${isAnalyticalQuery}, entityLookup=${isEntityLookup}, entityListing=${isEntityListingQuery}, companyTotalQuery=${isCompanyTotalQuery}, aggregationQuery=${isAggregationQuery}, numericalQuery=${isNumericalQuery}, totalForEntity=${isTotalForEntityPattern}, exhaustiveMode=${needsExhaustiveRetrieval}`);
+    
+    // Try to extract potential field names and values for direct filtering
+    // This is domain-agnostic - we're looking for patterns like "total X for Y"
+    const fieldMatches = this.extractPotentialFieldMatches(query);
+    
+    // Add explicit company matches if detected in the query
+    if (mentionedCompanies.length > 0) {
+      for (const company of mentionedCompanies) {
+        // Add with high priority (at beginning of array)
+        fieldMatches.unshift({ 
+          field: 'company', 
+          value: company.charAt(0).toUpperCase() + company.slice(1) // Capitalize company name
+        });
+      }
+    }
+    
+    this.logger.info(`Extracted field matches: ${JSON.stringify(fieldMatches)}`);
+    
+    // Determine if we should use bulk retrieval based on query characteristics
+    // More aggressive check to ensure we catch all aggregation queries
+    const useBulkRetrieval = (isAggregationQuery || isTotalForEntityPattern || isCompanyTotalQuery) && 
+                           (isNumericalQuery || query.toLowerCase().includes('total') || 
+                            query.toLowerCase().includes('sales') || query.toLowerCase().includes('revenue')) && 
+                           fieldMatches.length > 0;
+    
+    if (useBulkRetrieval) {
+      this.logger.info(`Using BULK RETRIEVAL for aggregation query with field matches`);
+    }
     
     // Initialize variables
     const documents: any[] = [];
@@ -2103,6 +2237,51 @@ Format your response in a clear, structured way.`;
           dataSourceDescriptions[dataSourceId] = dataSource.name;
         }
         
+          // For aggregation queries with field matches, use bulk retrieval
+          if (useBulkRetrieval && fieldMatches.length > 0) {
+            let bulkResults: any[] = [];
+            
+            // Try each potential field match
+            for (const match of fieldMatches) {
+              this.logger.info(`Trying bulk retrieval with field ${match.field}="${match.value}" on collection ${collectionName}`);
+              
+              // Use our new getAllMatchingRecords method
+              const matchResults = await this.qdrantService.getAllMatchingRecords(
+                collectionName,
+                match.field,
+                match.value
+              );
+              
+              if (matchResults && matchResults.length > 0) {
+                this.logger.info(`Bulk retrieval successful! Found ${matchResults.length} records matching ${match.field}="${match.value}"`);
+                bulkResults = matchResults;
+                break; // Stop after first successful match
+              }
+            }
+            
+            // Process results into standard format
+            if (bulkResults.length > 0) {
+              const formattedResults = bulkResults.map(result => ({
+                content: result.payload?.text || result.payload?.content || '',
+                metadata: {
+                  ...result.payload?.metadata,
+                  dataSourceId,
+                  collectionName,
+                  score: 1.0, // Set high score for direct matches
+                }
+              }));
+              
+              documents.push(...formattedResults);
+              this.logger.info(`Added ${formattedResults.length} bulk-retrieved documents to results`);
+              
+              // If bulk retrieval succeeded with a lot of results, skip vector search
+              if (formattedResults.length > 50) {
+                continue;
+              }
+            }
+          }
+          
+          // If bulk retrieval wasn't used or didn't find enough results, continue with vector search
         // Generate embeddings for the query
         const embeddings = await this.openaiService.createEmbeddings([query]);
         
@@ -2116,24 +2295,42 @@ Format your response in a clear, structured way.`;
           
           // Set search parameters based on query type
           let searchLimit = 10;
+          let similarityThreshold = 0.7;
           
           // Adjust limits based on query type
-          if (isEntityLookup || isAnalyticalQuery || needsExhaustiveRetrieval) {
+          if (isEntityLookup || isAnalyticalQuery) {
             searchLimit = 500; // Higher limit for entity lookup queries
-            this.logger.info(`Using increased search limit of ${searchLimit} for comprehensive retrieval`);
+            similarityThreshold = 0.5;
+            this.logger.info(`Using increased search limit of ${searchLimit} for comprehensive retrieval with similarity threshold ${similarityThreshold}`);
           }
           
           // Special case for entity listing queries - need maximum possible results
           if (isEntityListingQuery) {
             searchLimit = 1000; // Maximum limit for entity listing queries
-            this.logger.info(`Using MAXIMUM search limit of ${searchLimit} for entity listing query`);
+            similarityThreshold = 0.4;
+            this.logger.info(`Using MAXIMUM search limit of ${searchLimit} for entity listing query with similarity threshold ${similarityThreshold}`);
+          }
+          
+          // For total/aggregation queries, use maximum limit to ensure all records are retrieved
+          if (needsExhaustiveRetrieval) {
+            searchLimit = 10000; // Higher limit for exhaustive retrieval
+            similarityThreshold = 0.3; // Very low threshold for maximum recall
+            this.logger.info(`Using EXHAUSTIVE search limit of ${searchLimit} for aggregation/total query with similarity threshold ${similarityThreshold}`);
+          }
+          
+          // For queries explicitly asking for all data or totals
+          if (isAggregationQuery) {
+            searchLimit = 10000; // Higher limit for aggregation
+            similarityThreshold = 0.2; // Very low threshold for maximum recall
+            this.logger.info(`Using MAXIMUM search limit of ${searchLimit} for explicit aggregation query with similarity threshold ${similarityThreshold}`);
           }
           
         const results = await this.qdrantService.search(
           collectionName,
           embeddings[0],
           null,  // No filter
-            searchLimit  // Use dynamic limit based on query type
+            searchLimit,  // Use dynamic limit based on query type
+            similarityThreshold  // Use dynamic threshold based on query type
         );
         
         this.logger.info(`Found ${results.length} results in collection ${collectionName}`);
@@ -2163,6 +2360,144 @@ Format your response in a clear, structured way.`;
         collectionNames: [],
         dataSourceDescriptions: {}
       };
+    }
+  }
+
+  /**
+   * Extract potential field matches from a query
+   * Identifies patterns like "total X for Y" to find field names and values
+   * This is domain-agnostic and works for any type of data
+   */
+  private extractPotentialFieldMatches(query: string): Array<{field: string, value: string}> {
+    const matches: Array<{field: string, value: string}> = [];
+    const lowerQuery = query.toLowerCase();
+    
+    try {
+      // Common field name patterns (domain-agnostic)
+      const possibleFields = [
+        'company', 'brand', 'manufacturer', 'organization', 
+        'product', 'item', 'category', 'type',
+        'region', 'country', 'location', 'area',
+        'department', 'division', 'group', 'team',
+        'status', 'state', 'condition'
+      ];
+      
+      // Add common automotive companies to improve matches for car-related queries
+      const commonCompanies = [
+        'Volvo', 'BMW', 'Mercedes', 'Audi', 'Toyota', 'Honda', 'Ford', 'Chevrolet',
+        'Tesla', 'Nissan', 'Hyundai', 'Kia', 'Subaru', 'Volkswagen', 'Ferrari',
+        'Porsche', 'Jaguar', 'Lexus', 'Mazda', 'Fiat', 'Jeep', 'Dodge'
+      ];
+      
+      // First check if any common companies appear directly in the query
+      for (const company of commonCompanies) {
+        if (query.includes(company) || query.toLowerCase().includes(company.toLowerCase())) {
+          // Add with high priority (at beginning of array) for all common fields
+          for (const field of ['company', 'brand', 'manufacturer']) {
+            matches.unshift({ field, value: company });
+          }
+        }
+      }
+      
+      // Try to extract field values using regex patterns
+      // Pattern 1: "for X" where X might be a field value
+      const forPattern = /\b(?:for|of|from|by)\s+([a-z0-9\s&\-'.]+?)(?:\s+(?:in|at|during|from|between|and|or|\?)|$)/gi;
+      let match;
+      while ((match = forPattern.exec(query)) !== null) {
+        if (match[1] && match[1].trim().length > 2) {
+          const value = match[1].trim();
+          
+          // For "Total Sales for X" pattern, prioritize company field
+          if (lowerQuery.includes('total') && lowerQuery.includes('sales')) {
+            matches.unshift({ field: 'company', value });
+            matches.unshift({ field: 'brand', value });
+          }
+          
+          // Try each possible field for this value
+          for (const field of possibleFields) {
+            matches.push({ field, value });
+          }
+          
+          // Also try metadata fields for the value
+          matches.push({ field: 'metadata.name', value });
+          matches.push({ field: 'metadata.type', value });
+        }
+      }
+      
+      // Pattern 2: "X's" possessive form where X might be a field value
+      const possessivePattern = /\b([a-z0-9\s&\-'.]+?)'s\b/gi;
+      while ((match = possessivePattern.exec(query)) !== null) {
+        if (match[1] && match[1].trim().length > 2) {
+          const value = match[1].trim();
+          
+          // Try each possible field for this value
+          for (const field of possibleFields) {
+            matches.push({ field, value });
+          }
+        }
+      }
+      
+      // Pattern 3: Check all capitalized phrases as potential field values
+      const capitalizedPhrases = query.match(/\b[A-Z][a-zA-Z0-9\s&\-'.]*\b/g) || [];
+      for (const phrase of capitalizedPhrases) {
+        if (phrase.length > 2) {
+          // Try each possible field for this value
+          for (const field of possibleFields) {
+            matches.push({ field, value: phrase });
+          }
+        }
+      }
+      
+      // Pattern 4: Named fields in query, looking for "field: value" patterns
+      const namedFieldPattern = /\b([a-z]+)\s*(?::|=|is|as|equals?)\s*["']?([a-z0-9\s&\-'.]+)["']?/gi;
+      while ((match = namedFieldPattern.exec(query)) !== null) {
+        if (match[1] && match[2] && match[2].trim().length > 2) {
+          const field = match[1].trim().toLowerCase();
+          const value = match[2].trim();
+          
+          // Add direct field/value match
+          matches.push({ field, value });
+        }
+      }
+      
+      // If query mentions specific fields, prioritize those
+      possibleFields.forEach(field => {
+        if (lowerQuery.includes(field)) {
+          // Look for words after the field name
+          const fieldPattern = new RegExp(`\\b${field}\\s+(?:is|of|for|=|:|equals?)?\\s*["']?([a-z0-9\\s&\\-'.]+)["']?`, 'gi');
+          while ((match = fieldPattern.exec(lowerQuery)) !== null) {
+            if (match[1] && match[1].trim().length > 2) {
+              const value = match[1].trim();
+              // Add with high priority (at beginning of array)
+              matches.unshift({ field, value });
+            }
+          }
+        }
+      });
+      
+      // Special case for "Total X for Y" pattern (common in analytics)
+      if (lowerQuery.includes('total') || lowerQuery.includes('sum') || lowerQuery.includes('amount')) {
+        // Check what's being totaled (e.g., "sales" in "total sales for volvo")
+        const totaledEntity = ['sales', 'revenue', 'profit', 'income', 'cost', 'expenses', 'orders', 'items']
+          .find(term => lowerQuery.includes(term));
+          
+        if (totaledEntity) {
+          // This is likely a sum/aggregation query by company or category
+          // Already processed by "for X" pattern above, but add special additional matches
+          const forMatch = /\b(?:for|by|of)\s+([a-z0-9\s&\-'.]+)/i.exec(lowerQuery);
+          if (forMatch && forMatch[1]) {
+            // Add specific matches for analytics context
+            matches.unshift({ field: 'company', value: forMatch[1].trim() });
+            matches.unshift({ field: 'brand', value: forMatch[1].trim() });
+            matches.unshift({ field: 'category', value: forMatch[1].trim() });
+          }
+        }
+      }
+      
+      return matches;
+    } catch (error) {
+      this.logger.warn(`Error extracting field matches: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return [];
     }
   }
 
@@ -4024,6 +4359,8 @@ Please provide a helpful response that:
         };
       }
       
+      this.logger.info(`Analyzing structured data for query: "${query}"`);
+      
       // Initialize result object
       const results: any = {
         basicStats: {},
@@ -4031,17 +4368,14 @@ Please provide a helpful response that:
         keyPatterns: [],
         recommendations: []
       };
-      
-      // First, try using the StatisticalAnalysisService if available
-      if (this.statisticalAnalysis) {
-        try {
-          this.logger.info('Using StatisticalAnalysisService for deep analysis');
           
           // Prepare data for statistical analysis
           let dataForAnalysis: any[] = [];
           
           // Extract tabular data from different possible structures
-          if (structuredData.tables && structuredData.tables.length > 0) {
+      if (structuredData.tableData && structuredData.tableData.length > 0) {
+        dataForAnalysis = structuredData.tableData;
+      } else if (structuredData.tables && structuredData.tables.length > 0) {
             // Use the first table with data
             for (const table of structuredData.tables) {
               if (table.data && table.data.length > 0) {
@@ -4064,8 +4398,17 @@ Please provide a helpful response that:
             }
           }
           
-          // Only proceed if we have data to analyze
-          if (dataForAnalysis.length > 0) {
+      this.logger.info(`Found ${dataForAnalysis.length} data points for analysis`);
+      
+      if (dataForAnalysis.length === 0) {
+        return results;
+      }
+      
+      // First, try using the StatisticalAnalysisService if available
+      if (this.statisticalAnalysis && dataForAnalysis.length > 0) {
+        try {
+          this.logger.info('Using StatisticalAnalysisService for deep analysis');
+          
             // Get descriptive statistics
             const statsResult = await this.statisticalAnalysis.analyze(dataForAnalysis, 'statistics');
             if (statsResult && statsResult.statistics) {
@@ -4096,17 +4439,39 @@ Please provide a helpful response that:
             if (recommendationsResult && recommendationsResult.recommendations) {
               results.recommendations = recommendationsResult.recommendations;
               this.logger.info(`Generated ${results.recommendations.length} analytical recommendations`);
-            }
-            
-            return results;
           }
-        } catch (serviceError) {
-          this.logger.warn(`Error using StatisticalAnalysisService: ${serviceError instanceof Error ? serviceError.message : 'Unknown error'}`);
-          // Fall through to basic analysis
+        } catch (error) {
+          this.logger.warn(`Error using StatisticalAnalysisService: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Continue with fallback implementation
         }
       }
       
-      // Basic fallback analysis if service is unavailable or failed
+      // Enhanced numerical analysis with our domain-agnostic helper method
+      // This is useful for aggregation queries (sum, total, etc.)
+      if (dataForAnalysis.length > 0) {
+        // Process numerical data
+        const numericalData = this.extractNumericalData(dataForAnalysis, query);
+        
+        // Ensure we have basicStats, merge if needed
+        if (Object.keys(numericalData).length > 0) {
+          results.basicStats = {
+            ...results.basicStats,
+            ...numericalData
+          };
+          
+          this.logger.info(`Enhanced basic stats with numerical data: ${Object.keys(numericalData).length} metrics`);
+          
+          // For queries about totals, make sure the total is highlighted in the results
+          if (/total|sum|all|aggregate|overall/i.test(query.toLowerCase()) && numericalData.total !== undefined) {
+            results.basicStats.total = numericalData.total;
+            results.basicStats.aggregatedField = numericalData.totalField;
+            this.logger.info(`Highlighted total for field ${numericalData.totalField}: ${numericalData.total}`);
+          }
+        }
+      }
+      
+      // If we still have no insights from StatisticalAnalysisService, use basic fallback analysis
+      if (Object.keys(results.basicStats).length === 0) {
       this.logger.info('Using basic fallback analysis');
       
       // Extract basic statistics
@@ -4117,9 +4482,12 @@ Please provide a helpful response that:
       
       // Extract patterns
       results.keyPatterns = this.extractPatterns(structuredData);
+      }
       
       // Generate recommendations
-      results.recommendations = this.generateRecommendations(structuredData, query);
+      if (Object.keys(results.basicStats).length > 0 && results.recommendations.length === 0) {
+        results.recommendations = this.generateRecommendations(dataForAnalysis, query);
+      }
       
       return results;
     } catch (error) {
@@ -4533,288 +4901,200 @@ Please provide a helpful response that:
     data: any[];
     annotations?: any[];
     insights?: any[];
-    configuration?: any;
+    configuration?: VisualizationConfig;
   } {
     try {
-      // Clone data to avoid modifying original
-      const enhancedVisualization: {
-        type: string;
-        data: any[];
-        annotations?: any[];
-        insights?: any[];
-        configuration?: any;
-      } = {
+      // Base configuration
+      const enhancedViz = {
             type: visualizationType,
-        data: JSON.parse(JSON.stringify(visualizationData))
+        data: visualizationData,
+        annotations: [] as any[],
+        insights: [] as any[],
+        configuration: {
+          theme: 'default',
+          title: this.generateVisualizationTitle(query, visualizationType),
+          showLegend: true
+        } as VisualizationConfig
       };
       
-      // Initialize annotations and insights
-      const annotations: any[] = [];
-      const insights: any[] = [];
-      
-      // Default configuration based on visualization type
-      const configuration: any = {
-        title: this.generateVisualizationTitle(query, visualizationType),
-              showLegend: true,
-              interactive: true,
-              animations: true,
-              theme: 'light',
-              responsiveLayout: true
-      };
-      
-      // Determine if we have meaningful analytical insights
-      const hasBasicStats = analyticalInsights?.basicStats && Object.keys(analyticalInsights.basicStats).length > 0;
-      const hasDistributions = analyticalInsights?.topDistributions && Object.keys(analyticalInsights.topDistributions).length > 0;
-      const hasPatterns = analyticalInsights?.keyPatterns && analyticalInsights.keyPatterns.length > 0;
-      
-      // Apply enhancements based on visualization type
-      if (visualizationType === 'bar_chart' || visualizationType === 'multi_bar_chart') {
-        // Add mean/average line if we have basic stats
-        if (hasBasicStats) {
-          // Find relevant statistic for this chart
-          const relevantAvg = Object.entries(analyticalInsights.basicStats)
-            .find(([key, ]) => key.endsWith('_avg') || key.includes('average') || key.includes('mean'));
+      // Handle special case for YoY comparisons
+      if (visualizationType === 'yoy_bar' || visualizationType === 'yoy_line') {
+        const yoyData = this.prepareYoYComparisonData(visualizationData, query);
+        
+        if (yoyData.currentYearData.length > 0 && yoyData.previousYearData.length > 0) {
+          enhancedViz.type = visualizationType === 'yoy_bar' ? 'bar' : 'line';
+          enhancedViz.data = yoyData.currentYearData;
+          enhancedViz.configuration = {
+            ...enhancedViz.configuration,
+            isYoYComparison: true,
+            previousYearData: yoyData.previousYearData,
+            previousYearKey: yoyData.previousYearKey,
+            changePercentages: yoyData.changePercentages,
+            xKey: yoyData.xKey,
+            yKey: yoyData.yKey,
+            acpyLabels: true,
+            colorScheme: 'comparison'
+          };
+          
+          // Add insights about the year-over-year changes
+          if (yoyData.changePercentages.length > 0) {
+            // Calculate average change
+            const avgChange = yoyData.changePercentages.reduce((sum, item) => sum + item.value, 0) / yoyData.changePercentages.length;
             
-          if (relevantAvg) {
-            annotations.push({
-              type: 'line',
-              value: relevantAvg[1],
-              label: `Average: ${typeof relevantAvg[1] === 'number' ? relevantAvg[1].toFixed(2) : relevantAvg[1]}`,
-              color: '#FF5733',
-              dashPattern: [5, 5],
-              position: 'top'
-            });
+            // Find biggest increase and decrease
+            const sortedChanges = [...yoyData.changePercentages].sort((a, b) => b.value - a.value);
+            const biggestIncrease = sortedChanges[0];
+            const biggestDecrease = sortedChanges[sortedChanges.length - 1];
             
-            insights.push({
-              type: 'average',
-              description: `The average ${relevantAvg[0].replace('_avg', '')} is ${typeof relevantAvg[1] === 'number' ? relevantAvg[1].toFixed(2) : relevantAvg[1]}`
-            });
+            if (avgChange > 0) {
+              enhancedViz.insights.push(`Overall YoY growth of ${avgChange.toFixed(1)}%`);
+            } else {
+              enhancedViz.insights.push(`Overall YoY decline of ${Math.abs(avgChange).toFixed(1)}%`);
+            }
+            
+            if (biggestIncrease && biggestIncrease.value > 0) {
+              const category = yoyData.currentYearData[biggestIncrease.index][yoyData.xKey];
+              enhancedViz.insights.push(`Largest increase: ${category} (+${biggestIncrease.value.toFixed(1)}%)`);
+            }
+            
+            if (biggestDecrease && biggestDecrease.value < 0) {
+              const category = yoyData.currentYearData[biggestDecrease.index][yoyData.xKey];
+              enhancedViz.insights.push(`Largest decrease: ${category} (${biggestDecrease.value.toFixed(1)}%)`);
+            }
           }
-        }
-        
-        // Add sorting for better visual analysis
-        configuration.sortData = true;
-        configuration.sortDirection = 'descending';
-        configuration.showValues = true;
-        
-        // Add color gradient based on values
-        configuration.useColorGradient = true;
-        configuration.colorScheme = 'blue-green';
-        
-        // Add trend insight if available
-        if (hasPatterns) {
-          const trendPattern = analyticalInsights.keyPatterns
-            .find(pattern => pattern.category.toLowerCase().includes('trend') || pattern.category.toLowerCase().includes('change'));
-            
-          if (trendPattern) {
-            insights.push({
-              type: 'trend',
-              description: `Trend analysis: ${trendPattern.values[0]?.description || trendPattern.category}`
-            });
-          }
+          
+          return enhancedViz;
         }
       }
       
-      else if (visualizationType === 'line_chart') {
-        // Add trend and average annotations
-        if (hasBasicStats) {
-          const relevantStats = Object.entries(analyticalInsights.basicStats)
-            .filter(([key, ]) => 
-              key.endsWith('_avg') || 
-              key.endsWith('_min') || 
-              key.endsWith('_max')
+      // General enhancements based on visualization type
+      switch (visualizationType) {
+        case 'bar':
+          // Check if we have appropriate x and y keys for a bar chart
+          if (visualizationData.length > 0) {
+            const sampleData = visualizationData[0];
+            const numFields = Object.keys(sampleData).filter(key => 
+              typeof sampleData[key] === 'number' || 
+              (typeof sampleData[key] === 'string' && !isNaN(parseFloat(sampleData[key])))
             );
             
-          relevantStats.forEach(([key, value]) => {
-            if (key.endsWith('_avg')) {
-              annotations.push({
-                type: 'line',
-                value: value,
-                label: `Average: ${(value as number).toFixed(2)}`,
-                color: '#FF5733',
-                dashPattern: [5, 5],
-                position: 'right'
-              });
+            const catFields = Object.keys(sampleData).filter(key => 
+              typeof sampleData[key] === 'string' && 
+              isNaN(parseFloat(sampleData[key]))
+            );
+            
+            if (numFields.length > 0 && catFields.length > 0) {
+              enhancedViz.configuration.xKey = catFields[0];
+              enhancedViz.configuration.yKey = numFields[0];
+              
+              // Check if we should sort the data
+              if (/sort|rank|top|highest|lowest/i.test(query)) {
+                enhancedViz.configuration.sorted = true;
+                
+                // Determine sort direction
+                if (/highest|top|best|largest|most/i.test(query)) {
+                  enhancedViz.configuration.sortDirection = 'desc';
+                } else {
+                  enhancedViz.configuration.sortDirection = 'asc';
+                }
+              }
             }
-          });
-        }
-        
-        // Add growth rate annotation if possible
-        if (visualizationData.length >= 2) {
-          const firstPoint = visualizationData[0];
-          const lastPoint = visualizationData[visualizationData.length - 1];
-          
-          if (firstPoint.y !== undefined && lastPoint.y !== undefined) {
-            const startValue = firstPoint.y;
-            const endValue = lastPoint.y;
-            const growthPercent = ((endValue - startValue) / startValue) * 100;
-            
-            insights.push({
-              type: 'growth',
-              description: `Total change: ${growthPercent.toFixed(1)}% from ${startValue.toFixed(1)} to ${endValue.toFixed(1)}`
-            });
           }
-        }
-        
-        // Add smoother curve for better visual appeal
-        configuration.curve = 'natural';
-        configuration.showDataPoints = true;
-        configuration.lineWidth = 3;
-        configuration.fillBetween = true;
-        configuration.fillOpacity = 0.2;
-      }
-      
-      else if (visualizationType === 'pie_chart') {
-        // Add percentage labels
-        configuration.showPercentages = true;
-        configuration.showValues = true;
-        configuration.colorScheme = 'categorical';
-        configuration.innerRadius = 0.5; // Make it a donut chart for better visuals
-        
-        // Add insight about largest segment
+          break;
+          
+        case 'line':
+          // Check if we have time series data for a line chart
         if (visualizationData.length > 0) {
-          const sortedData = [...visualizationData].sort((a, b) => b.value - a.value);
-          const largestSegment = sortedData[0];
-          const totalValue = visualizationData.reduce((sum, item) => sum + item.value, 0);
-          const percentage = (largestSegment.value / totalValue * 100).toFixed(1);
-          
-          insights.push({
-            type: 'proportion',
-            description: `${largestSegment.category} represents the largest segment at ${percentage}% of the total`
-          });
-          
-          // Add insight about concentration
-          if (sortedData.length >= 3) {
-            const top3Value = sortedData.slice(0, 3).reduce((sum, item) => sum + item.value, 0);
-            const top3Percentage = (top3Value / totalValue * 100).toFixed(1);
+            const sampleData = visualizationData[0];
+            const timeFields = Object.keys(sampleData).filter(key => 
+              (typeof sampleData[key] === 'string' && 
+                (/^\d{4}-\d{2}-\d{2}/.test(sampleData[key]) || 
+                 /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(sampleData[key]))) || 
+              /date|time|year|month|day/i.test(key)
+            );
             
-            insights.push({
-              type: 'concentration',
-              description: `Top 3 categories represent ${top3Percentage}% of the total`
-            });
-          }
-        }
-      }
-      
-      else if (visualizationType === 'scatter_plot') {
-        // Add trend line
-        configuration.showTrendLine = true;
-        configuration.trendLineColor = '#FF5733';
-        configuration.trendLineWidth = 2;
-        
-        // Add quadrant labels for better interpretation
-        configuration.showQuadrants = true;
-        configuration.quadrantLabels = {
-          topRight: 'High performers',
-          topLeft: 'Mixed results',
-          bottomRight: 'Mixed results',
-          bottomLeft: 'Underperformers'
-        };
-        
-        // Add correlation insight if available
-        if (hasPatterns) {
-          const correlationPattern = analyticalInsights.keyPatterns
-            .find(pattern => pattern.category.toLowerCase().includes('correlation'));
+            const numFields = Object.keys(sampleData).filter(key => 
+              typeof sampleData[key] === 'number' || 
+              (typeof sampleData[key] === 'string' && !isNaN(parseFloat(sampleData[key])))
+            );
             
-          if (correlationPattern && correlationPattern.values.length > 0) {
-            insights.push({
-              type: 'correlation',
-              description: correlationPattern.values[0]?.description || 'Correlation found between variables'
-            });
+            if (timeFields.length > 0 && numFields.length > 0) {
+              enhancedViz.configuration.xKey = timeFields[0];
+              enhancedViz.configuration.yKey = numFields[0];
+              enhancedViz.configuration.xAxisType = 'time';
+              
+              // Check if we should add trend lines
+              if (/trend|growth|forecast/i.test(query)) {
+                enhancedViz.configuration.showTrendLine = true;
+              }
+            }
           }
-        }
-      }
-      
-      else if (visualizationType === 'map_chart') {
-        // Add region coloring based on value ranges
-        configuration.colorScheme = 'sequential-blue';
-        configuration.showLegend = true;
-        configuration.legendTitle = 'Value range';
-        
-        // Add highest/lowest region insights
+          break;
+          
+        case 'pie':
+          // Setup pie chart configuration
+          if (visualizationData.length > 0) {
+            const sampleData = visualizationData[0];
+            const catFields = Object.keys(sampleData).filter(key => 
+              typeof sampleData[key] === 'string' && 
+              isNaN(parseFloat(sampleData[key]))
+            );
+            
+            const numFields = Object.keys(sampleData).filter(key => 
+              typeof sampleData[key] === 'number' || 
+              (typeof sampleData[key] === 'string' && !isNaN(parseFloat(sampleData[key])))
+            );
+            
+            if (catFields.length > 0 && numFields.length > 0) {
+              enhancedViz.configuration.nameKey = catFields[0];
+              enhancedViz.configuration.valueKey = numFields[0];
+              enhancedViz.configuration.showLabels = true;
+              enhancedViz.configuration.labelFormat = '{b}: {c} ({d}%)';
+            }
+          }
+          break;
+          
+        case 'scatter':
+          // Setup scatter plot configuration
         if (visualizationData.length > 0) {
-          const sortedData = [...visualizationData].sort((a, b) => b.value - a.value);
-          const highestRegion = sortedData[0];
-          const lowestRegion = sortedData[sortedData.length - 1];
+            const sampleData = visualizationData[0];
+            const numFields = Object.keys(sampleData).filter(key => 
+              typeof sampleData[key] === 'number' || 
+              (typeof sampleData[key] === 'string' && !isNaN(parseFloat(sampleData[key])))
+            );
+            
+            if (numFields.length >= 2) {
+              enhancedViz.configuration.xKey = numFields[0];
+              enhancedViz.configuration.yKey = numFields[1];
+              
+              // If we have a third numeric field, use it for bubble size
+              if (numFields.length >= 3) {
+                enhancedViz.configuration.sizeKey = numFields[2];
+              }
+              
+              // Add regression line for correlation analysis
+              if (/correlation|relationship|regression/i.test(query)) {
+                enhancedViz.configuration.showRegressionLine = true;
+              }
+            }
+          }
+          break;
+      
+        case 'radar':
+          // Setup radar chart configuration
+          enhancedViz.configuration.shape = 'polygon';
+          enhancedViz.configuration.showArea = true;
+          break;
           
-          insights.push({
-            type: 'regional_high',
-            description: `${highestRegion.location} has the highest value at ${highestRegion.value}`
-          });
-          
-          insights.push({
-            type: 'regional_low',
-            description: `${lowestRegion.location} has the lowest value at ${lowestRegion.value}`
-          });
-        }
+        case 'treemap':
+          // Setup treemap configuration
+          enhancedViz.configuration.colorBy = 'value';
+          break;
       }
       
-      else if (visualizationType === 'heat_map') {
-        // Add color scale customization
-        configuration.colorScheme = 'sequential-multi';
-        configuration.showScale = true;
-        configuration.cellSize = 'adaptive';
-        
-        // Add hotspot insights
-        insights.push({
-          type: 'hotspots',
-          description: 'The visualization highlights hotspots where values are significantly higher than surrounding areas'
-        });
-      }
-      
-      else if (visualizationType === 'tree_map') {
-        // Add hierarchical coloring
-        configuration.colorScheme = 'categorical';
-        configuration.showLabels = true;
-        configuration.labelSize = 'auto';
-        
-        // Add segment insights
-        if (visualizationData.length > 0) {
-          const totalValue = visualizationData.reduce((sum, item) => sum + item.value, 0);
-          const largestSegment = [...visualizationData].sort((a, b) => b.value - a.value)[0];
-          const percentage = (largestSegment.value / totalValue * 100).toFixed(1);
-          
-          insights.push({
-            type: 'segment_proportion',
-            description: `${largestSegment.name} represents ${percentage}% of the total size`
-          });
-        }
-      }
-      
-      // Add common enhancements for all visualization types
-      if (hasDistributions) {
-        const topDistribution = Object.entries(analyticalInsights.topDistributions)[0];
-        if (topDistribution) {
-          insights.push({
-            type: 'distribution',
-            description: `${topDistribution[0]} shows a notable distribution pattern worth exploring`
-          });
-        }
-      }
-      
-      // Add recommendations as insights if available
-      if (analyticalInsights.recommendations && analyticalInsights.recommendations.length > 0) {
-        analyticalInsights.recommendations.slice(0, 2).forEach((recommendation: string) => {
-          insights.push({
-            type: 'recommendation',
-            description: recommendation
-          });
-        });
-      }
-      
-      // Limit the number of insights to avoid overwhelming the visualization
-      if (insights.length > 4) {
-        insights.length = 4;
-      }
-      
-      // Attach annotations, insights and configuration to the enhanced visualization
-      enhancedVisualization.annotations = annotations;
-      enhancedVisualization.insights = insights;
-      enhancedVisualization.configuration = configuration;
-      
-      return enhancedVisualization;
+      return enhancedViz;
     } catch (error) {
-      this.logger.warn(`Error enhancing visualization: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(`Error enhancing visualization: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return {
         type: visualizationType,
         data: visualizationData
@@ -4953,62 +5233,157 @@ Please provide a helpful response that:
     }
   }
 
+  /**
+   * Determines the most appropriate visualization type for the given data and query
+   * Uses a domain-agnostic approach to select visualizations based on data characteristics
+   * @param query The user's query
+   * @param data The data to visualize
+   * @returns The visualization type
+   */
   private determineVisualizationType(query: string, data: any[]): string {
-    try {
-      // First try to use the AnalyticsProcessor if available
-      if (this.analyticsProcessor) {
-        try {
-          const analyticalOperations = this.analyticsProcessor.determineAnalyticalOperations(query);
-          const recommendedViz = this.analyticsProcessor.determineVisualizationType(query, analyticalOperations);
-          
-          if (recommendedViz) {
-            this.logger.info(`AnalyticsProcessor recommended visualization: ${recommendedViz} based on operations: ${JSON.stringify(analyticalOperations)}`);
-            return recommendedViz.toLowerCase().replace(/ /g, '_');
-          }
-        } catch (err) {
-          this.logger.warn(`Error using AnalyticsProcessor for visualization: ${err instanceof Error ? err.message : 'Unknown error'}`);
-          // Fall through to basic detection
+    if (!data || data.length === 0) {
+      return 'table'; // Default to table if no data
+    }
+    
+    this.logger.info(`Determining visualization type for ${data.length} records`);
+    
+    const lowerQuery = query.toLowerCase();
+    
+    // Check for year-over-year or comparison patterns
+    const isYoYComparison = /year[\s-]*over[\s-]*year|yoy|compare.*last year|previous year|year.*comparison|annual comparison/i.test(lowerQuery);
+    const isComparison = /compare|comparison|versus|vs|against|difference/i.test(lowerQuery);
+    
+    // Check query for explicit visualization requests
+    if (/bar chart|bar graph|barchart/i.test(lowerQuery)) {
+      return isYoYComparison ? 'yoy_bar' : 'bar';
+    } else if (/line chart|line graph|linechart|trend|over time/i.test(lowerQuery)) {
+      return isYoYComparison ? 'yoy_line' : 'line';
+    } else if (/pie chart|piechart|distribution|breakdown/i.test(lowerQuery)) {
+      return 'pie';
+    } else if (/scatter|correlation|relationship/i.test(lowerQuery)) {
+      return 'scatter';
+    } else if (/radar|spider/i.test(lowerQuery)) {
+      return 'radar';
+    } else if (/heatmap|matrix/i.test(lowerQuery)) {
+      return 'heatmap';
+    } else if (/tree\s*map|hierarchy/i.test(lowerQuery)) {
+      return 'treemap';
+    } else if (/gauge|meter/i.test(lowerQuery)) {
+      return 'gauge';
+    } else if (/funnel/i.test(lowerQuery)) {
+      return 'funnel';
+    }
+    
+    // Analyze data structure
+    const sampleRecord = data[0];
+    
+    // Check if data has a date/time dimension suitable for YoY analysis
+    const hasYearData = this.detectYearBasedData(data);
+    
+    // Check for time-based fields
+    const timeFields = Object.keys(sampleRecord).filter(key => {
+      const value = sampleRecord[key];
+      return (
+        (typeof value === 'string' && 
+          (/^\d{4}-\d{2}-\d{2}/.test(value) || // ISO date
+           /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(value))) || // MM/DD/YYYY
+        /date|time|year|month|day|week|quarter/i.test(key)
+      );
+    });
+    
+    // Check for numerical fields
+    const numericalFields = Object.keys(sampleRecord).filter(key => {
+      const value = sampleRecord[key];
+      return typeof value === 'number' || 
+             (typeof value === 'string' && !isNaN(parseFloat(value)));
+    });
+    
+    // Check for categorical fields
+    const categoricalFields = Object.keys(sampleRecord).filter(key => {
+      const value = sampleRecord[key];
+      return typeof value === 'string' && 
+             !/date|time|year|month|day/i.test(key) &&
+             !/^\d+(\.\d+)?$/.test(value);
+    });
+    
+    // If query is about totals/sums/counts
+    const isAggregationQuery = /total|sum|count|aggregate|overall/i.test(lowerQuery);
+    
+    // If query is about comparisons
+    const isComparisonQuery = isComparison || /higher|lower|differ/i.test(lowerQuery);
+    
+    // If query is about distribution
+    const isDistributionQuery = /distribution|breakdown|segment|category/i.test(lowerQuery);
+    
+    // If query is about trends over time
+    const isTrendQuery = /trend|over time|growth|change|evolution/i.test(lowerQuery);
+    
+    // For year-over-year comparison queries with time data, use YoY charts
+    if (isYoYComparison || (hasYearData && isComparisonQuery)) {
+      if (timeFields.length > 0 && numericalFields.length > 0) {
+        if (categoricalFields.length > 0) {
+          return 'yoy_bar'; // YoY with categories = comparison bar chart
+        } else {
+          return 'yoy_line'; // YoY time series = line chart comparison
         }
       }
-      
-      // Check for specific keywords in the query
-      if (query.match(/\b(trend|growth|change over time|historical|forecast|projection|time series)\b/i)) {
-        return 'line_chart';
-      } else if (query.match(/\b(compare|comparison|versus|vs\.|difference between)\b/i)) {
-        return 'bar_chart';
-      } else if (query.match(/\b(distribution|breakdown|proportion|percentage|share|ratio)\b/i)) {
-        return 'pie_chart';
-      } else if (query.match(/\b(relationship|correlation|scatter|plot|regression)\b/i)) {
-        return 'scatter_plot';
-      } else if (query.match(/\b(map|geographic|location|regional|country|state|global)\b/i)) {
-        return 'map_chart';
-      } else if (query.match(/\b(network|connection|link|flow|sankey)\b/i)) {
-        return 'network_graph';
-      } else if (query.match(/\b(hierarchy|tree|organization|structure)\b/i)) {
-        return 'tree_map';
-      } else if (query.match(/\b(heatmap|matrix|grid|intensity)\b/i)) {
-        return 'heat_map';
-      } else if (query.match(/\b(radar|spider|web|multi-dimension)\b/i)) {
-        return 'radar_chart';
-      } else if (query.match(/\b(funnel|pipeline|stages|conversion)\b/i)) {
-        return 'funnel_chart';
-      } else if (query.match(/\b(waterfall|cumulative|sequential|step)\b/i)) {
-        return 'waterfall_chart';
-      } else if (query.match(/\b(bubble|size|scale|magnitude)\b/i)) {
-        return 'bubble_chart';
-      } else if (query.match(/\b(gauge|meter|dial|kpi|target)\b/i)) {
-        return 'gauge_chart';
+    }
+    
+    // For time series data with numerical values, prefer line charts
+    if (timeFields.length > 0 && numericalFields.length > 0 && (isTrendQuery || data.length > 5)) {
+      return 'line';
+    }
+    
+    // For categorical data with counts or numerical values
+    if (categoricalFields.length > 0 && numericalFields.length > 0) {
+      // For fewer categories, pie charts work well for distribution queries
+      if (isDistributionQuery && data.length <= 7) {
+        return 'pie';
       }
       
-      // All the other logic...
+      // For comparisons between categories, bar charts work well
+      if (isComparisonQuery || isAggregationQuery) {
+        return 'bar';
+      }
       
-      // Default to table if no better visualization determined
-      return 'table';
-    } catch (err) {
-      this.logger.warn(`Error in determineVisualizationType: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Default for categorical + numerical is bar
+      return 'bar';
+    }
+    
+    // For primarily numerical data (2+ numerical fields)
+    if (numericalFields.length >= 2) {
+      // For possible correlations between numerical fields
+      if (/correlation|relationship|scatter/i.test(lowerQuery)) {
+        return 'scatter';
+      }
+      
+      // If comparing multiple metrics across few entities, radar chart can be good
+      if (numericalFields.length >= 3 && data.length <= 8 && isComparisonQuery) {
+        return 'radar';
+      }
+      
+      // Default to bar for numerical comparison
+      return 'bar';
+    }
+    
+    // For data with few records but many fields, table might be best
+    if (data.length <= 5 && Object.keys(sampleRecord).length > 5) {
       return 'table';
     }
-  } // <-- Make sure this closing brace is correct
+    
+    // Default to bar charts for aggregation queries
+    if (isAggregationQuery) {
+      return 'bar';
+    }
+    
+    // Final fallback based on data size
+    if (data.length > 15) {
+      return 'table'; // Tables work well for larger datasets
+    }
+    
+    // Default for most cases
+    return 'bar';
+  }
 
   /**
    * Generate recommendations for further analysis
@@ -5058,68 +5433,576 @@ Please provide a helpful response that:
   }
 
   /**
-   * Lists available data sources with collection status for an organization
+   * List all data sources with their collection status
+   * @param organizationId The organization ID to filter data sources
+   * @returns Array of data sources with collection status
    */
   async listDataSources(organizationId: string): Promise<Array<{
-    id: string | number;
+    id: string;
     name: string;
-    type: string;
-    collectionName: string;
     hasCollection: boolean;
+    type: string;
+    status?: string;
+    itemCount?: number;
+    collectionName?: string;
   }>> {
+    this.logger.info(`Listing data sources for organization: ${organizationId}`);
+    
     try {
-      this.logger.info(`Listing data sources for organization ${organizationId}`);
+      // Get data sources from database
+      const dataSources = await db('data_sources')
+        .select('id', 'name', 'type', 'status', 'created_at', 'updated_at')
+        .where({ organization_id: organizationId })
+        .orderBy('updated_at', 'desc');
       
-      // Here you would retrieve the data sources from your database
-      // For now, we'll make a simple implementation that just returns empty
+      // Get available collections from Qdrant
+      const availableCollections = await this.qdrantService.listCollections();
       
-      return [];
+      // Map data sources with collection status
+      const result = await Promise.all(dataSources.map(async (source) => {
+        const collectionName = this.normalizeCollectionName(String(source.id));
+        const hasCollection = availableCollections.includes(collectionName);
+        
+        let itemCount = 0;
+        if (hasCollection) {
+          try {
+            const collectionInfo = await this.qdrantService.getCollectionInfo(collectionName);
+            itemCount = collectionInfo?.vectors_count || 0;
+          } catch (error) {
+            this.logger.warn(`Failed to get collection info for ${collectionName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+        
+        return {
+          id: String(source.id),
+          name: source.name,
+          hasCollection,
+          type: source.type || 'unknown',
+          status: source.status || 'ready',
+          itemCount,
+          collectionName: hasCollection ? collectionName : undefined
+        };
+      }));
+      
+      return result;
     } catch (error) {
-      this.logger.error(`Error listing data sources: ${error}`);
-      return [];
+      this.logger.error(`Error listing data sources: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
     }
   }
-  
+
   /**
-   * Returns the status of the RAG service and its dependencies
+   * Get the status of the RAG service
+   * @returns Status information about the RAG service
    */
   async getStatus(): Promise<{
     status: string;
-    openaiService: boolean;
-    qdrantService: boolean;
-    collections: string[];
-    timestamp: number;
+    openai: boolean;
+    qdrant: boolean;
+    collections: number;
+    embeddingsAvailable: boolean;
+    version: string;
   }> {
+    this.logger.info('Getting RAG service status');
+    
     try {
-      // Check if we can connect to Qdrant
-      let qdrantStatus = true;
-      
+      // Check OpenAI connection
+      let openaiStatus = false;
       try {
-        // Try to list collections as a way to check Qdrant availability
-        await this.qdrantService.listCollections();
+        await this.openaiService.getModels();
+        openaiStatus = true;
       } catch (error) {
-        this.logger.error(`Error connecting to Qdrant: ${error}`);
-        qdrantStatus = false;
+        this.logger.error(`OpenAI connection error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
       
-      // Get list of collections
-      const collections = qdrantStatus ? await this.qdrantService.listCollections() : [];
+      // Check Qdrant connection
+      let qdrantStatus = false;
+      let collectionsCount = 0;
+      try {
+        const collections = await this.qdrantService.listCollections();
+        qdrantStatus = true;
+        collectionsCount = collections.length;
+      } catch (error) {
+        this.logger.error(`Qdrant connection error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
       
       return {
-        status: 'ok',
-        openaiService: true,
-        qdrantService: qdrantStatus,
-        collections: collections || [],
-        timestamp: Date.now()
+        status: openaiStatus && qdrantStatus ? 'healthy' : 'degraded',
+        openai: openaiStatus,
+        qdrant: qdrantStatus,
+        collections: collectionsCount,
+        embeddingsAvailable: openaiStatus,
+        version: '2.0.0'
       };
     } catch (error) {
-      this.logger.error(`Error getting RAG status: ${error}`);
+      this.logger.error(`Error getting RAG status: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return {
         status: 'error',
-        openaiService: false,
-        qdrantService: false,
-        collections: [],
-        timestamp: Date.now()
+        openai: false,
+        qdrant: false,
+        collections: 0,
+        embeddingsAvailable: false,
+        version: '2.0.0'
+      };
+    }
+  }
+
+  /**
+   * Extract and aggregate numerical data from structured records
+   * This is a domain-agnostic function that works with any dataset containing numerical fields
+   * @param data Array of data records
+   * @param query User query for context about what fields might be important
+   * @returns Object containing aggregated data
+   */
+  private extractNumericalData(data: any[], query: string): Record<string, any> {
+    if (!data || data.length === 0) {
+      return {};
+    }
+    
+    this.logger.info(`Extracting numerical data from ${data.length} records`);
+    
+    // Initialize result object
+    const result: Record<string, any> = {
+      recordCount: data.length
+    };
+    
+    try {
+      // First, identify all potential numerical fields
+      const sampleRecord = data[0];
+      const numericFields: string[] = [];
+      const currencyFields: string[] = [];
+      
+      // Scan for potential numerical and currency fields
+      Object.entries(sampleRecord).forEach(([key, value]) => {
+        // Check if it's already a number
+        if (typeof value === 'number') {
+          numericFields.push(key);
+        } 
+        // Check if it's a string that could be a number or currency
+        else if (typeof value === 'string') {
+          // Check for currency patterns
+          if (/^\s*[$€£¥]\s*\d+([.,]\d+)?\s*$/.test(value)) {
+            currencyFields.push(key);
+          } 
+          // Check for numeric strings
+          else if (/^\s*\d+([.,]\d+)?\s*$/.test(value)) {
+            numericFields.push(key);
+          }
+        }
+      });
+      
+      this.logger.info(`Found ${numericFields.length} numeric fields and ${currencyFields.length} currency fields`);
+      
+      // Process each numeric field
+      [...numericFields, ...currencyFields].forEach(field => {
+        // Extract clean numerical values
+        const values = data.map(record => {
+          let val = record[field];
+          
+          // If the value is a string, clean and convert it
+          if (typeof val === 'string') {
+            // Remove currency symbols and other non-numeric characters
+            val = val.replace(/[$€£¥,]/g, '');
+            
+            // Extract numeric part if it's mixed with text
+            const matches = val.match(/[-+]?\d+(\.\d+)?/);
+            if (matches) {
+              val = matches[0];
+            }
+            
+            // Convert to number
+            val = parseFloat(val);
+          }
+          
+          return !isNaN(val) ? val : null;
+        }).filter(val => val !== null) as number[];
+        
+        // Only process if we have values
+        if (values.length > 0) {
+          // Calculate aggregations
+          const sum = values.reduce((acc, val) => acc + val, 0);
+          const avg = sum / values.length;
+          const min = Math.min(...values);
+          const max = Math.max(...values);
+          
+          // Store the results
+          result[`${field}_sum`] = sum;
+          result[`${field}_avg`] = avg;
+          result[`${field}_min`] = min;
+          result[`${field}_max`] = max;
+          result[`${field}_count`] = values.length;
+          
+          // For fields that appear to be monetary (either by name or due to currency symbols)
+          const isMonetaryField = 
+            currencyFields.includes(field) || 
+            /price|cost|revenue|sales|amount|total|sum|value|income|expense/i.test(field);
+          
+          if (isMonetaryField) {
+            // If the query appears to be about totals/sums, highlight this field's sum
+            if (/total|sum|all|aggregate|overall/i.test(query.toLowerCase())) {
+              result.total = sum;
+              result.totalField = field;
+            }
+          }
+        }
+      });
+      
+      this.logger.info(`Extracted ${Object.keys(result).length} numerical data points`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error extracting numerical data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { recordCount: data.length };
+    }
+  }
+
+  /**
+   * Detects if the data contains year-based information suitable for YoY analysis
+   * @param data The data to analyze
+   * @returns Boolean indicating if year-based data is detected
+   */
+  private detectYearBasedData(data: any[]): boolean {
+    if (!data || data.length === 0) {
+      return false;
+    }
+    
+    try {
+      const sampleRecord = data[0];
+      
+      // Check for explicit year fields
+      const yearFields = Object.keys(sampleRecord).filter(key => 
+        /year|yr|20\d\d/i.test(key)
+      );
+      
+      if (yearFields.length > 0) {
+        return true;
+      }
+      
+      // Check for date fields that span multiple years
+      const dateFields = Object.keys(sampleRecord).filter(key => {
+        const value = sampleRecord[key];
+        return (
+          typeof value === 'string' && 
+          (/^\d{4}-\d{2}-\d{2}/.test(value) || // ISO date
+           /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(value) || // MM/DD/YYYY
+           /\b(19|20)\d{2}\b/.test(value)) // Contains a year
+        ) || /date|time/i.test(key);
+      });
+      
+      if (dateFields.length === 0) {
+        return false;
+      }
+      
+      // Extract years from the first date field to see if we have data spanning multiple years
+      const dateField = dateFields[0];
+      const years = new Set();
+      
+      for (const record of data) {
+        const dateValue = record[dateField];
+        if (typeof dateValue === 'string') {
+          // Try to extract year from ISO date
+          let year = null;
+          
+          // Check for ISO date
+          const isoMatch = dateValue.match(/^(\d{4})-\d{2}-\d{2}/);
+          if (isoMatch) {
+            year = parseInt(isoMatch[1]);
+          } else {
+            // Check for MM/DD/YYYY
+            const mdyMatch = dateValue.match(/\d{1,2}\/\d{1,2}\/(\d{4})/);
+            if (mdyMatch) {
+              year = parseInt(mdyMatch[1]);
+            } else {
+              // Check for any 4-digit year
+              const yearMatch = dateValue.match(/\b(19|20)\d{2}\b/);
+              if (yearMatch) {
+                year = parseInt(yearMatch[0]);
+              }
+            }
+          }
+          
+          if (year) {
+            years.add(year);
+          }
+        }
+      }
+      
+      // If we have 2+ years in the data, it's suitable for YoY analysis
+      return years.size >= 2;
+    } catch (error) {
+      this.logger.warn(`Error detecting year-based data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  /**
+   * Prepares data for year-over-year comparison visualization
+   * @param data The raw data to process
+   * @param query The user query for context
+   * @returns Structured data for YoY comparison
+   */
+  private prepareYoYComparisonData(data: any[], query: string): {
+    currentYearData: any[];
+    previousYearData: any[];
+    changePercentages: Array<{index: number, value: number}>;
+    xKey: string;
+    yKey: string;
+    previousYearKey: string;
+  } {
+    try {
+      if (!data || data.length === 0) {
+        return {
+          currentYearData: [],
+          previousYearData: [],
+          changePercentages: [],
+          xKey: 'category',
+          yKey: 'value',
+          previousYearKey: 'value'
+        };
+      }
+      
+      this.logger.info(`Preparing YoY comparison data for ${data.length} records`);
+      
+      const sampleRecord = data[0];
+      const result = {
+        currentYearData: [],
+        previousYearData: [],
+        changePercentages: [] as Array<{index: number, value: number}>,
+        xKey: 'category',
+        yKey: 'value',
+        previousYearKey: 'value'
+      };
+      
+      // Look for category field candidates (non-numeric, non-date)
+      const categoryFields = Object.keys(sampleRecord).filter(key => {
+        const value = sampleRecord[key];
+        return typeof value === 'string' && 
+               !/date|time|year|month|day/i.test(key) &&
+               !/^\d+(\.\d+)?$/.test(value);
+      });
+      
+      // Look for value field candidates (numeric)
+      const valueFields = Object.keys(sampleRecord).filter(key => {
+        const value = sampleRecord[key];
+        return typeof value === 'number' || 
+               (typeof value === 'string' && !isNaN(parseFloat(value)));
+      });
+      
+      // Determine date/year field
+      const dateFields = Object.keys(sampleRecord).filter(key => {
+        const value = sampleRecord[key];
+        return (
+          typeof value === 'string' && 
+          (/^\d{4}-\d{2}-\d{2}/.test(value) || // ISO date
+           /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(value)) || // MM/DD/YYYY
+          /date|time|year|month|day/i.test(key)
+        );
+      });
+      
+      // If we don't have the necessary fields, return empty results
+      if (valueFields.length === 0 || (categoryFields.length === 0 && dateFields.length === 0)) {
+        return result;
+      }
+      
+      // Set the keys for visualization
+      if (categoryFields.length > 0) {
+        result.xKey = categoryFields[0];
+      } else if (dateFields.length > 0) {
+        result.xKey = dateFields[0];
+      }
+      
+      // Select the most appropriate value field
+      if (valueFields.length > 0) {
+        // Prefer fields that match relevant terms in the query
+        const lowerQuery = query.toLowerCase();
+        const queryTerms = ['sales', 'revenue', 'income', 'profit', 'cost', 'price', 'amount', 'value'];
+        
+        // Find fields that match query terms
+        const matchingFields = valueFields.filter(field => 
+          queryTerms.some(term => lowerQuery.includes(term) && field.toLowerCase().includes(term))
+        );
+        
+        if (matchingFields.length > 0) {
+          result.yKey = matchingFields[0];
+        } else {
+          result.yKey = valueFields[0];
+        }
+        
+        result.previousYearKey = result.yKey;
+      }
+      
+      // Group data by year if we have date fields
+      if (dateFields.length > 0) {
+        const dateField = dateFields[0];
+        
+        // Extract year from each record
+        const recordsWithYear = data.map(record => {
+          const dateValue = record[dateField];
+          let year = null;
+          
+          if (typeof dateValue === 'string') {
+            // Extract year from various date formats
+            const isoMatch = dateValue.match(/^(\d{4})-\d{2}-\d{2}/);
+            if (isoMatch) {
+              year = parseInt(isoMatch[1]);
+            } else {
+              const mdyMatch = dateValue.match(/\d{1,2}\/\d{1,2}\/(\d{4})/);
+              if (mdyMatch) {
+                year = parseInt(mdyMatch[1]);
+              } else {
+                const yearMatch = dateValue.match(/\b(19|20)\d{2}\b/);
+                if (yearMatch) {
+                  year = parseInt(yearMatch[0]);
+                }
+              }
+            }
+          } else if (typeof dateValue === 'number' && dateValue > 1900 && dateValue < 2100) {
+            // Direct year value
+            year = dateValue;
+          }
+          
+          return { ...record, __extractedYear: year };
+        }).filter(record => record.__extractedYear !== null);
+        
+        // Sort records by year to find most recent years
+        const yearToRecords = new Map<number, any[]>();
+        
+        recordsWithYear.forEach(record => {
+          const year = record.__extractedYear;
+          if (!yearToRecords.has(year)) {
+            yearToRecords.set(year, []);
+          }
+          yearToRecords.get(year)!.push(record);
+        });
+        
+        // Get the two most recent years
+        const years = Array.from(yearToRecords.keys()).sort((a, b) => b - a);
+        
+        if (years.length >= 2) {
+          const currentYear = years[0];
+          const previousYear = years[1];
+          
+          // Prepare data for current and previous year
+          const categoryToData = new Map<string, {current: any, previous: any}>();
+          
+          // Process current year records
+          yearToRecords.get(currentYear)!.forEach(record => {
+            const categoryValue = record[result.xKey];
+            if (!categoryToData.has(categoryValue)) {
+              categoryToData.set(categoryValue, {current: null, previous: null});
+            }
+            categoryToData.get(categoryValue)!.current = record;
+          });
+          
+          // Process previous year records
+          yearToRecords.get(previousYear)!.forEach(record => {
+            const categoryValue = record[result.xKey];
+            if (!categoryToData.has(categoryValue)) {
+              categoryToData.set(categoryValue, {current: null, previous: null});
+            }
+            categoryToData.get(categoryValue)!.previous = record;
+          });
+          
+          // Convert to final format
+          let index = 0;
+          Array.from(categoryToData.entries()).forEach(([category, yearData]) => {
+            if (yearData.current) {
+              const currentValue = parseFloat(yearData.current[result.yKey]);
+              
+              const currentYearRecord = {
+                [result.xKey]: category,
+                [result.yKey]: currentValue,
+                year: currentYear
+              };
+              
+              result.currentYearData.push(currentYearRecord);
+              
+              // If we have matching previous year data, calculate change percentage
+              if (yearData.previous) {
+                const previousValue = parseFloat(yearData.previous[result.yKey]);
+                
+                const previousYearRecord = {
+                  [result.xKey]: category,
+                  [result.previousYearKey]: previousValue,
+                  year: previousYear
+                };
+                
+                result.previousYearData.push(previousYearRecord);
+                
+                // Calculate percentage change
+                if (previousValue !== 0) {
+                  const percentChange = ((currentValue - previousValue) / previousValue) * 100;
+                  result.changePercentages.push({
+                    index,
+                    value: percentChange
+                  });
+                }
+              }
+              
+              index++;
+            }
+          });
+        }
+      } else if (categoryFields.length > 0) {
+        // Handle data with explicit current/previous year columns but no date field
+        // Look for fields that might contain current/previous year data
+        const currentYearFields = valueFields.filter(field => 
+          /current|latest|this year|20\d\d$/i.test(field)
+        );
+        
+        const previousYearFields = valueFields.filter(field => 
+          /previous|prior|last year|20\d\d$/i.test(field)
+        );
+        
+        if (currentYearFields.length > 0 && previousYearFields.length > 0) {
+          const currentYearField = currentYearFields[0];
+          const previousYearField = previousYearFields[0];
+          
+          result.yKey = currentYearField;
+          result.previousYearKey = previousYearField;
+          
+          // Create comparison data
+          data.forEach((record, idx) => {
+            const categoryValue = record[result.xKey];
+            const currentValue = parseFloat(record[currentYearField]);
+            const previousValue = parseFloat(record[previousYearField]);
+            
+            if (!isNaN(currentValue)) {
+              result.currentYearData.push({
+                [result.xKey]: categoryValue,
+                [result.yKey]: currentValue
+              });
+              
+              if (!isNaN(previousValue)) {
+                result.previousYearData.push({
+                  [result.xKey]: categoryValue,
+                  [result.previousYearKey]: previousValue
+                });
+                
+                // Calculate percentage change
+                if (previousValue !== 0) {
+                  const percentChange = ((currentValue - previousValue) / previousValue) * 100;
+                  result.changePercentages.push({
+                    index: idx,
+                    value: percentChange
+                  });
+                }
+              }
+            }
+          });
+        }
+      }
+      
+      this.logger.info(`Prepared YoY data with ${result.currentYearData.length} current year records and ${result.previousYearData.length} previous year records`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error preparing YoY comparison data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return {
+        currentYearData: [],
+        previousYearData: [],
+        changePercentages: [],
+        xKey: 'category',
+        yKey: 'value',
+        previousYearKey: 'value'
       };
     }
   }

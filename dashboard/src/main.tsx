@@ -11,6 +11,11 @@ import { logger, LogLevel } from './utils/logger';
 import { silenceConsole } from './utils/consoleSilencer';
 import initDebugHelpers from './utils/debugHelper';
 import { LocalFileService } from './services/LocalFileService';
+// Import dashboard helpers
+import './utils/dashboard-helpers';
+// Import visualization service
+import { initializeVisualizationDebugTools } from './services/visualizationService';
+import type { DashboardContextType } from './contexts/DashboardContext';
 
 // Initialize logger settings based on environment
 const initializeLogger = () => {
@@ -55,3 +60,17 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// Add TypeScript interface extension for window
+declare global {
+  interface Window {
+    dashboardContext?: DashboardContextType;
+    visualizationDebug?: any;
+  }
+}
+
+// Modify the initialization section to remove references to static metrics
+if (typeof window !== 'undefined') {
+  // Initialize visualization debugging tools only
+  initializeVisualizationDebugTools();
+}

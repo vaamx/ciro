@@ -52,9 +52,21 @@ export class SendGridService {
     }
   }
 
+  private getSanitizedFrontendUrl(): string {
+    // Always use hardcoded URL regardless of environment
+    console.log('Using hardcoded production URL for email links');
+    return 'https://app.ciroai.us';
+  }
+
   public async sendVerificationEmail(email: string, token: string) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    // Get sanitized frontend URL
+    const frontendUrl = this.getSanitizedFrontendUrl();
+    
+    // Construct a proper verification URL with the token
     const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
+    
+    console.log(`Generated verification URL: ${verificationUrl}`);
+    
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Verify your email address</h2>
@@ -76,8 +88,14 @@ export class SendGridService {
   }
 
   public async sendWelcomeEmail(email: string, name: string) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    // Get sanitized frontend URL
+    const frontendUrl = this.getSanitizedFrontendUrl();
+    
+    // Construct a proper URL
     const gettingStartedUrl = `${frontendUrl}/getting-started`;
+    
+    console.log(`Generated welcome URL: ${gettingStartedUrl}`);
+    
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Welcome to our platform, ${name}!</h2>
@@ -99,8 +117,14 @@ export class SendGridService {
   }
 
   public async sendPasswordResetEmail(email: string, token: string) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    // Get sanitized frontend URL
+    const frontendUrl = this.getSanitizedFrontendUrl();
+    
+    // Construct a proper URL
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+    
+    console.log(`Generated password reset URL: ${resetUrl}`);
+    
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Reset your password</h2>

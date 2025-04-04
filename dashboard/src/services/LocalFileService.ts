@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { getAuthorizationHeader, getAuthToken } from '../utils/authToken';
 import { LocalFileType } from '../components/DataSources/types';
+import { jwtDecode } from 'jwt-decode';
 
 // Define file metadata interface
 export interface LocalFileMetadata {
@@ -14,6 +15,58 @@ export interface LocalFileMetadata {
   url?: string;
   processingMethod?: string;
   preview?: any;
+  dataSourceId?: string | number;
+}
+
+// Add a function to get the organization ID from the auth token
+function getOrganizationIdFromToken(): number | null {
+  try {
+    const token = getAuthToken();
+    if (!token) return null;
+    
+    const decoded = jwtDecode<{ 
+      organizationId?: number | string, 
+      organizations?: (number | string)[] 
+    }>(token);
+    
+    // First, check for active organization in local storage
+    const activeOrgId = localStorage.getItem('active_organization_id');
+    if (activeOrgId) {
+      const orgId = parseInt(activeOrgId, 10);
+      
+      // Validate that this org ID is in the user's accessible organizations
+      if (decoded.organizations && 
+          decoded.organizations.some(id => 
+            (typeof id === 'string' ? parseInt(id, 10) : id) === orgId)) {
+        console.log(`Using active organization ID from storage: ${orgId}`);
+        return orgId;
+      }
+    }
+    
+    // Fallback to the token's primary organizationId
+    if (decoded && decoded.organizationId) {
+      const orgId = typeof decoded.organizationId === 'string' 
+        ? parseInt(decoded.organizationId, 10) 
+        : decoded.organizationId;
+      console.log(`Using primary organization ID from token: ${orgId}`);
+      return orgId;
+    }
+    
+    // Final fallback - use the first organization in the array
+    if (decoded && decoded.organizations && decoded.organizations.length > 0) {
+      const firstOrgId = decoded.organizations[0];
+      const orgId = typeof firstOrgId === 'string'
+        ? parseInt(firstOrgId, 10)
+        : firstOrgId;
+      console.log(`Using first available organization ID: ${orgId}`);
+      return orgId;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error extracting organization ID from token:', error);
+    return null;
+  }
 }
 
 /**
@@ -191,9 +244,19 @@ export class LocalFileService {
     formData.append('file', file);
     formData.append('processingMethod', processingMethod);
     
-    // Get token from localStorage directly to verify
-    
-    // Get token using our utility function
+    // Add the organization ID from the token if available
+    const organizationId = getOrganizationIdFromToken();
+    if (organizationId) {
+      formData.append('organization_id', organizationId.toString());
+      console.log(`Using organization ID from token/active selection: ${organizationId}`);
+      
+      // Also add the active organization ID separately for diagnostics
+      const activeOrgId = localStorage.getItem('active_organization_id');
+      if (activeOrgId && activeOrgId !== organizationId.toString()) {
+        formData.append('active_organization_id', activeOrgId);
+        console.log(`Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
+      }
+    }
     
     // Use the authorization header helper function as an alternative
     const authHeader = getAuthorizationHeader();
@@ -234,15 +297,33 @@ export class LocalFileService {
     onProgress?: (progress: number) => void
   ): Promise<LocalFileMetadata> {
     try {
+      // Get organization ID from token
+      const organizationId = getOrganizationIdFromToken();
+      
       // Step 1: Initialize the chunked upload
+      const initData: any = {
+        filename: file.name,
+        fileSize: file.size,
+        fileType: this.determineFileType(file),
+        processingMethod
+      };
+      
+      // Add the organization ID from the token if available
+      if (organizationId) {
+        initData.organization_id = organizationId;
+        console.log(`Using organization ID from token/active selection for chunked upload: ${organizationId}`);
+        
+        // Also add the active organization ID separately for diagnostics
+        const activeOrgId = localStorage.getItem('active_organization_id');
+        if (activeOrgId && activeOrgId !== organizationId.toString()) {
+          initData.active_organization_id = activeOrgId;
+          console.log(`Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
+        }
+      }
+      
       const initResponse = await axios.post(
-        `${this.apiBaseUrl}/api/files/upload/init`,
-        {
-          filename: file.name,
-          fileSize: file.size,
-          fileType: this.determineFileType(file),
-          processingMethod
-        },
+        `${this.apiBaseUrl}/api/files/initiate-chunked-upload`,
+        initData,
         {
           headers: {
             Authorization: getAuthorizationHeader() || `Bearer ${getAuthToken()}`
@@ -262,13 +343,11 @@ export class LocalFileService {
         const chunk = file.slice(start, end);
         
         const formData = new FormData();
-        formData.append('uploadId', uploadId);
-        formData.append('chunkIndex', chunkIndex.toString());
-        formData.append('totalChunks', totalChunks.toString());
-        formData.append('chunk', chunk);
+        // Use 'file' as the field name, not 'chunk', to match server multer config
+        formData.append('file', chunk);
         
         await axios.post(
-          `${this.apiBaseUrl}/api/files/upload/chunk`,
+          `${this.apiBaseUrl}/api/files/upload-chunk?uploadId=${uploadId}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}`,
           formData,
           {
             headers: {
@@ -289,7 +368,7 @@ export class LocalFileService {
       
       // Step 3: Complete the upload
       const completeResponse = await axios.post(
-        `${this.apiBaseUrl}/api/files/upload/complete`,
+        `${this.apiBaseUrl}/api/files/complete-chunked-upload`,
         {
           uploadId
         },
@@ -321,7 +400,8 @@ export class LocalFileService {
       status: 'ready',
       url: response.url || '',
       processingMethod: response.metadata?.processingMethod || response.processingMethod || 'auto',
-      preview: response.preview || null
+      preview: response.preview || null,
+      dataSourceId: response.dataSourceId || response.data_source_id || null
     };
   }
 
@@ -329,9 +409,6 @@ export class LocalFileService {
    * Mock upload for testing
    */
   private mockUpload(file: File, processingMethod: string): LocalFileMetadata {
-    // Removed excessive logging
-    // console.log(`Mock uploading file: ${file.name} with processingMethod: ${processingMethod}`);
-    
     // Generate a mock file metadata object
     return {
       id: `mock-${Date.now()}`,
@@ -341,7 +418,8 @@ export class LocalFileService {
       uploadedAt: new Date(),
       lastModified: new Date(file.lastModified),
       status: 'ready',
-      processingMethod
+      processingMethod,
+      dataSourceId: `mock-ds-${Date.now()}` // Add mock dataSourceId
     };
   }
 } 

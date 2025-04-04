@@ -1,8 +1,7 @@
 import type { ChatMessage, ChatSettings, MessageRole } from '../components/Chat/types';
-import { emitApiRateLimit, emitApiRateLimitExceeded } from './events';
+import { emitApiRateLimit, emitApiError, emitApiSuccess, emitApiRateLimitExceeded } from './events';
 import { logger } from '../utils/logger';
-// Import the API configuration override
-import { API_URL, buildApiUrl as configBuildApiUrl } from '../api-config';
+// The baseUrl is hardcoded in the constructor so we don't need external API configuration
 
 // Component name for logging
 const COMPONENT_NAME = 'api';
@@ -196,6 +195,32 @@ function setGlobalRateLimit(endpoint: string, retryAfterMs?: number): void {
   }
 }
 
+// Function to add a request to the queue
+function queueRequest(
+  url: string, 
+  options: RequestInit, 
+  priority: number = 1
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    // Add the request to the queue
+    globalRateLimitState.requestQueue.push({
+      url,
+      options,
+      priority,
+      resolve,
+      reject,
+      timestamp: Date.now()
+    });
+    
+    logger.log(COMPONENT_NAME, `Request to ${url} queued. Queue length: ${globalRateLimitState.requestQueue.length}`);
+    
+    // Start processing the queue if not already processing
+    if (!globalRateLimitState.processingQueue) {
+      processRequestQueue();
+    }
+  });
+}
+
 // Function to process the request queue
 function processRequestQueue() {
   // If already processing or no requests in queue, return
@@ -272,39 +297,12 @@ function processRequestQueue() {
     });
 }
 
-// NOTE: We're keeping this unused function for potential future use
-// Exported to prevent unused variable warnings
-export function queueRequest(
-  url: string, 
-  options: RequestInit, 
-  priority: number = 1
-): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    // Add the request to the queue
-    globalRateLimitState.requestQueue.push({
-      url,
-      options,
-      priority,
-      resolve,
-      reject,
-      timestamp: Date.now()
-    });
-    
-    logger.log(COMPONENT_NAME, `Request to ${url} queued. Queue length: ${globalRateLimitState.requestQueue.length}`);
-    
-    // Start processing the queue if not already processing
-    if (!globalRateLimitState.processingQueue) {
-      processRequestQueue();
-    }
-  });
-}
-
 class ApiServiceImpl implements ApiService {
   private baseUrl: string;
 
   constructor() {
-    // Use the API_URL from configuration instead of hardcoding
-    this.baseUrl = API_URL;
+    // Use environment variables if available, otherwise fallback to localhost
+    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
     console.log('🔌 API Service initialized with URL:', this.baseUrl);
   }
   
@@ -319,16 +317,14 @@ class ApiServiceImpl implements ApiService {
     // Normalize context to ensure we have snake_case keys
     const normalizedContext = normalizeContext(context);
     
-    // Default organization ID to 1 if not provided (prevents 401 errors)
-    const organizationId = normalizedContext?.organization_id || 1;
-    
     // Create URL params
     const queryParams = new URLSearchParams();
     
-    // Always add organization_id as it's required for most endpoints
-    queryParams.append('organization_id', organizationId.toString());
+    // Add context params
+    if (normalizedContext?.organization_id) {
+      queryParams.append('organization_id', normalizedContext.organization_id.toString());
+    }
     
-    // Add dashboard_id if provided
     if (normalizedContext?.dashboard_id) {
       queryParams.append('dashboard_id', normalizedContext.dashboard_id);
     }
@@ -340,11 +336,6 @@ class ApiServiceImpl implements ApiService {
       }
     });
     
-    // Log the constructed URL details in production for debugging
-    if (window.location.hostname !== 'localhost') {
-      console.log(`API URL constructed: ${endpoint} with organization_id=${organizationId}`);
-    }
-    
     // Format the URL
     const queryString = queryParams.toString();
     const url = `${this.baseUrl}/${endpoint}`;
@@ -352,16 +343,9 @@ class ApiServiceImpl implements ApiService {
     return queryString ? `${url}?${queryString}` : url;
   }
 
-  // NOTE: fetchWithCredentials is now used instead of this method
-  // Exporting through a property to prevent unused variable warnings
-  get _getAuthHeaders() {
-    return this.getAuthHeaders;
-  }
-  
   private getAuthHeaders(): HeadersInit {
     try {
       const token = localStorage.getItem('auth_token');
-      const isProduction = window.location.hostname !== 'localhost';
       
       // Add authentication header if token exists
       const headers: HeadersInit = {
@@ -370,211 +354,205 @@ class ApiServiceImpl implements ApiService {
       
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
-        
-        if (isProduction) {
-          // Only log token presence, not the actual token in production
-          console.log('Using API key from environment variable');
-        } else {
-          // In development, show truncated token for debugging
-          console.log('Using authentication token:', token.substring(0, 10) + '...');
-        }
+        logger.log(COMPONENT_NAME, 'Using authentication token from localStorage:', token.substring(0, 10) + '...');
       } else {
-        console.warn('No authentication token found in localStorage');
-        
-        // In production, log more details for debugging
-        if (isProduction) {
-          console.warn('Auth token missing details:', {
-            url: window.location.href,
-            timestamp: new Date().toISOString(),
-            hasLocalStorage: !!window.localStorage
-          });
-        }
-        
-        // Emit auth error event to trigger login prompt
-        if (window.emitAuthError) {
-          window.emitAuthError('Authentication required. Please log in.');
-        }
+        logger.warn(COMPONENT_NAME, 'No authentication token found in localStorage');
       }
       
       return headers;
     } catch (error) {
-      console.error('Error getting auth headers:', error);
-      
-      // Even if there's an error, we should return default headers
+      logger.error(COMPONENT_NAME, 'Error getting auth headers:', error);
       return { 'Content-Type': 'application/json' };
     }
   }
 
-  /**
-   * Enhanced fetch with credentials and authorization headers
-   * @param url URL to fetch
-   * @param options Fetch options
-   * @param debug Debug options
-   * @returns Fetch response
-   */
-  async fetchWithCredentials(url: string, options: RequestInit = {}, debug: { logRequest?: boolean } = {}): Promise<Response> {
-    // Setup default options if not provided
-    const fetchOptions: RequestInit = {
-      method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-      },
-      credentials: 'include',
-      ...options
+  private async fetchWithCredentials(
+    url: string,
+    options: RequestInit = {},
+    additionalOptions: {
+      handleAuth?: boolean;
+      timeout?: number;
+      logRequest?: boolean;
+      retryCount?: number;
+      retryDelay?: number;
+      maxRetries?: number;
+      priority?: number;
+      useQueue?: boolean;
+      ignoreAuthErrors?: boolean;
+    } = {}
+  ): Promise<Response> {
+    // Set defaults
+    const handleAuth = additionalOptions.handleAuth !== false;
+    const timeout = additionalOptions.timeout || 30000;
+    const logRequest = additionalOptions.logRequest !== false;
+    const maxRetries = additionalOptions.maxRetries || 2;
+    const initialRetryDelay = additionalOptions.retryDelay || 2000;
+    const priority = additionalOptions.priority || 1;
+    const useQueue = additionalOptions.useQueue !== false;
+    const ignoreAuthErrors = additionalOptions.ignoreAuthErrors === true;
+    
+    // Check if this is a logout operation
+    const isLogoutOperation = url.includes('/auth/logout');
+
+    // Always include credentials
+    options.credentials = 'include';
+    
+    // Ensure headers are set
+    options.headers = {
+      ...this.getAuthHeaders(),
+      ...options.headers
     };
-    
-    // Add authorization token if available
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      console.log(`Using authentication token: ${token.substring(0, 10)}...`);
-      (fetchOptions.headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-    }
-    
-    // Log the request details if debug enabled
-    if (debug.logRequest) {
-      const requestInfo = {
-        url,
-        method: fetchOptions.method,
-        hasToken: !!token,
-        contextParams: this.extractContextParamsFromUrl(url)
-      };
-      console.log(`API Request: ${JSON.stringify(requestInfo)}`);
-    }
-    
-    try {
-      // Make the request
-      const response = await fetch(url, fetchOptions);
+
+    // Check global rate limit before making request
+    if (isGloballyRateLimited()) {
+      const waitTime = globalRateLimitState.rateLimitedUntil - Date.now();
+      logger.warn(COMPONENT_NAME, `Request to ${url} blocked by global rate limit. Waiting ${waitTime}ms before retrying.`);
       
-      // Handle common error cases
-      if (!response.ok) {
-        const status = response.status;
+      // If we're using the queue, add the request to the queue
+      if (useQueue) {
+        logger.log(COMPONENT_NAME, `Adding rate-limited request to ${url} to queue`);
+        return queueRequest(url, options, priority);
+      }
+      
+      // Wait for the rate limit to expire
+      await new Promise(resolve => setTimeout(resolve, waitTime + 100)); // Add 100ms buffer
+    }
+    
+    // If we're using the queue and not rate limited, add the request to the queue
+    if (useQueue && !isGloballyRateLimited()) {
+      return queueRequest(url, options, priority);
+    }
+    
+    // Create a timeout promise
+    const timeoutPromise = new Promise<Response>((_, reject) => {
+      const timeoutId = setTimeout(() => {
+        clearTimeout(timeoutId);
+        reject(new Error(`Request timed out after ${timeout}ms`));
+      }, timeout);
+      return () => clearTimeout(timeoutId);
+    });
+    
+    const attemptFetch = async (attempt: number = 1): Promise<Response> => {
+      try {
+        // Create request options
+        const requestOptions: RequestInit = {
+          ...options,
+          headers: options.headers
+        };
         
-        // Handle specific error types
-        if (status === 404) {
-          // For 404 errors, try to get more info from the response
+        if (logRequest) {
+          logger.debug(COMPONENT_NAME, `Fetching ${url} with options:`, {
+            method: requestOptions.method || 'GET',
+            headers: Object.keys(requestOptions.headers || {}),
+            body: requestOptions.body ? 'Present' : 'None'
+          });
+        }
+        
+        // Perform fetch
+        const response = await fetch(url, requestOptions);
+        
+        // Handle authentication errors consistently
+        if (response.status === 401 && handleAuth) {
+          // For logout operations, we expect auth issues and can ignore them
+          if (isLogoutOperation || ignoreAuthErrors) {
+            logger.debug(COMPONENT_NAME, 'Auth error during logout or explicitly ignored', response.status);
+            return response; // Return the response and let caller handle it
+          }
+          
+          logger.warn(COMPONENT_NAME, 'Authentication error, clearing token', response.status);
+          localStorage.removeItem('auth_token');
+          throw new Error('Authentication failed. Please log in again.');
+        }
+        
+        // Handle 404 errors with specific message
+        if (response.status === 404) {
+          const endpoint = url.split('/').slice(-2).join('/');
+          logger.warn(COMPONENT_NAME, `Resource not found at endpoint: ${url}`);
+          throw new Error(`404 Not Found: The requested resource '${endpoint}' does not exist`);
+        }
+        
+        // Handle rate limiting with exponential backoff
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          let delayMs = initialRetryDelay * Math.pow(2, attempt - 1); // Exponential backoff
+          
+          if (retryAfter) {
+            // If server specifies a retry-after header, use that
+            delayMs = parseInt(retryAfter, 10) * 1000;
+          }
+          
+          logger.warn(COMPONENT_NAME, `Rate limit exceeded (429). Retrying in ${delayMs}ms. Attempt ${attempt} of ${maxRetries}`);
+          
+          // Set global rate limit and emit event
+          setGlobalRateLimit(url, delayMs);
+          
+          // If we've reached max retries, throw an error
+          if (attempt >= maxRetries) {
+            const errorMessage = `Rate limit exceeded. Please try again later.`;
+            emitApiError(url, 429, errorMessage);
+            throw new Error(errorMessage);
+          }
+          
+          // Wait for the specified delay
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          
+          // Retry the request
+          return attemptFetch(attempt + 1);
+        }
+        
+        // Handle other server errors
+        if (response.status >= 400) {
           try {
             const errorData = await response.json();
-            console.error(`API error response: ${status} ${JSON.stringify(errorData)}`);
-            
-            // Log the specific context info for debugging
-            const contextParams = this.extractContextParamsFromUrl(url);
-            if (contextParams) {
-              console.error(`Context parameters from request: ${JSON.stringify(contextParams)}`);
-            }
-          } catch (parseError) {
-            console.error(`API error response: ${status} (could not parse error body)`);
+            logger.error(COMPONENT_NAME, `Server error ${response.status}:`, errorData);
+            console.error(`Server error ${response.status}:`, errorData);
+            const errorMessage = `Server error: ${response.status} ${response.statusText}`;
+            emitApiError(url, response.status, errorMessage);
+            throw new Error(errorMessage);
+          } catch (jsonError) {
+            console.error(`Server error ${response.status}, could not parse response:`, jsonError);
+            const errorMessage = `Server error: ${response.status} ${response.statusText}`;
+            emitApiError(url, response.status, errorMessage);
+            throw new Error(errorMessage);
           }
-        } else if (status === 401 || status === 403) {
-          // Authentication errors
-          console.error(`Authentication error: ${status} - ${response.statusText}`);
-          
-          // Trigger authentication error event
-          this.emitAuthenticationError();
-        } else {
-          // Other error types
-          console.error(`API error: ${status} - ${response.statusText}`);
         }
+        
+        // Success - emit success event
+        emitApiSuccess(url);
+        
+        return response;
+      } catch (error) {
+        // For network errors, retry with exponential backoff
+        if (error instanceof TypeError && error.message.includes('network') && attempt <= maxRetries) {
+          const delayMs = initialRetryDelay * Math.pow(2, attempt - 1);
+          console.warn(`Network error. Retrying in ${delayMs}ms. Attempt ${attempt} of ${maxRetries}`);
+          
+          // Wait for the specified delay
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          
+          // Retry the request
+          return attemptFetch(attempt + 1);
+        }
+        
+        throw error;
       }
-      
-      return response;
-    } catch (error) {
-      console.error(`Network error during fetch: ${error}`);
-      throw error;
-    }
-  }
-  
-  /**
-   * Extract context parameters from a URL for debugging
-   */
-  private extractContextParamsFromUrl(url: string): Record<string, string> | null {
-    try {
-      const urlObj = new URL(url);
-      const params: Record<string, string> = {};
-      
-      // Extract organization_id and dashboard_id
-      if (urlObj.searchParams.has('organization_id')) {
-        params.organization_id = urlObj.searchParams.get('organization_id') || '';
-      }
-      
-      if (urlObj.searchParams.has('dashboard_id')) {
-        params.dashboard_id = urlObj.searchParams.get('dashboard_id') || '';
-      }
-      
-      return Object.keys(params).length > 0 ? params : null;
-    } catch (e) {
-      return null;
-    }
+    };
+    
+    // Race between the fetch and the timeout
+    return Promise.race([attemptFetch(), timeoutPromise]);
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {
     try {
       // Check if response is OK
       if (!response.ok) {
-        // Check if the content type is HTML (which often happens with auth redirects)
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('text/html')) {
-          console.warn('Received HTML response for JSON endpoint - likely an authentication issue', {
-            status: response.status,
-            url: response.url
-          });
-          
-          // If we're getting HTML when expecting JSON, it's likely an auth issue
-          localStorage.removeItem('auth_token');
-          
-          // Trigger auth error event if it exists
-          if (window.emitAuthError) {
-            window.emitAuthError('Authentication required. Please log in.');
-          }
-          
-          throw new Error('Authentication error: Please log in');
-        }
-
-        // Handle 401 errors specifically for auth
-        if (response.status === 401) {
-          console.warn('Received 401 Unauthorized - clearing auth token');
-          localStorage.removeItem('auth_token');
-          
-          // Trigger auth error event if it exists
-          if (window.emitAuthError) {
-            window.emitAuthError('Your session has expired. Please log in again.');
-          }
-          
-          throw new Error('Authentication error: Your session has expired');
-        }
-
         const errorText = await response.text();
         console.error('API error response:', response.status, errorText);
-
-        try {
-          // Try to parse as JSON even if it failed
-          const errorJson = JSON.parse(errorText);
-          throw new Error(errorJson.message || errorJson.error || `Server error: ${response.status} ${response.statusText}`);
-        } catch (e) {
-          // If parsing fails, just return the error text
-          throw new Error(`Server error: ${response.status} ${response.statusText}`);
-        }
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
       }
       
       // Check content type to determine how to parse
       const contentType = response.headers.get('content-type');
-      
-      // Handle HTML responses that have 200 status code but are actually auth issues
-      if (contentType?.includes('text/html')) {
-        console.warn('Received HTML response for JSON endpoint with 200 status - likely an authentication issue', {
-          url: response.url
-        });
-        
-        // If we're getting HTML when expecting JSON, it's likely an auth issue
-        localStorage.removeItem('auth_token');
-        
-        // Trigger auth error event if it exists
-        if (window.emitAuthError) {
-          window.emitAuthError('Authentication required. Please log in.');
-        }
-        
-        throw new Error('Authentication error: Please log in');
-      }
       
       if (contentType?.includes('application/json')) {
         return await response.json() as T;
@@ -849,102 +827,30 @@ class ApiServiceImpl implements ApiService {
   }
 
   async saveChatHistory(sessionId: string, messages: ChatMessage[], context?: ChatContext): Promise<void> {
-    if (!sessionId) {
-      console.error('No session ID provided for saveChatHistory');
-      throw new Error('Session ID is required');
-    }
-
-    if (!Array.isArray(messages)) {
-      console.error('Invalid messages parameter provided to saveChatHistory');
-      throw new Error('Messages must be an array');
-    }
-
     try {
-      // Handle null context gracefully
-      const safeContext = context || this.getDefaultContext();
-      
-      // Build URL with proper context parameters
-      const url = this.buildApiUrl(`api/chat/sessions/${sessionId}/history`, safeContext);
-      
-      console.log(`Saving ${messages.length} messages for session ${sessionId} with context:`, safeContext);
-      
-      // Log the exact URL being used (for debugging)
-      console.log(`Request URL: ${url}`);
-      
-      // Ensure we have a valid token before making the request
-      const token = this.getAuthToken();
+      // Check if user is logged out by checking auth token
+      const token = localStorage.getItem('auth_token');
       if (!token) {
-        console.error('Cannot save chat history: No authentication token available');
-        
-        // Try to recover a token if possible
-        try {
-          // Look for auth_token in sessionStorage as backup
-          const sessionToken = sessionStorage.getItem('auth_token');
-          if (sessionToken) {
-            console.log('Found backup token in sessionStorage, restoring to localStorage');
-            localStorage.setItem('auth_token', sessionToken);
-            // Continue with the request using this restored token
-            return this.saveChatHistory(sessionId, messages, context);
-          }
-          
-          // Check if we have other means to restore auth
-          const hasAuthCookie = document.cookie.includes('auth_token=');
-          
-          if (hasAuthCookie) {
-            console.log('User appears to be logged in via cookies, but token is missing');
-            // Try to refresh the auth context via a silent check
-            if (window.emitAuthError) {
-              window.emitAuthError('Authentication token missing. Attempting to restore your session...');
-            }
-          }
-        } catch (recoveryError) {
-          console.error('Error during token recovery attempt:', recoveryError);
-        }
-        
-        throw new Error('Authentication required to save chat history');
+        console.log(`Not saving chat history for session ${sessionId} - user is logged out`);
+        return;
       }
       
-      // Include explicit authorization in header
-      const response = await this.fetchWithCredentials(url, {
+      const url = this.buildApiUrl(`api/chat/sessions/${sessionId}/history`, context);
+      
+      console.log(`Saving ${messages.length} messages for session ${sessionId}`);
+      
+      await this.fetchWithCredentials(url, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({ messages })
       }, {
-        logRequest: true
+        ignoreAuthErrors: true // Ignore auth errors during save to avoid console errors on logout
       });
-      
-      // Check response status to confirm success
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
-        console.error(`Error saving chat history (${response.status}):`, errorText);
-        throw new Error(`Failed to save chat history: ${response.status} ${response.statusText}`);
-      }
       
       console.log(`Successfully saved chat history for session ${sessionId}`);
     } catch (error) {
       console.error(`Error saving chat history for session ${sessionId}:`, error);
-      
-      // Attempt local backup if server save fails
-      try {
-        const backup = JSON.stringify(messages);
-        localStorage.setItem(`chat_backup_${sessionId}_${Date.now()}`, backup);
-        console.log(`Created local backup of chat history that failed to save to server`);
-      } catch (backupError) {
-        console.error('Failed to create local backup:', backupError);
-      }
-      
-      throw error;
+      // Don't rethrow the error to avoid disrupting the user experience
     }
-  }
-
-  /**
-   * Get default context with organization ID 1
-   */
-  private getDefaultContext(): { organization_id: number } {
-    return { organization_id: 1 };
   }
 
   async sendMessage(sessionId: string, message: string, context?: ChatContext, options?: any): Promise<ChatResponse> {
@@ -1165,14 +1071,12 @@ class ApiServiceImpl implements ApiService {
   }
 
   async getDashboards(): Promise<Dashboard[]> {
-    const apiUrl = configBuildApiUrl('/api/dashboards');
-    const response = await this.fetchWithCredentials(apiUrl);
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`);
     return this.handleResponse<Dashboard[]>(response);
   }
 
   async createDashboard(dashboard: Omit<Dashboard, 'id' | 'created_at' | 'updated_at'>): Promise<Dashboard> {
-    const apiUrl = configBuildApiUrl('/api/dashboards');
-    const response = await this.fetchWithCredentials(apiUrl, {
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`, {
       method: 'POST',
       body: JSON.stringify(dashboard)
     });
@@ -1180,8 +1084,7 @@ class ApiServiceImpl implements ApiService {
   }
 
   async updateDashboard(id: string, dashboard: Partial<Dashboard>): Promise<Dashboard> {
-    const apiUrl = configBuildApiUrl(`/api/dashboards/${id}`);
-    const response = await this.fetchWithCredentials(apiUrl, {
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
       method: 'PUT',
       body: JSON.stringify(dashboard)
     });
@@ -1189,15 +1092,13 @@ class ApiServiceImpl implements ApiService {
   }
 
   async deleteDashboard(id: string): Promise<void> {
-    const apiUrl = configBuildApiUrl(`/api/dashboards/${id}`);
-    await this.fetchWithCredentials(apiUrl, {
+    await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
       method: 'DELETE'
     });
   }
 
   async updateDashboardWidgets(dashboardId: string, widgets: Partial<Widget>[]): Promise<Widget[]> {
-    const apiUrl = configBuildApiUrl(`/api/dashboards/${dashboardId}/widgets`);
-    const response = await this.fetchWithCredentials(apiUrl, {
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${dashboardId}/widgets`, {
       method: 'PUT',
       body: JSON.stringify({ widgets })
     });
@@ -1275,41 +1176,46 @@ class ApiServiceImpl implements ApiService {
    * @returns Context with defaults applied
    */
   private ensureValidContext(context?: ChatContext, requireOrganization: boolean = true): ChatContext {
-    // Make a copy or create a new object if none provided
-    const updatedContext: ChatContext = { ...(context || {}) };
+    // Start by normalizing the context
+    let normalizedContext = normalizeContext(context) || {};
     
-    // If organization_id is required but missing, use default organization ID
-    if (requireOrganization && !updatedContext.organization_id) {
-      // First check if we can get the organization ID from the current organization context
-      const organizationFromStorage = localStorage.getItem('current_organization_id');
-      if (organizationFromStorage) {
-        const parsedOrgId = parseInt(organizationFromStorage);
-        if (!isNaN(parsedOrgId)) {
-          console.log(`Using organization ID ${parsedOrgId} from localStorage`);
-          updatedContext.organization_id = parsedOrgId;
+    // FIXED: Improved organization ID handling
+    if (requireOrganization) {
+      if (!normalizedContext.organization_id) {
+        // Check if we have a saved organization ID in localStorage
+        const savedOrgId = localStorage.getItem('last_active_organization_id');
+        
+        if (savedOrgId && savedOrgId !== 'undefined' && savedOrgId !== 'null') {
+          const parsedId = parseInt(savedOrgId, 10);
+          if (!isNaN(parsedId)) {
+            console.log(`Using organization ID ${parsedId} from localStorage`);
+            normalizedContext.organization_id = parsedId;
+          } else {
+            console.log('No valid organization_id found, using default');
+            normalizedContext.organization_id = 1; // Default as last resort
+          }
+        } else {
+          console.log('No organization_id provided, using default');
+          normalizedContext.organization_id = 1; // Default organization ID
         }
+      } else {
+        console.log(`Using provided organization_id: ${normalizedContext.organization_id}`);
       }
+    }
+    
+    // FIXED: Improved dashboard ID handling
+    if (normalizedContext.dashboard_id === undefined) {
+      // Check if we have a saved dashboard ID in localStorage
+      const savedDashboardId = localStorage.getItem('last_active_dashboard_id');
       
-      // If still missing, use default
-      if (!updatedContext.organization_id) {
-        console.log('Using default organization ID: 1');
-        updatedContext.organization_id = 1;
+      if (savedDashboardId && savedDashboardId !== 'undefined' && savedDashboardId !== 'null') {
+        console.log(`Using dashboard ID ${savedDashboardId} from localStorage`);
+        normalizedContext.dashboard_id = savedDashboardId;
       }
+      // Otherwise we leave it undefined which means "global" view
     }
     
-    // For dashboard_id, ensure it's set correctly if provided
-    if (context?.dashboard_id) {
-      updatedContext.dashboard_id = context.dashboard_id;
-    } else {
-      // Check if we can get dashboard ID from localStorage
-      const dashboardFromStorage = localStorage.getItem('current_dashboard_id');
-      if (dashboardFromStorage) {
-        console.log(`Using dashboard ID ${dashboardFromStorage} from localStorage`);
-        updatedContext.dashboard_id = dashboardFromStorage;
-      }
-    }
-    
-    return updatedContext;
+    return normalizedContext;
   }
 
   /**
@@ -1336,37 +1242,7 @@ class ApiServiceImpl implements ApiService {
     console.log(`Validated ${validMessages.length} of ${messages.length} messages`);
     return validMessages;
   }
-
-  /**
-   * Emits an authentication error event
-   */
-  private emitAuthenticationError(): void {
-    console.error('Authentication error encountered');
-    // Dispatch an event for authentication errors
-    const event = new CustomEvent('api-auth-error', {
-      detail: { message: 'Authentication failed' }
-    });
-    window.dispatchEvent(event);
-    
-    // Clear the token from storage
-    localStorage.removeItem('auth_token');
-    sessionStorage.removeItem('auth_token');
-  }
-  
-  /**
-   * Get the current authentication token
-   */
-  private getAuthToken(): string | null {
-    return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-  }
 }
 
 // Export a singleton instance of the API service
 export const apiService = new ApiServiceImpl();
-
-// Add global type declaration for the emitAuthError function
-declare global {
-  interface Window {
-    emitAuthError?: (message: string) => void;
-  }
-}

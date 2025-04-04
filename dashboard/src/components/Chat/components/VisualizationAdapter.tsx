@@ -535,46 +535,47 @@ export const VisualizationAdapter: React.FC<VisualizationAdapterProps> = ({
           // Create analytical steps for EnhancedStepByStepVisualization
           const analyticalSteps: AnalyticalStep[] = [];
           
+          // Skipping step creation as Analysis Steps are no longer shown
           // If we have a meaningful number of data points, create proper steps
-          if (structuredData.length > 1) {
-            // Data preparation step
-            analyticalSteps.push({
-              id: `step-1`,
-              type: 'filtering',
-              description: 'Data Preparation',
-              order: 1,
-              content: 'Extracting and organizing data for analysis.',
-              data: structuredData
-            });
-            
-            // Analysis step
-            analyticalSteps.push({
-              id: `step-2`,
-              type: 'analysis',
-              description: 'Data Analysis',
-              order: 2,
-              content: 'Analyzing the extracted data to identify patterns.',
-              data: structuredData
-            });
-            
-            // Visualization step
-            analyticalSteps.push({
-              id: `step-3`,
-              type: 'visualization',
-              description: 'Data Visualization',
-              order: 3,
-              content: 'Generating visual representation of the findings.',
-              visualization: {
-                type: vizData.type,
-                config: {
-                  data: vizData.data,
-                  xKey: vizData.xKey,
-                  yKey: vizData.yKey,
-                  options: vizData.options
-                }
-              }
-            });
-          }
+          // if (structuredData.length > 1) {
+          //   // Data preparation step
+          //   analyticalSteps.push({
+          //     id: `step-1`,
+          //     type: 'filtering',
+          //     description: 'Data Preparation',
+          //     order: 1,
+          //     content: 'Extracting and organizing data for analysis.',
+          //     data: structuredData
+          //   });
+          //   
+          //   // Analysis step
+          //   analyticalSteps.push({
+          //     id: `step-2`,
+          //     type: 'analysis',
+          //     description: 'Data Analysis',
+          //     order: 2,
+          //     content: 'Analyzing the extracted data to identify patterns.',
+          //     data: structuredData
+          //   });
+          //   
+          //   // Visualization step
+          //   analyticalSteps.push({
+          //     id: `step-3`,
+          //     type: 'visualization',
+          //     description: 'Data Visualization',
+          //     order: 3,
+          //     content: 'Generating visual representation of the findings.',
+          //     visualization: {
+          //       type: vizData.type,
+          //       config: {
+          //         data: vizData.data,
+          //         xKey: vizData.xKey,
+          //         yKey: vizData.yKey,
+          //         options: vizData.options
+          //       }
+          //     }
+          //   });
+          // }
           
           // Set steps for visualization
           setSteps(analyticalSteps);

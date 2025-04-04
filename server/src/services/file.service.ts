@@ -14,7 +14,7 @@ import { createServiceLogger } from '../utils/logger-factory';
 import { DocumentProcessorFactory } from './document-processors/document-processor-factory';
 import { FileType } from '../constants/file-types';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 150 * 1024 * 1024; // 150MB (increased from 50MB)
 const ALLOWED_MIME_TYPES = {
   'text/csv': 'csv',
   'application/json': 'json',

@@ -1,24 +1,8 @@
 // Script to refresh the Knowledge Base
 // This script dispatches a custom event that will trigger the KnowledgeProvider to refresh
 
-// Function to check authentication status before triggering refresh
-function checkAuthBeforeRefresh() {
-  const token = localStorage.getItem('auth_token');
-  // If no token is found, we shouldn't attempt refresh
-  if (!token) {
-    console.log('No authentication token found, skipping Knowledge Base refresh');
-    return false;
-  }
-  return true;
-}
-
 // Function to refresh the Knowledge Base
 function refreshKnowledgeBase(forceReload = false) {
-  // Check authentication before proceeding
-  if (!checkAuthBeforeRefresh()) {
-    return;
-  }
-  
   console.log('Preparing knowledgeBaseUpdate event to refresh Knowledge Base');
   
   // Create a custom event
@@ -49,11 +33,7 @@ function refreshKnowledgeBase(forceReload = false) {
 export { refreshKnowledgeBase };
 
 // If this script is loaded directly in the browser, execute the refresh
-// but only if we're authenticated
 if (typeof window !== 'undefined') {
   console.log('Executing Knowledge Base refresh');
-  // Only auto-refresh if we have a valid token
-  if (checkAuthBeforeRefresh()) {
-    refreshKnowledgeBase();
-  }
+  refreshKnowledgeBase();
 } 

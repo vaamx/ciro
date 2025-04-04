@@ -2,8 +2,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { MainLayout } from './components/Layout/MainLayout';
 import { EnhancedOverview } from './components/Dashboard/EnhancedOverview';
 import { DataSourcesView } from './components/DataSources/DataSourcesView';
-import { DecisionsView } from './components/Decisions/DecisionsView';
-import { AutomationsView } from './components/Automations/AutomationsView';
 import { CommunicationsView } from './components/Communications/CommunicationsView';
 import { useState, useEffect } from 'react';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -16,6 +14,8 @@ import { DataSourceProvider } from './contexts/DataSourceContext';
 import { AutomationProvider } from './contexts/AutomationContext';
 import { KnowledgeProvider } from './providers/KnowledgeProvider';
 import { ChatProvider } from './components/Chat/providers/ChatProvider';
+import { StudioProvider } from './contexts/StudioContext';
+import { WorkspacesProvider } from './contexts/WorkspacesContext';
 import { LoginForm } from './Auth/LoginForm';
 import { SignupForm } from './Auth/SignupForm';
 import { VerifyEmailForm } from './Auth/VerifyEmailForm';
@@ -31,10 +31,16 @@ import { ToastProvider } from './contexts/ToastContext';
 import RateLimitNotification from './components/Notifications/RateLimitNotification';
 import { GlobalErrorBoundary } from './components/common/GlobalErrorBoundary';
 import { DataSourcesProvider } from './contexts/DataSourcesContext';
+import { initializeVisualizationDebugTools } from './services/visualizationService';
+// Import the standalone components
+import { Studio } from './components/Studio';
+import { VisualizationGallery } from './components/Gallery';
+import { InsightsAnalytics } from './components/Insights';
+import { ToolkitHub } from './components/Toolkit';
+import { ChatbotPage, VoicePage } from './components/Communications';
 
 function App() {
   const [activeSection, setActiveSection] = useState('overview');
-  const [activeTab, setActiveTab] = useState('overview');
 
   const handleSectionChange = (section: string) => {
     setActiveSection(section);
@@ -42,19 +48,19 @@ function App() {
     const routeMap: { [key: string]: string } = {
       overview: '/overview',
       data: '/data-sources',
-      decisions: '/decisions',
-      automations: '/automations',
-      communications: '/communications',
+      studio: '/studio',
+      gallery: '/gallery',
+      insights: '/insights',
+      toolkit: '/toolkit',
+      chatbot: '/communications/chatbot',
+      voice: '/communications/voice',
       organizations: '/organizations'
     };
     
     if (routeMap[section]) {
-      setActiveTab('overview'); // Reset tab when changing sections
+      // Navigation will be handled by the router
+      console.log(`Navigating to ${routeMap[section]}`);
     }
-  };
-
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
   };
 
   // Add an effect to handle emergency reset if needed
@@ -83,6 +89,12 @@ function App() {
     // Check immediately and also after a delay to ensure everything is loaded
     checkEmergencyResetNeeded();
     setTimeout(checkEmergencyResetNeeded, 1000);
+  }, []);
+
+  // Initialize debug tools after app loads
+  useEffect(() => {
+    // Initialize visualization debugging tools
+    initializeVisualizationDebugTools();
   }, []);
 
   // Add a handler for resizing to manage mobile view adjustments
@@ -114,51 +126,59 @@ function App() {
                         <KnowledgeProvider>
                           <ChatProvider>
                             <DataSourcesProvider>
-                              <Router>
-                                <Routes>
-                                  {/* Auth Routes */}
-                                  <Route element={<AuthLayout />}>
-                                    <Route path="/login" element={<LoginForm />} />
-                                    <Route path="/signup" element={<SignupForm />} />
-                                    <Route path="/verify-email" element={<VerifyEmailForm />} />
-                                    <Route path="/verification-pending" element={<VerificationPendingWrapper />} />
-                                    <Route path="/reset-password" element={<ResetPasswordForm />} />
-                                    <Route path="/forgot-password" element={<ForgotPasswordForm />} />
-                                    <Route path="/getting-started" element={<GettingStarted />} />
-                                  </Route>
+                              <StudioProvider>
+                                <WorkspacesProvider>
+                                  <Router>
+                                    <Routes>
+                                      {/* Auth Routes */}
+                                      <Route element={<AuthLayout />}>
+                                        <Route path="/login" element={<LoginForm />} />
+                                        <Route path="/signup" element={<SignupForm />} />
+                                        <Route path="/verify-email" element={<VerifyEmailForm />} />
+                                        <Route path="/verification-pending" element={<VerificationPendingWrapper />} />
+                                        <Route path="/reset-password" element={<ResetPasswordForm />} />
+                                        <Route path="/forgot-password" element={<ForgotPasswordForm />} />
+                                        <Route path="/getting-started" element={<GettingStarted />} />
+                                      </Route>
 
-                                  {/* Protected Main App Routes */}
-                                  <Route element={
-                                    <ProtectedRoute>
-                                      <MainLayout 
-                                        activeSection={activeSection} 
-                                        onSectionChange={handleSectionChange}
-                                        dashboardManager={<DashboardManager />}
-                                      />
-                                    </ProtectedRoute>
-                                  }>
-                                    <Route path="/" element={<Navigate to="/overview" replace />} />
-                                    <Route 
-                                      path="/overview" 
-                                      element={
-                                        <EnhancedOverview 
-                                          activeTab={activeTab}
-                                          onTabChange={handleTabChange}
+                                      {/* Protected Main App Routes */}
+                                      <Route element={
+                                        <ProtectedRoute>
+                                          <MainLayout 
+                                            activeSection={activeSection} 
+                                            onSectionChange={handleSectionChange}
+                                            dashboardManager={<DashboardManager />}
+                                          />
+                                        </ProtectedRoute>
+                                      }>
+                                        <Route path="/" element={<Navigate to="/overview" replace />} />
+                                        <Route 
+                                          path="/overview" 
+                                          element={<EnhancedOverview />} 
                                         />
-                                      } 
-                                    />
-                                    <Route path="/data-sources" element={<DataSourcesView />} />
-                                    <Route path="/decisions" element={<DecisionsView />} />
-                                    <Route path="/automations" element={<AutomationsView />} />
-                                    <Route path="/communications" element={<CommunicationsView />} />
-                                    <Route path="/organizations" element={<OrganizationManagement />} />
-                                    <Route path="*" element={<Navigate to="/overview" replace />} />
-                                  </Route>
-                                </Routes>
-                                
-                                {/* Global Rate Limit Notification */}
-                                <RateLimitNotification position="top-center" autoHideDuration={30000} />
-                              </Router>
+                                        {/* New standalone routes */}
+                                        <Route path="/studio" element={<Studio />} />
+                                        <Route path="/gallery" element={<VisualizationGallery />} />
+                                        <Route path="/insights" element={<InsightsAnalytics />} />
+                                        <Route path="/toolkit" element={<ToolkitHub />} />
+                                        
+                                        {/* Communication Routes */}
+                                        <Route path="/communications/chatbot" element={<ChatbotPage />} />
+                                        <Route path="/communications/voice" element={<VoicePage />} />
+                                        
+                                        {/* Existing routes */}
+                                        <Route path="/data-sources" element={<DataSourcesView />} />
+                                        <Route path="/communications" element={<CommunicationsView />} />
+                                        <Route path="/organizations" element={<OrganizationManagement />} />
+                                        <Route path="*" element={<Navigate to="/overview" replace />} />
+                                      </Route>
+                                    </Routes>
+                                    
+                                    {/* Global Rate Limit Notification */}
+                                    <RateLimitNotification position="top-center" autoHideDuration={30000} />
+                                  </Router>
+                                </WorkspacesProvider>
+                              </StudioProvider>
                             </DataSourcesProvider>
                           </ChatProvider>
                         </KnowledgeProvider>

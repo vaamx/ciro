@@ -98,6 +98,9 @@ const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({ onCreateNew
                 key={org.id}
                 onClick={() => {
                   setCurrentOrganization(org);
+                  // Save the selected organization as the active one
+                  localStorage.setItem('active_organization_id', org.id.toString());
+                  console.log(`Set active organization to: ${org.name} (ID: ${org.id})`);
                   setIsOpen(false);
                 }}
                 className={`w-full px-4 py-2.5 flex items-center gap-3 

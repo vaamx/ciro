@@ -1187,6 +1187,20 @@ Format structured responses as parseable JSON where appropriate.`;
     // This should never be reached due to the throw in the loop, but TypeScript needs it
     throw lastError;
   }
+
+  /**
+   * Get available OpenAI models
+   * @returns Array of model objects
+   */
+  async getModels(): Promise<any> {
+    try {
+      this.logger.info('Fetching available OpenAI models');
+      return await this.openai.models.list();
+    } catch (error) {
+      this.logger.error(`Error fetching OpenAI models: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
+    }
+  }
 }
 
 export const openAIService = OpenAIService.getInstance();

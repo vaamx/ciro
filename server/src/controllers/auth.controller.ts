@@ -251,12 +251,22 @@ export class AuthController {
       let token;
       try {
         console.log('Generating JWT token...');
+        
+        // First, fetch all organizations this user belongs to
+        const userOrganizations = await this.db('organization_members')
+          .select('organization_id')
+          .where('user_id', user.id);
+        
+        // Create an array of organization IDs
+        const organizationIds = userOrganizations.map(org => org.organization_id);
+        
         token = jwt.sign(
           { 
             id: user.id,
             email: user.email,
             role: user.role,
-            organizationId: user.organization_id
+            organizationId: user.organization_id, // Keep for backward compatibility
+            organizations: organizationIds // Add all organizations the user belongs to
           },
           this.getJwtSecret(),
           this.getJwtSignOptions()
@@ -274,7 +284,7 @@ export class AuthController {
       res.cookie('auth_token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
+        sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         path: '/'
       });
@@ -467,7 +477,7 @@ export class AuthController {
       res.cookie('auth_token', authToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
+        sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         path: '/'
       });

@@ -1,0 +1,193 @@
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import { DataSource as AppDataSource } from '../components/DataSources/types';
+
+// Get API base URL from the environment or use default
+const API_BASE_URL = (window as any).ENV?.API_BASE_URL || 'http://localhost:3001';
+
+// Define a minimal fetcher for data sources that doesn't rely on the DataSourceService
+const fetchDataSources = async (): Promise<AppDataSource[]> => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/api/data-sources`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching data sources:', error);
+    return [];
+  }
+};
+
+// API endpoint for query execution
+const QUERY_ENDPOINT = `${API_BASE_URL}/api/query`;
+
+// Data source interface
+export interface DataSource {
+  id: string;
+  name: string;
+  type: 'database' | 'api' | 'csv' | 'json' | 'bigquery' | 'snowflake' | 'redshift';
+  status: 'connected' | 'disconnected' | 'error' | 'pending';
+  createdAt: Date;
+  updatedAt: Date;
+  lastUsed?: Date;
+}
+
+// Query result interface
+export interface QueryResult {
+  columns: {
+    name: string;
+    type: string;
+  }[];
+  rows: Record<string, any>[];
+  rowCount: number;
+  executionTime: number;
+  truncated: boolean;
+  totalRowCount?: number;
+  warning?: string;
+  metadata?: any;
+}
+
+// Error classes
+export class DataSourceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DataSourceError';
+  }
+}
+
+export class ConnectionError extends DataSourceError {
+  constructor(message: string, public details?: any) {
+    super(message);
+    this.name = 'ConnectionError';
+  }
+}
+
+export class QueryError extends DataSourceError {
+  constructor(message: string, public query?: string, public details?: any) {
+    super(message);
+    this.name = 'QueryError';
+  }
+}
+
+/**
+ * Get all available data sources
+ */
+export const getDataSources = async (): Promise<DataSource[]> => {
+  try {
+    const sources = await fetchDataSources();
+    return sources.map(mapAppDataSourceToDataSource);
+  } catch (error) {
+    console.error('Error fetching data sources:', error);
+    throw new DataSourceError('Failed to fetch data sources');
+  }
+};
+
+/**
+ * Get a specific data source by ID
+ */
+export const getDataSource = async (id: string): Promise<DataSource> => {
+  try {
+    const sources = await fetchDataSources();
+    const source = sources.find((s: AppDataSource) => s.id === id);
+    if (!source) {
+      throw new DataSourceError(`Data source with ID ${id} not found`);
+    }
+    return mapAppDataSourceToDataSource(source);
+  } catch (error) {
+    console.error(`Error fetching data source ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Execute a SQL query against a data source
+ */
+export const executeQuery = async (
+  dataSourceId: string, 
+  sql: string, 
+  parameters?: Record<string, any>,
+  options?: {
+    maxRows?: number;
+    timeout?: number;
+    includeMetadata?: boolean;
+  }
+): Promise<QueryResult> => {
+  try {
+    const response = await axios.post(QUERY_ENDPOINT, {
+      dataSourceId,
+      sql,
+      parameters,
+      options
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error executing query:', error);
+    
+    if (axios.isAxiosError(error) && error.response) {
+      throw new QueryError(
+        error.response.data?.message || 'Query execution failed',
+        sql,
+        error.response.data
+      );
+    }
+    
+    throw new QueryError('Query execution failed', sql);
+  }
+};
+
+/**
+ * Map AppDataSource to DataSource
+ */
+function mapAppDataSourceToDataSource(source: AppDataSource): DataSource {
+  return {
+    id: source.id || uuidv4(),
+    name: source.name,
+    type: mapDataSourceType(source.type),
+    status: mapDataSourceStatus(source.status),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: source.lastSync ? new Date(source.lastSync) : undefined
+  };
+}
+
+/**
+ * Map AppDataSource type to DataSource type
+ */
+function mapDataSourceType(type: string): DataSource['type'] {
+  // Map from app's data source types to our type
+  const typeMap: Record<string, DataSource['type']> = {
+    'database': 'database',
+    'warehouse': 'database',
+    'snowflake': 'snowflake',
+    'csv': 'csv',
+    'json': 'json',
+    'local-files': 'csv',
+    'crm': 'api',
+    'crm-hubspot': 'api',
+    'analytics': 'api',
+    'storage': 'api'
+  };
+  
+  return typeMap[type] || 'database';
+}
+
+/**
+ * Map AppDataSource status to DataSource status
+ */
+function mapDataSourceStatus(status: string): DataSource['status'] {
+  // Map from app's status to our status
+  const statusMap: Record<string, DataSource['status']> = {
+    'connected': 'connected',
+    'disconnected': 'disconnected',
+    'error': 'error',
+    'processing': 'pending',
+    'syncing': 'pending',
+    'ready': 'connected',
+    'completed': 'connected'
+  };
+  
+  return statusMap[status] || 'disconnected';
+} 

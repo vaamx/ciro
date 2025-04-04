@@ -98,7 +98,7 @@ export const securityHeaders = helmet({
 
 // Request size limiter
 export const requestSizeLimiter = (req: Request, res: Response, next: NextFunction) => {
-  const MAX_CONTENT_LENGTH = 5 * 1024 * 1024; // 5MB
+  const MAX_CONTENT_LENGTH = 200 * 1024 * 1024; // 200MB (increased from 100MB)
   if (req.headers['content-length'] && parseInt(req.headers['content-length']) > MAX_CONTENT_LENGTH) {
     return res.status(413).json({ error: 'Request entity too large' });
   }
@@ -211,34 +211,4 @@ export const errorHandler = (err: Error, req: Request, res: Response, next: Next
       : err.message,
     message: 'An unexpected error occurred'
   });
-};
-
-// CORS middleware
-export const corsMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  
-  // In development, allow cookies with credentials
-  if (isDevelopment) {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:3000');
-    res.header('Access-Control-Allow-Credentials', 'true');
-  } else {
-    // In production, be more restrictive
-    const allowedOrigins = ['https://yourproductiondomain.com'];
-    const origin = req.headers.origin;
-    
-    if (origin && allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-    }
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
 }; 

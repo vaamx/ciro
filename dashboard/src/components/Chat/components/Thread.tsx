@@ -44,7 +44,7 @@ export interface ThreadProps {
     updated_at: string;
     message_count: number;
   }[];
-  onSessionSelect: (sessionId: string) => void;
+  onSessionSelect: (sessionId: string) => Promise<void>;
   isLoadingSessions?: boolean;
   onRetry?: () => void;
   onNewChat?: () => void;
@@ -170,11 +170,11 @@ const ChatHistoryDropdown: React.FC<{
     message_count: number;
   }[];
   activeSessionId: string | null;
-  onSessionSelect: (sessionId: string) => void;
+  onSessionSelect: (sessionId: string) => Promise<void>;
   onNewChat?: () => void;
   isLoadingSessions?: boolean;
   onRetry?: () => void;
-  onDeleteSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => Promise<void>;
 }> = ({
   sessions,
   activeSessionId,
@@ -318,26 +318,77 @@ const ChatHistoryDropdown: React.FC<{
                   >
                     <button
                       onClick={() => {
-                        // Show loading indicator
-                        const loadingIndicator = document.createElement('div');
-                        loadingIndicator.className = 'fixed inset-0 bg-black bg-opacity-20 z-50 flex items-center justify-center';
-                        loadingIndicator.innerHTML = `
-                          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg flex items-center space-x-3">
-                            <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-violet-600"></div>
-                            <span class="text-gray-700 dark:text-gray-300">Switching chat...</span>
-                          </div>
-                        `;
-                        document.body.appendChild(loadingIndicator);
-                        
-                        // Select the session
-                        onSessionSelect(session.id);
-                        
-                        // Remove loading indicator after a short delay
-                        setTimeout(() => {
-                          document.body.removeChild(loadingIndicator);
-                          // Close the dropdown after switching
-                          setIsOpen(false);
-                        }, 300);
+                        try {
+                          // Show loading indicator
+                          const loadingIndicator = document.createElement('div');
+                          loadingIndicator.id = 'session-loading-indicator';
+                          loadingIndicator.className = 'fixed inset-0 bg-black bg-opacity-20 z-50 flex items-center justify-center';
+                          loadingIndicator.innerHTML = `
+                            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-lg flex items-center space-x-3">
+                              <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-violet-600"></div>
+                              <span class="text-gray-700 dark:text-gray-300">Switching chat...</span>
+                            </div>
+                          `;
+                          document.body.appendChild(loadingIndicator);
+                          
+                          // Select the session
+                          onSessionSelect(session.id)
+                            .then(() => {
+                              // Success - close the dropdown
+                              setIsOpen(false);
+                            })
+                            .catch((error: Error) => {
+                              // Show error notification
+                              const errorMsg = error?.message || 'Failed to switch chat session';
+                              
+                              // Create error notification
+                              const errorNotification = document.createElement('div');
+                              errorNotification.id = 'session-error-notification';
+                              errorNotification.className = 'fixed top-4 right-4 bg-red-50 border-l-4 border-red-500 text-red-700 p-4 shadow-lg rounded z-50 flex items-start';
+                              errorNotification.style.maxWidth = '400px';
+                              errorNotification.innerHTML = `
+                                <div class="flex-shrink-0 mr-2">
+                                  <svg class="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                  </svg>
+                                </div>
+                                <div class="flex-1">
+                                  <p class="text-sm font-medium">${errorMsg}</p>
+                                </div>
+                                <button class="ml-2 text-red-500 hover:text-red-700">
+                                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                  </svg>
+                                </button>
+                              `;
+                              
+                              document.body.appendChild(errorNotification);
+                              
+                              // Add click handler to close button
+                              const closeButton = errorNotification.querySelector('button');
+                              if (closeButton) {
+                                closeButton.addEventListener('click', () => {
+                                  document.body.removeChild(errorNotification);
+                                });
+                              }
+                              
+                              // Auto-remove after 5 seconds
+                              setTimeout(() => {
+                                if (document.body.contains(errorNotification)) {
+                                  document.body.removeChild(errorNotification);
+                                }
+                              }, 5000);
+                            })
+                            .finally(() => {
+                              // Remove loading indicator
+                              const indicator = document.getElementById('session-loading-indicator');
+                              if (indicator && document.body.contains(indicator)) {
+                                document.body.removeChild(indicator);
+                              }
+                            });
+                        } catch (error) {
+                          console.error('Error selecting session:', error);
+                        }
                       }}
                       className="flex-1 text-left"
                     >
@@ -442,10 +493,10 @@ const CustomThreadHeader: React.FC<{
     message_count: number;
   }[];
   activeSessionId: string | null;
-  onSessionSelect: (sessionId: string) => void;
+  onSessionSelect: (sessionId: string) => Promise<void>;
   isLoadingSessions?: boolean;
   onRetry?: () => void;
-  onDeleteSession?: (sessionId: string) => void;
+  onDeleteSession?: (sessionId: string) => Promise<void>;
   messages?: ChatMessage[];
   isMobile?: boolean;
 }> = ({
@@ -1093,7 +1144,7 @@ ${diagnosticResults.suggestions.map(s => `- ${s}`).join('\n')}
           {/* Messages Section */}
           <div 
             ref={setRefs}
-            className={`flex-1 overflow-y-auto ${isMobile ? 'px-2' : 'px-4'} py-2 transition-all`}
+            className={`flex-1 overflow-y-auto ${isMobile ? 'px-1' : 'px-2'} py-1 transition-all`}
             onScroll={handleScroll}
           >
             {/* Show welcome screen if specified */}
@@ -1105,10 +1156,10 @@ ${diagnosticResults.suggestions.map(s => `- ${s}`).join('\n')}
               <>
                 {/* Load more messages button */}
                 {hasMoreMessages && (
-                  <div className="flex justify-center pt-4 pb-2">
+                  <div className="flex justify-center pt-2 pb-1">
                     <button 
                       onClick={onLoadMoreMessages}
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 text-sm font-medium transition-colors"
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 text-sm font-medium transition-colors"
                     >
                       Load earlier messages
                     </button>
@@ -1117,19 +1168,48 @@ ${diagnosticResults.suggestions.map(s => `- ${s}`).join('\n')}
 
                 {/* Error message if needed */}
                 {error && (
-                  <div className="mx-auto max-w-2xl p-4 mb-4">
-                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300">
-                      <h3 className="text-sm font-medium mb-1">Error</h3>
-                      <p className="text-sm">{error}</p>
-                      {onRetry && (
-                        <button 
-                          onClick={onRetry}
-                          className="mt-2 text-sm bg-red-100 dark:bg-red-800/30 hover:bg-red-200 dark:hover:bg-red-700/30 px-3 py-1 rounded-md transition-colors"
-                        >
-                          Retry
-                        </button>
-                      )}
+                  <div className="px-4 py-3 mx-4 mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-red-400 dark:text-red-600" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-red-800 dark:text-red-400">
+                          {
+                            error.includes("Session is not valid") ? 
+                              "This chat session is not available in the current view." :
+                            error.includes("different organization") ?
+                              "This chat belongs to a different organization." :
+                            error.includes("different dashboard") ?
+                              "This chat belongs to a different dashboard." :
+                            error
+                          }
+                        </h3>
+                        {(error.includes("Session is not valid") || error.includes("different")) && (
+                          <div className="mt-2 text-sm text-red-700 dark:text-red-500">
+                            <p>Try selecting another chat session, creating a new one, or switching to the appropriate dashboard or organization.</p>
+                            {onNewChat && (
+                              <button
+                                onClick={onNewChat}
+                                className="mt-2 px-3 py-1.5 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-md"
+                              >
+                                Create New Chat
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  </div>
+                )}
+                
+                {/* Loading spinner */}
+                {isLoading && (
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600 my-8"></div>
+                    <p className="text-gray-500 dark:text-gray-400">Loading messages...</p>
                   </div>
                 )}
                 

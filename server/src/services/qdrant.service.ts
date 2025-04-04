@@ -28,19 +28,13 @@ interface QdrantConfig {
 }
 
 /**
- * Unified query analysis interface for vector operations
+ * Interface for query analysis result
  */
 interface QueryAnalysis {
-  queryType: 'semantic' | 'keyword' | 'hybrid' | 'count' | 'analytical' | 'entity_lookup';
-  complexity: 'high' | 'medium' | 'low';
-  needsExhaustiveResults: boolean;
-  keywords: string[];
-  entities: string[];
+  queryType: 'exact' | 'semantic' | 'hybrid';
   limit: number;
-  scoreThreshold: number;
-  exactMatch: boolean;
-  includeSimilar: boolean;
   filters?: Record<string, any>;
+  similarityThreshold?: number;
 }
 
 /**
@@ -88,7 +82,7 @@ export class QdrantService {
   constructor() {
     QdrantService.constructorCallCount++;
     
-    const configService = new ConfigService();
+    const configService = ConfigService.getInstance();
     this.apiUrl = configService.get('QDRANT_API_URL') || 'http://localhost:6333';
     
     // Set up headers for Qdrant API requests
@@ -323,7 +317,8 @@ export class QdrantService {
     collectionName: string,
     queryVector: number[],
     filter?: Record<string, any>,
-    limit: number = 500  // Increased default from 100 to 500
+    limit: number = 500,  // Increased default from 100 to 500
+    similarityThreshold: number = 0.2  // Add this parameter with default value
   ): Promise<any[]> {
     try {
       console.log(`Searching collection ${collectionName} with vector of length ${queryVector.length}`);
@@ -379,8 +374,8 @@ export class QdrantService {
         limit: effectiveLimit,
         with_payload: true,
         with_vector: false,
-        // Use a very low threshold to ensure we capture all potentially relevant documents
-        score_threshold: 0.2, // Lowered from 0.7/0.5 to 0.2 to be more inclusive
+        // Use the provided similarity threshold, defaulting to 0.2 if not specified
+        score_threshold: similarityThreshold,
       };
       
       // Add HNSW search params for better recall
@@ -946,183 +941,63 @@ export class QdrantService {
   }
 
   /**
-   * Analyze a query to determine appropriate search parameters
-   * @param query The search query to analyze
-   * @param options Additional options to consider
-   * @returns QueryAnalysis object with search parameters
+   * Analyze a query to determine search parameters
    */
-  analyzeQuery(
-    query: string,
-    options: {
+  private analyzeQuery(query: string, options: {
       defaultLimit?: number;
       filters?: Record<string, any>;
       forceExact?: boolean;
       forceExhaustive?: boolean;
-    } = {}
-  ): QueryAnalysis {
-    // Default search parameters - more generous defaults
-    const defaultAnalysis: QueryAnalysis = {
-      queryType: 'semantic',
-      complexity: 'low',
-      needsExhaustiveResults: options.forceExhaustive || false,
-      keywords: [],
-      entities: [],
-      limit: options.defaultLimit || 50, // Increased from 10 to 50
-      scoreThreshold: 0.3, // Lowered from 0.7 to 0.3
-      exactMatch: options.forceExact || false,
-      includeSimilar: true,
-      filters: options.filters
+    similarityThreshold?: number;
+  } = {}): QueryAnalysis {
+    // Default analysis
+    const analysis: QueryAnalysis = {
+      queryType: 'semantic',  // Default to semantic search
+      limit: options.defaultLimit || 10,
+      filters: options.filters,
+      similarityThreshold: options.similarityThreshold || 0.2
     };
     
-    // If no query, return defaults
-    if (!query || query.trim().length === 0) {
-      return defaultAnalysis;
+    // Force exact match if specified
+    if (options.forceExact) {
+      analysis.queryType = 'exact';
     }
     
-    const lowerQuery = query.toLowerCase().trim();
-    
-    // Extract keywords for better matching
-    const keywords = this.extractKeywords(query);
-    
-    // Extract potential entities
-    const entities = this.extractEntities(query);
-    
-    // Check for entity lookup queries
-    const entityLookupPatterns = [
-      /tell me about\s+(.+)/i,
-      /information (on|about)\s+(.+)/i,
-      /details (of|about)\s+(.+)/i,
-      /who is\s+(.+)/i,
-      /what is\s+(.+)/i,
-      /describe\s+(.+)/i,
-      /explain\s+(.+)/i,
-      /show me\s+(.+)/i
-    ];
-    
-    const isEntityLookup = entityLookupPatterns.some(pattern => pattern.test(lowerQuery));
-    
-    // Check if query is analytical in nature
-    const analyticalPatterns = [
-      /how many/i, /count/i, /total/i, /number of/i,
-      /average/i, /mean/i, /median/i, /mode/i,
-      /distribution/i, /percentage/i, /proportion/i,
-      /statistics/i, /metrics/i, /analytics/i,
-      /analyze/i, /analysis/i, /summarize/i, /summary/i
-    ];
-    
-    const isAnalytical = analyticalPatterns.some(pattern => pattern.test(lowerQuery));
-    
-    // Check for count queries
-    const countPatterns = [
-      /how many/i, /count/i, /total number/i, /sum of/i
-    ];
-    
-    const isCountQuery = countPatterns.some(pattern => pattern.test(lowerQuery));
-    
-    // Check for exact match requests
-    const exactMatchPatterns = [
-      /exactly/i, /exact/i, /exactly matching/i, /specifically/i, 
-      /specific/i, /precise/i, /precisely/i, /verbatim/i
-    ];
-    
-    const wantsExactMatch = exactMatchPatterns.some(pattern => pattern.test(lowerQuery));
-    
-    // Determine complexity based on query features
-    let complexity: 'high' | 'medium' | 'low' = 'low';
-    
-    // More complex if it has many keywords or entities
-    if (keywords.length > 5 || entities.length > 3) {
-      complexity = 'high';
-    } else if (keywords.length > 3 || entities.length > 1) {
-      complexity = 'medium';
+    // Check for exact match patterns (quotation marks, specific syntax)
+    if (query.includes('"') || query.includes('id:') || query.includes('exact:')) {
+      analysis.queryType = 'exact';
     }
     
-    // More complex if it's analytical
-    if (isAnalytical) {
-      complexity = complexity === 'low' ? 'medium' : 'high';
+    // Check for complex query that might benefit from hybrid search
+    if (query.length > 100 || query.split(' ').length > 8) {
+      analysis.queryType = 'hybrid';
     }
     
-    // Determine query type
-    let queryType: 'semantic' | 'keyword' | 'hybrid' | 'count' | 'analytical' | 'entity_lookup' = 'semantic';
-    
-    if (isEntityLookup) {
-      queryType = 'entity_lookup';
-    } else if (isCountQuery) {
-      queryType = 'count';
-    } else if (isAnalytical) {
-      queryType = 'analytical';
-    } else if (wantsExactMatch) {
-      queryType = 'keyword';
-    } else if (keywords.length > 2) {
-      queryType = 'hybrid';
+    // Increase limit for exhaustive searches
+    if (options.forceExhaustive) {
+      analysis.limit = 100;
+      analysis.similarityThreshold = 0.1; // Lower threshold for exhaustive searches
     }
     
-    // Determine search limits based on query type - use more generous limits
-    let limit = options.defaultLimit || 50; // Higher default limit
-    let needsExhaustiveResults = options.forceExhaustive || false;
-    let scoreThreshold = 0.3; // Lower general threshold
-    
-    if (queryType === 'entity_lookup') {
-      limit = 500; // Very high limit for entity lookup queries
-      needsExhaustiveResults = true;
-      scoreThreshold = 0.2; // Lower threshold for entity lookups
-    } else if (queryType === 'count' || queryType === 'analytical') {
-      limit = 500; // Larger limit for analytical queries
-      needsExhaustiveResults = true;
-      scoreThreshold = 0.2; // Lower threshold to get more results
-    } else if (complexity === 'high') {
-      limit = 100; // Increased from 20 to 100
-      scoreThreshold = 0.25; // Lowered from 0.5 to 0.25
-    } else if (complexity === 'medium') {
-      limit = 50; // Increased from 15 to 50
-      scoreThreshold = 0.3; // Lowered from 0.6 to 0.3
+    // Check for query patterns suggesting a need for more results
+    if (/^list|^all|^every|find all|list all|show all/i.test(query)) {
+      analysis.limit = 50;
+      analysis.similarityThreshold = 0.15;
     }
     
-    return {
-      queryType,
-      complexity,
-      needsExhaustiveResults,
-      keywords,
-      entities,
-      limit,
-      scoreThreshold,
-      exactMatch: wantsExactMatch || options.forceExact || false,
-      includeSimilar: !wantsExactMatch,
-      filters: options.filters
-    };
-  }
-
-  /**
-   * Extract potential entities from a query
-   * @param query The query to extract entities from
-   * @returns Array of potential entities
-   */
-  private extractEntities(query: string): string[] {
-    const entities: string[] = [];
-    
-    // Look for capitalized words (potential proper nouns)
-    const capitalizedPattern = /\b[A-Z][a-z]+\b/g;
-    const capitalizedMatches = query.match(capitalizedPattern) || [];
-    entities.push(...capitalizedMatches);
-    
-    // Look for entity patterns like "Company X" or "Person Y"
-    const entityPatterns = [
-      { pattern: /\b(?:company|organization|business|firm|corporation|enterprise)\s+([A-Z][a-zA-Z0-9\s&]+)\b/g, group: 1 },
-      { pattern: /\b(?:person|individual|employee|customer|client)\s+([A-Z][a-zA-Z0-9\s]+)\b/g, group: 1 },
-      { pattern: /\b(?:location|place|country|city|region|area)\s+([A-Z][a-zA-Z0-9\s]+)\b/g, group: 1 }
-    ];
-    
-    for (const { pattern, group } of entityPatterns) {
-      let match;
-      pattern.lastIndex = 0; // Reset regex state
-      while ((match = pattern.exec(query)) !== null) {
-        if (match[group]) {
-          entities.push(match[group].trim());
-        }
-      }
+    // For analytical queries, retrieve more results
+    if (/average|mean|median|analyze|compare|trend|correlation|statistics/i.test(query)) {
+      analysis.limit = Math.max(analysis.limit, 30);
+      analysis.similarityThreshold = Math.min(analysis.similarityThreshold || 0.2, 0.15);
     }
     
-    return [...new Set(entities)]; // Remove duplicates
+    // For total/sum queries, we need more results with a lower threshold
+    if (/total|sum|count|all of|entire/i.test(query)) {
+      analysis.limit = Math.max(analysis.limit, 100);
+      analysis.similarityThreshold = 0.1;
+    }
+    
+    return analysis;
   }
 
   /**
@@ -1213,6 +1088,7 @@ export class QdrantService {
       limit?: number;
       exactMatch?: boolean;
       exhaustiveSearch?: boolean;
+      similarityThreshold?: number;
     } = {}
   ): Promise<SearchResult[]> {
     try {
@@ -1230,7 +1106,8 @@ export class QdrantService {
           defaultLimit: options.limit,
           filters: options.filters,
           forceExact: options.exactMatch,
-          forceExhaustive: options.exhaustiveSearch
+          forceExhaustive: options.exhaustiveSearch,
+          similarityThreshold: options.similarityThreshold
         });
         
         this.logger.debug(`Query analysis: ${JSON.stringify(queryAnalysis)}`);
@@ -1249,7 +1126,8 @@ export class QdrantService {
           collectionName,
           embedding,
           queryAnalysis.filters,
-          queryAnalysis.limit
+          queryAnalysis.limit,
+          queryAnalysis.similarityThreshold
         );
         
         // Normalize the results
@@ -1266,7 +1144,8 @@ export class QdrantService {
           collectionName,
           query,
           options.filters,
-          options.limit || 10
+          options.limit || 10,
+          options.similarityThreshold
         );
         
         // Normalize the results
@@ -1281,7 +1160,7 @@ export class QdrantService {
       this.logger.warn(`Invalid query type provided: ${typeof query}`);
       return [];
     } catch (error) {
-      this.logger.error(`Error in intelligent search: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(`Error in intelligentSearch: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
   }
@@ -1443,6 +1322,222 @@ export class QdrantService {
     } catch (error) {
       this.logger.error(`Error scrolling points in collection ${collectionName}: ${error}`);
       return { points: [], next_page_offset: null };
+    }
+  }
+
+  /**
+   * Bulk search method for retrieving large datasets
+   * This method is specially designed for aggregation queries where we need ALL documents
+   * rather than just the most semantically relevant ones
+   */
+  async bulkSearch(
+    collectionName: string,
+    filter?: Record<string, any>,
+    batchSize: number = 1000,
+    maxBatches: number = 100 // Increased from 30 to 100 to support up to 100,000 records
+  ): Promise<any[]> {
+    try {
+      this.logger.info(`Performing bulk search on collection ${collectionName}`);
+      
+      // Normalize the collection name
+      const normalizedCollectionName = this.normalizeCollectionName(collectionName);
+      
+      // Check if collection exists
+      if (!(await this.collectionExists(normalizedCollectionName))) {
+        this.logger.warn(`Collection ${normalizedCollectionName} does not exist for bulk search`);
+        return [];
+      }
+
+      // Initialize variables for batched retrieval
+      let allResults: any[] = [];
+      let offset = 0;
+      let batchCount = 0;
+      let hasMoreResults = true;
+
+      // Retrieve data in batches to avoid memory issues
+      while (hasMoreResults && batchCount < maxBatches) {
+        // Perform scroll search to get a batch of results
+        const scrollRequest = {
+          filter: filter || {},
+          limit: batchSize,
+          offset: offset,
+          with_payload: true,
+          with_vector: false
+        };
+
+        this.logger.info(`Bulk search batch ${batchCount + 1}: offset=${offset}, limit=${batchSize}`);
+        
+        // Use scroll method for paginated retrieval
+        const batchResults = await this.client.scroll(normalizedCollectionName, scrollRequest);
+        
+        if (!batchResults || !batchResults.points || batchResults.points.length === 0) {
+          hasMoreResults = false;
+        } else {
+          // Add results to our collection
+          allResults.push(...batchResults.points);
+          
+          // Update offset for next batch
+          offset += batchResults.points.length;
+          
+          // Log progress
+          this.logger.info(`Retrieved batch ${batchCount + 1} with ${batchResults.points.length} records, total: ${allResults.length}`);
+          
+          // If we got fewer results than the batch size, we're done
+          if (batchResults.points.length < batchSize) {
+            hasMoreResults = false;
+          }
+        }
+        
+        batchCount++;
+      }
+
+      this.logger.info(`Bulk search complete. Retrieved ${allResults.length} total records from ${collectionName}`);
+      return allResults;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error in bulkSearch: ${errorMessage}`, { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get all records that match a filter from a collection
+   * Used for aggregation queries that need to process all matching data
+   */
+  async getAllMatchingRecords(
+    collectionName: string, 
+    fieldName: string, 
+    fieldValue: string
+  ): Promise<any[]> {
+    try {
+      this.logger.info(`Getting all records from ${collectionName} where ${fieldName}="${fieldValue}"`);
+      
+      // Normalize the fieldValue for case-insensitive matching
+      const normalizedFieldValue = fieldValue.trim();
+      
+      // Create an array of possible filter configurations to try
+      // Different collections might store the same attribute in different payload structures
+      const filterConfigurations = [
+        // Direct field in payload
+        {
+          must: [
+            {
+              key: `payload.${fieldName}`,
+              match: {
+                value: normalizedFieldValue
+              }
+            }
+          ]
+        },
+        // Case-insensitive match
+        {
+          must: [
+            {
+              key: `payload.${fieldName}`,
+              match: {
+                value: normalizedFieldValue.toLowerCase()
+              }
+            }
+          ]
+        },
+        // In metadata object
+        {
+          must: [
+            {
+              key: `payload.metadata.${fieldName}`,
+              match: {
+                value: normalizedFieldValue
+              }
+            }
+          ]
+        },
+        // In metadata with capitalized first letter
+        {
+          must: [
+            {
+              key: `payload.metadata.${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)}`,
+              match: {
+                value: normalizedFieldValue
+              }
+            }
+          ]
+        },
+        // For data with company property rather than brand
+        // Convert "company" field to "brand" and vice versa
+        {
+          must: [
+            {
+              key: `payload.${fieldName === 'company' ? 'brand' : (fieldName === 'brand' ? 'company' : fieldName)}`,
+              match: {
+                value: normalizedFieldValue
+              }
+            }
+          ]
+        },
+        // For content that contains the value as a substring (especially for field values in text)
+        {
+          must: [
+            {
+              key: "payload.text",
+              text: {
+                value: normalizedFieldValue
+              }
+            }
+          ]
+        },
+        // Try the content field too for text search
+        {
+          must: [
+            {
+              key: "payload.content",
+              text: {
+                value: normalizedFieldValue
+              }
+            }
+          ]
+        }
+      ];
+      
+      // Try each filter configuration until we get results
+      let allRecords: any[] = [];
+      
+      for (const filter of filterConfigurations) {
+        this.logger.info(`Trying filter configuration: ${JSON.stringify(filter)}`);
+        
+        // Use bulk search with the current filter
+        const records = await this.bulkSearch(collectionName, filter);
+        
+        if (records && records.length > 0) {
+          this.logger.info(`Found ${records.length} records with filter configuration`);
+          allRecords = records;
+          break; // Stop after the first successful configuration
+        }
+      }
+      
+      // If we still don't have results, try a more flexible text search for the specific field
+      if (allRecords.length === 0) {
+        this.logger.info(`No records found with precise filters, trying text search`);
+        
+        const textFilter = {
+          must: [
+            {
+              key: "payload",
+              text: {
+                value: `${fieldName} ${normalizedFieldValue}`
+              }
+            }
+          ]
+        };
+        
+        allRecords = await this.bulkSearch(collectionName, textFilter);
+        this.logger.info(`Text search found ${allRecords.length} records`);
+      }
+      
+      this.logger.info(`Found ${allRecords.length} records matching ${fieldName}="${fieldValue}" in ${collectionName}`);
+      return allRecords;
+    } catch (error) {
+      this.logger.error(`Error in getAllMatchingRecords: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
     }
   }
 } 

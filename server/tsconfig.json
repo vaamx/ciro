@@ -5,7 +5,7 @@
     "moduleResolution": "node",
     "esModuleInterop": true,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "strict": false,
     "noImplicitAny": false,
     "strictNullChecks": false,
@@ -32,7 +32,9 @@
     "emitDecoratorMetadata": true
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "migrations/**/*",
+    "knexfile.ts"
   ],
   "exclude": [
     "node_modules"

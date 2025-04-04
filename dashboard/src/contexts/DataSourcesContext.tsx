@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState, createContext } from 'react';
-import { io, Socket } from 'socket.io-client';
+// Remove the Socket import - it's no longer needed
 import { useOrganization } from './OrganizationContext';
 import { useNotification } from './NotificationContext';
 import { 
@@ -7,14 +7,7 @@ import {
 } from '../types/shared-types';
 import { refreshKnowledgeBase } from '../refresh-knowledge-base';
 // Import our API configuration
-import { API_URL, SOCKET_URL, buildApiUrl } from '../api-config';
-
-// Add global declaration for window.emitAuthError
-declare global {
-  interface Window {
-    emitAuthError?: (message: string) => void;
-  }
-}
+import { API_URL } from '../api-config';
 
 // Use the imported API URL instead of the environment variable
 const API_BASE_URL = API_URL;
@@ -40,6 +33,7 @@ interface DataSourcesContextType {
   setShowSnowflakeForm: (show: boolean) => void;
   isPaused: boolean;
   setPausePolling: (paused: boolean) => void;
+      generateVisualization: (dataSourceId: string) => Promise<any>;
 }
 
 // Create the context
@@ -52,12 +46,12 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [showSnowflakeForm, setShowSnowflakeForm] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   
-  // Add a ref to track the last fetch time to prevent too frequent refreshes
+  // Add a ref to track the last fetch time
   const lastFetchTimeRef = useRef<number>(0);
   // Add a ref to store the last data hash to detect actual changes
   const lastDataHashRef = useRef<string>('');
-  // Socket.io connection reference
-  const socketRef = useRef<Socket | null>(null);
+  // Socket.io connection reference - commented out as unused
+  // const socketRef = useRef<Socket | null>(null);
   
   const { currentOrganization } = useOrganization();
   const { showNotification } = useNotification();
@@ -96,111 +90,21 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     try {
       setIsLoading(true);
-      const token = localStorage.getItem('auth_token');
-      
-      if (!token) {
-        console.log('No authentication token, skipping data source fetch');
-        setIsLoading(false);
-        return;
-      }
-      
-      const apiUrl = buildApiUrl(`/api/data-sources?organization_id=${currentOrganization.id}`);
-      const response = await fetch(apiUrl, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-
-      // Check for HTML response which indicates authentication issues
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('text/html')) {
-        console.warn('Received HTML response when fetching data sources - likely an authentication issue', {
-          status: response.status,
-          url: response.url
-        });
-        
-        // If we're getting HTML when expecting JSON, it's likely an auth issue
-        localStorage.removeItem('auth_token');
-        
-        // Use window.emitAuthError if available
-        if (window.emitAuthError) {
-          window.emitAuthError('Authentication required. Please log in.');
+      const response = await fetch(
+        `${API_BASE_URL}/api/data-sources?organization_id=${currentOrganization.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Content-Type': 'application/json'
+          }
         }
-        
-        setIsLoading(false);
-        return;
-      }
+      );
 
       if (!response.ok) {
-        // Try to get the response text to check if it's HTML
-        const text = await response.text();
-        
-        // Check if the response looks like HTML
-        if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
-          console.warn('Response looks like HTML even though content type was not set properly');
-          localStorage.removeItem('auth_token');
-          
-          // Use window.emitAuthError if available
-          if (window.emitAuthError) {
-            window.emitAuthError('Authentication required. Please log in.');
-          }
-          
-          setIsLoading(false);
-          return;
-        }
-        
-        let errorData;
-        try {
-          // Try to parse as JSON
-          errorData = JSON.parse(text);
-        } catch (e) {
-          console.error('Failed to parse error response:', e);
-          errorData = { error: 'Failed to parse server response' };
-        }
-        
-        throw new Error(errorData.error || `Failed to fetch data sources: ${response.statusText}`);
+        throw new Error(`Failed to fetch data sources: ${response.statusText}`);
       }
 
-      // Try parsing the response and check if it's actually HTML
-      let data;
-      const responseText = await response.text();
-      
-      try {
-        // Check if the response looks like HTML before trying to parse
-        if (responseText.trim().startsWith('<!doctype') || responseText.trim().startsWith('<html')) {
-          console.warn('Response looks like HTML even though status was OK');
-          localStorage.removeItem('auth_token');
-          
-          // Use window.emitAuthError if available
-          if (window.emitAuthError) {
-            window.emitAuthError('Authentication required. Please log in.');
-          }
-          
-          setIsLoading(false);
-          return;
-        }
-        
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Failed to parse response as JSON:', parseError);
-        
-        // If parsing fails, it's likely an auth issue (HTML login page)
-        if (responseText.includes('<!doctype') || responseText.includes('<html')) {
-          localStorage.removeItem('auth_token');
-          
-          // Use window.emitAuthError if available
-          if (window.emitAuthError) {
-            window.emitAuthError('Authentication required. Please log in.');
-          }
-          
-          setIsLoading(false);
-          return;
-        }
-        
-        throw new Error('Failed to parse server response');
-      }
+      const data = await response.json();
       
       // Check if data has actually changed
       const newDataHash = generateDataHash(data);
@@ -208,12 +112,10 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
         lastDataHashRef.current = newDataHash;
         setDataSources(data);
         
-        // Only refresh knowledge base if data actually changed AND we have a valid token
-        if (localStorage.getItem('auth_token')) {
-          setTimeout(() => {
-            refreshKnowledgeBase(false);
-          }, 0);
-        }
+        // Only refresh knowledge base if data actually changed
+        setTimeout(() => {
+          refreshKnowledgeBase(false);
+        }, 0);
       }
       
       setError(null);
@@ -229,122 +131,27 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [currentOrganization, showNotification, generateDataHash]);
 
-  // Set up WebSocket connection for real-time updates
+  // Set up WebSocket connection or polling for data source updates
   useEffect(() => {
-    // Only set up socket if we have an organization
-    if (!currentOrganization) return;
-
-    // Create socket connection
-    const socket = io(SOCKET_URL, {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
-
-    // Store socket reference
-    socketRef.current = socket;
-
-    // Set up event listeners
-    socket.on('connect', () => {
-      console.log('WebSocket connected for data source updates');
-    });
-
-    socket.on('disconnect', () => {
-      console.log('WebSocket disconnected from data source updates');
-    });
-
-    // Listen for data source updates
-    socket.on('dataSourceUpdate', (data) => {
-      console.log('Received data source update via WebSocket:', data);
-      
-      if (data && data.id && data.status) {
-        // Update the data source in our state
-        setDataSources(prevSources => {
-          // Helper function to normalize IDs for comparison (handles both UUID and numeric IDs)
-          const normalizedUpdateId = normalizeId(data.id);
-          
-          // Find the data source to update - check both direct match and normalized match
-          const existingSourceIndex = prevSources.findIndex(source => 
-            normalizeId(source.id) === normalizedUpdateId
-          );
-          
-          if (existingSourceIndex >= 0) {
-            // Update existing data source
-            const updatedSources = [...prevSources];
-            
-            // Map 'completed' status to 'ready' if needed for UI compatibility
-            let uiStatus = data.status;
-            if (data.status === 'completed') {
-              console.log(`Mapping 'completed' status to 'ready' for UI compatibility`);
-              uiStatus = 'ready';
-            }
-            
-            updatedSources[existingSourceIndex] = {
-              ...updatedSources[existingSourceIndex],
-              status: uiStatus,
-              lastSync: data.timestamp || new Date().toISOString(),
-              // Update any other properties that might have changed
-              ...(data.name && { name: data.name }),
-              ...(data.metadata && { metadata: {
-                ...updatedSources[existingSourceIndex].metadata,
-                ...data.metadata,
-              }}),
-            };
-            
-            console.log(`Updated data source ${updatedSources[existingSourceIndex].id} (${normalizedUpdateId}) with status: ${uiStatus} (original: ${data.status})`);
-            
-            // If data has changed, refresh the knowledge base
-            const newDataHash = generateDataHash(updatedSources);
-            if (newDataHash !== lastDataHashRef.current) {
-              lastDataHashRef.current = newDataHash;
-              // Refresh the knowledge base asynchronously to prevent React state updates during rendering
-              setTimeout(() => {
-                refreshKnowledgeBase(false);
-              }, 0);
-            }
-            
-            return updatedSources;
-          } else {
-            console.log(`Data source with ID ${normalizedUpdateId} not found in current state, fetching all data sources`);
-            // If the data source doesn't exist in our state, fetch all data sources
-            // This ensures we have the complete and up-to-date list
-            setTimeout(() => fetchDataSources(true), 100);
-            return prevSources;
-          }
-        });
-        
-        // If the status is 'completed', show a notification
-        if (data.status === 'completed') {
-          showNotification({
-            type: 'success',
-            message: `Data source ${data.name || data.id} processing completed`
-          });
-        }
-      }
-    });
-
-    // Listen for knowledge base updates
-    socket.on('knowledgeBaseUpdated', (data) => {
-      console.log('Received knowledge base update via WebSocket:', data);
-      
-      // Refresh data sources if we get a knowledge base update
-      if (data && data.timestamp) {
-        fetchDataSources(true);
-      }
-    });
-
-    // Clean up on unmount
+    console.log('Setting up data source polling and WebSocket connection');
+    
+    if (!currentOrganization) {
+      console.log('No current organization, skipping WebSocket setup');
+      return;
+    }
+    
+    // Set up polling interval for data sources (15 second interval)
+    console.log('Setting up data source polling (15 second interval)');
+    const pollingInterval = setInterval(() => {
+      fetchDataSources().catch(console.error);
+    }, 15000);
+    
+    // Clean up on component unmount
     return () => {
-      console.log('Cleaning up WebSocket connection');
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
+      console.log('Data source polling stopped');
+      clearInterval(pollingInterval);
     };
-  }, [currentOrganization, fetchDataSources, generateDataHash, showNotification]);
+  }, [currentOrganization]);
 
   // Initial load and polling setup
   useEffect(() => {
@@ -377,7 +184,50 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     };
   }, [fetchDataSources, isPaused, dataSources.length]);
 
-  // Add a new data source
+  // Add a method to create a placeholder data source while file is processing
+  const addPlaceholderDataSource = (fileInfo: { id: string; name: string; type: string; size: number }): DataSource => {
+    const placeholderSource: DataSource = {
+      id: fileInfo.id,
+      name: fileInfo.name,
+      // Cast as any to bypass type restriction
+      type: `local-files-${fileInfo.type.toLowerCase()}` as any,
+      status: 'processing',
+      description: `Uploading and processing ${fileInfo.name}`,
+      metrics: {
+        records: 0,
+        syncRate: 0,
+        avgSyncTime: '0s',
+        // Add progress info as part of metadata instead of metrics
+        lastError: undefined
+      },
+      metadata: {
+        id: fileInfo.id,
+        fileType: fileInfo.type,
+        filename: fileInfo.name,
+        size: fileInfo.size,
+        originalFilename: fileInfo.name,
+        processing_stage: 'uploading',
+        progress: 0,
+        processedChunks: 0,
+        totalChunks: 100,
+        // Include progress info in metadata
+        progress_info: {
+          totalChunks: 100,
+          processedChunks: 0,
+          currentPhase: 'uploading',
+          startTime: new Date().toISOString(),
+          warnings: []
+        }
+      } as Record<string, any> // Cast to Record to allow any properties
+    };
+
+    // Add to state immediately
+    setDataSources(prev => [placeholderSource, ...prev]);
+    
+    return placeholderSource;
+  };
+
+  // Update the addDataSource method to handle files with immediate feedback
   const addDataSource = async (dataSource: Partial<DataSource>): Promise<DataSource> => {
     if (!currentOrganization) {
       throw new Error('No organization selected');
@@ -392,6 +242,69 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return {} as DataSource; // Placeholder return
       }
 
+      // For file uploads, create a placeholder immediately if we have file info
+      if (dataSource.type?.startsWith('local-files') && dataSource.metadata) {
+        const metadata = dataSource.metadata as Record<string, any>;
+        if (metadata.filename) {
+          console.log('Creating placeholder for file upload:', metadata.filename);
+          const fileInfo = {
+            id: metadata.id || `temp-${Date.now()}`,
+            name: metadata.filename as string,
+            type: dataSource.type.replace('local-files-', '') || 'file',
+            size: Number(metadata.size) || 0
+          };
+          
+          // Create and display placeholder immediately
+          const placeholder = addPlaceholderDataSource(fileInfo);
+          
+          // Continue with the actual API call in the background
+          const response = await fetch(`${API_BASE_URL}/api/data-sources`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            },
+            body: JSON.stringify({
+              ...dataSource,
+              organization_id: currentOrganization.id
+            })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            
+            // Update placeholder to error state
+            setDataSources(prev => prev.map(ds => 
+              ds.id === placeholder.id 
+                ? { ...ds, status: 'error', metrics: { ...ds.metrics, lastError: errorData.message || 'Failed to create data source' }}
+                : ds
+            ));
+            
+            throw new Error(errorData.message || 'Failed to create data source');
+          }
+
+          const newDataSource = await response.json();
+          
+          // Update the placeholder with the actual data from API
+          setDataSources(prev => prev.map(ds => 
+            ds.id === placeholder.id ? { ...newDataSource, id: ds.id } : ds
+          ));
+          
+          showNotification({ 
+            type: 'success', 
+            message: `Successfully added ${metadata.filename || 'file'}` 
+          });
+          
+          // Refresh the knowledge base
+          setTimeout(() => {
+            refreshKnowledgeBase(false);
+          }, 0);
+          
+          return newDataSource;
+        }
+      }
+
+      // For non-file sources, proceed as before
       const response = await fetch(`${API_BASE_URL}/api/data-sources`, {
         method: 'POST',
         headers: {
@@ -531,6 +444,93 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return fetchDataSources(true);
   }, [fetchDataSources]);
 
+  // Generate visualization from data source
+  const generateVisualization = async (dataSourceId: string): Promise<any> => {
+    try {
+      console.log(`Generating visualization for data source: ${dataSourceId}`);
+      
+      // Find the data source
+      const dataSource = getDataSourceById(dataSourceId);
+      if (!dataSource) {
+        throw new Error(`Data source with ID ${dataSourceId} not found`);
+      }
+      
+      // Make API request to the backend
+      const token = localStorage.getItem('auth_token');
+      console.log(`Making API request to: ${API_BASE_URL}/api/visualizations/generate/${dataSourceId}`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/visualizations/generate/${dataSourceId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      console.log(`Response status: ${response.status}`);
+
+      // For non-JSON responses, provide clearer error
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error(`Received non-JSON response: ${contentType}`);
+        throw new Error(`Server returned non-JSON response (${response.status}): ${await response.text().catch(() => 'Unable to read response')}`);
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(err => ({ error: `Failed to parse error response: ${err.message}` }));
+        throw new Error(errorData.error || `Request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`Visualization data received with title: ${data.title}`);
+      return data;
+    } catch (err: any) {
+      console.error('Error generating visualization:', err);
+      
+      // For development purposes only: return mock data when API fails
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Using fallback visualization data for development');
+        return createFallbackVisualization(dataSourceId);
+      }
+      
+      showNotification({ 
+        type: 'error', 
+        message: err.message || 'Failed to generate visualization' 
+      });
+      throw err;
+    }
+  };
+
+  // Helper to create fallback visualization when API fails
+  const createFallbackVisualization = (dataSourceId: string) => {
+    const dataSource = getDataSourceById(dataSourceId);
+    const title = dataSource ? `${dataSource.name} Analysis` : `Data Analysis for Source ${dataSourceId}`;
+    
+    return {
+      dataSourceId,
+      title,
+      description: 'Analysis of key metrics over time',
+      chartType: 'enhanced-bar-chart',
+      config: {
+        xAxis: { title: 'Month' },
+        yAxis: { title: 'Value (in millions)' },
+        colors: ['#4C78DB', '#F58518', '#54A24B']
+      },
+      data: [
+        { month: "Jan", value: 65, prevValue: 20 },
+        { month: "Feb", value: 93, prevValue: 20 },
+        { month: "Mar", value: 76, prevValue: 22 },
+        { month: "Apr", value: 44, prevValue: 30 },
+        { month: "May", value: 4, prevValue: 28 },
+        { month: "Jun", value: 16, prevValue: 25 },
+        { month: "Jul", value: 93, prevValue: 30 },
+        { month: "Aug", value: 98, prevValue: 28 },
+        { month: "Sep", value: 50, prevValue: 29 }
+      ],
+      transformations: []
+    };
+  };
+
   // Public context value
   const contextValue: DataSourcesContextType = {
     dataSources,
@@ -544,7 +544,8 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     showSnowflakeForm,
     setShowSnowflakeForm,
     isPaused,
-    setPausePolling
+    setPausePolling,
+    generateVisualization
   };
 
   return (

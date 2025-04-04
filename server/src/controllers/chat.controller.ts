@@ -483,13 +483,6 @@ export class ChatController {
       const orgId = organization_id as string;
       const dashboardId = dashboard_id as string;
 
-      if (!orgId) {
-        console.log('Missing organization_id in request');
-        return res.status(400).json({ error: 'Organization ID is required' });
-      }
-
-      console.log(`Fetching chat sessions for org ${orgId}${dashboardId ? ` and dashboard ${dashboardId}` : ''}`);
-
       // Check if the user_id column exists in the chat_sessions table
       const hasUserIdColumn = await this.db.schema.hasColumn('chat_sessions', 'user_id');
       console.log('Existing chat_sessions.user_id column exists:', hasUserIdColumn);
@@ -517,12 +510,8 @@ export class ChatController {
       let query = this.db('chat_sessions')
         .where('organization_id', orgIdType === 'uuid' ? orgUuid : orgId);
       
-      // Always filter by dashboard_id when provided - this is crucial for isolation
       if (dashboardId) {
-        console.log(`Filtering sessions by dashboard_id: ${dashboardId}`);
         query = query.where('dashboard_id', dashboardId);
-      } else {
-        console.log('No dashboard_id provided, sessions for all dashboards will be returned');
       }
       
       // Only add the user_id condition if the column exists
@@ -538,15 +527,14 @@ export class ChatController {
       const sessions = await query
         .orderBy('updated_at', 'desc');
         
-      console.log(`Found ${sessions.length} chat sessions for this context`);
+      console.log(`Found ${sessions.length} chat sessions`);
       
       // Log the first session for debugging
       if (sessions.length > 0) {
         console.log('First session:', {
           id: sessions[0].id,
           title: sessions[0].title,
-          organization_id: sessions[0].organization_id,
-          dashboard_id: sessions[0].dashboard_id,
+          last_message: sessions[0].last_message,
           message_count: sessions[0].message_count,
           updated_at: sessions[0].updated_at
         });
@@ -590,25 +578,15 @@ export class ChatController {
         return res.status(400).json({ error: 'Invalid Organization ID' });
       }
 
-      // Build query conditions with required organization_id
-      const queryConditions: Record<string, any> = {
-        id: sessionId,
-        organization_id: orgIdValue
-      };
-
-      // Add dashboard_id to query conditions if provided
-      if (dashboard_id) {
-        queryConditions.dashboard_id = dashboard_id;
-        console.log(`Including dashboard_id ${dashboard_id} in session verification`);
-      }
-
-      // Verify the session belongs to the organization and dashboard (if specified)
+      // Verify the session belongs to the organization
       const session = await this.db('chat_sessions')
-        .where(queryConditions)
+        .where({
+          id: sessionId,
+          organization_id: orgIdValue
+        })
         .first();
 
       if (!session) {
-        console.log(`Session not found with conditions:`, queryConditions);
         return res.status(404).json({ error: 'Chat session not found' });
       }
 

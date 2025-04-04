@@ -23,24 +23,26 @@ export enum AnalyticalOperationType {
  * Types of visualizations that can be generated
  */
 export enum VisualizationType {
-  BAR_CHART = 'bar_chart',
-  LINE_CHART = 'line_chart',
-  PIE_CHART = 'pie_chart',
-  SCATTER_PLOT = 'scatter_plot',
-  HISTOGRAM = 'histogram',
+  BAR_CHART = 'bar',
+  LINE_CHART = 'line',
+  PIE_CHART = 'pie',
+  DONUT_CHART = 'donut',
+  AREA_CHART = 'area',
+  STACKED_BAR = 'stackedBar',
+  HORIZONTAL_BAR = 'horizontalBar',
+  ENHANCED_AREA = 'enhancedArea',
+  SCATTER_PLOT = 'scatter',
+  RADAR_CHART = 'radar',
+  SPIDER_CHART = 'radar', // Alias for RADAR_CHART
   HEATMAP = 'heatmap',
+  FUNNEL_CHART = 'funnel',
+  TREE_MAP = 'treemap',
+  SANKEY_DIAGRAM = 'sankey',
+  GEOSPATIAL_MAP = 'geospatial',
+  NETWORK_GRAPH = 'network',
   TABLE = 'table',
-  TREE_MAP = 'tree_map',
-  BUBBLE_CHART = 'bubble_chart',
-  RADAR_CHART = 'radar_chart',
-  FUNNEL_CHART = 'funnel_chart',
-  GAUGE_CHART = 'gauge_chart',
-  NETWORK_GRAPH = 'network_graph',
-  GEOSPATIAL_MAP = 'geospatial_map',
-  SANKEY_DIAGRAM = 'sankey_diagram',
-  SPIDER_CHART = 'spider_chart',
-  ANIMATED_CHART = 'animated_chart',
-  THREE_D_CHART = 'three_d_chart'
+  THREE_D_CHART = '3d',
+  ANIMATED_CHART = 'animated'
 }
 
 /**
@@ -294,14 +296,14 @@ export class AnalyticsProcessorService {
         'line chart': VisualizationType.LINE_CHART,
         'pie chart': VisualizationType.PIE_CHART,
         'scatter plot': VisualizationType.SCATTER_PLOT,
-        'histogram': VisualizationType.HISTOGRAM,
+        'histogram': VisualizationType.BAR_CHART,
         'heat map': VisualizationType.HEATMAP,
         'table': VisualizationType.TABLE,
         'treemap': VisualizationType.TREE_MAP,
-        'bubble chart': VisualizationType.BUBBLE_CHART,
+        'bubble chart': VisualizationType.PIE_CHART,
         'radar chart': VisualizationType.RADAR_CHART,
         'funnel chart': VisualizationType.FUNNEL_CHART,
-        'gauge chart': VisualizationType.GAUGE_CHART
+        'gauge chart': VisualizationType.PIE_CHART
       };
       
       // Try to find a matching visualization type
@@ -329,7 +331,7 @@ export class AnalyticsProcessorService {
     } else if (normalizedQuery.includes('scatter plot') || normalizedQuery.includes('scatter graph') || normalizedQuery.includes('correlation')) {
       return VisualizationType.SCATTER_PLOT;
     } else if (normalizedQuery.includes('histogram')) {
-      return VisualizationType.HISTOGRAM;
+      return VisualizationType.BAR_CHART;
     } else if (normalizedQuery.includes('heatmap') || normalizedQuery.includes('heat map')) {
       return VisualizationType.HEATMAP;
     } else if (normalizedQuery.includes('table')) {
@@ -337,13 +339,13 @@ export class AnalyticsProcessorService {
     } else if (normalizedQuery.includes('treemap') || normalizedQuery.includes('tree map')) {
       return VisualizationType.TREE_MAP;
     } else if (normalizedQuery.includes('bubble chart') || normalizedQuery.includes('bubble graph')) {
-      return VisualizationType.BUBBLE_CHART;
+      return VisualizationType.PIE_CHART;
     } else if (normalizedQuery.includes('radar chart') || normalizedQuery.includes('radar graph') || normalizedQuery.includes('spider chart')) {
       return VisualizationType.RADAR_CHART;
     } else if (normalizedQuery.includes('funnel chart') || normalizedQuery.includes('funnel graph')) {
       return VisualizationType.FUNNEL_CHART;
     } else if (normalizedQuery.includes('gauge chart') || normalizedQuery.includes('gauge graph')) {
-      return VisualizationType.GAUGE_CHART;
+      return VisualizationType.PIE_CHART;
     }
     
     // Determine based on operations and query type
@@ -360,7 +362,7 @@ export class AnalyticsProcessorService {
     } else if (queryAnalysis.temporalAspects.isTimeSeries) {
       return VisualizationType.LINE_CHART;
     } else if (queryAnalysis.queryType === QueryType.DISTRIBUTION) {
-      return VisualizationType.HISTOGRAM;
+      return VisualizationType.BAR_CHART;
     } else if (queryAnalysis.queryType === QueryType.CORRELATION) {
       return VisualizationType.SCATTER_PLOT;
     } else if (queryAnalysis.queryType === QueryType.SEGMENTATION) {
@@ -585,7 +587,7 @@ After completing all steps, provide a concise summary of the key insights and fi
   }
 
   /**
-   * Process data for statistical analysis
+   * Process data with statistics, handling large datasets with batch processing
    * @param data The data to process
    * @param operationType The type of operation to perform
    * @returns Processed data with statistical insights
@@ -602,15 +604,63 @@ After completing all steps, provide a concise summary of the key insights and fi
       return { processedData: [], insights: [] };
     }
 
-    // Clean data by removing outliers
-    const { cleanedData, outliers } = this.statisticalAnalysis.detectAndRemoveOutliers(data);
+    // Log size of the dataset
+    this.logger.info(`Processing ${data.length} records with operation type: ${operationType}`);
+
+    // Handle large datasets with batch processing for aggregation operations
+    if (operationType === AnalyticalOperationType.AGGREGATION && data.length > 1000) {
+      return this.processBatchedAggregation(data);
+    }
+
+    // Clean data by removing outliers for statistical analysis
+    // Skip outlier removal for aggregation operations - we want to include all data
+    const skipOutlierRemoval = [
+      AnalyticalOperationType.AGGREGATION,
+      AnalyticalOperationType.SUMMARY
+    ].includes(operationType);
     
-    let processedData: any[] = cleanedData;
+    let processedData: any[];
+    if (skipOutlierRemoval) {
+      processedData = data;
+    } else {
+      const { cleanedData } = this.statisticalAnalysis.detectAndRemoveOutliers(data);
+      processedData = cleanedData;
+    }
+    
+    this.logger.info(`Processed data contains ${processedData.length} records after cleaning`);
+    
     let insights: any[] = [];
     let visualizationConfig: Record<string, any> | undefined = undefined;
 
     // Process data based on operation type
     switch (operationType) {
+      case AnalyticalOperationType.AGGREGATION:
+        // For aggregation, we need to calculate sums and counts
+        const aggregatedResults = this.calculateAggregations(processedData);
+        
+        // Generate insights based on aggregations
+        insights = this.generateAggregationInsights(aggregatedResults);
+        
+        // Create visualization config based on aggregations
+        visualizationConfig = {
+          type: 'bar',
+          data: Object.entries(aggregatedResults.sums).map(([key, value]) => ({
+            category: key,
+            value
+          })),
+          xKey: 'category',
+          yKey: 'value',
+          title: 'Aggregation Results'
+        };
+        
+        // Set processed data to the aggregated results in flattened format
+        processedData = Object.entries(aggregatedResults.sums).map(([key, value]) => ({
+          category: key,
+          value,
+          count: aggregatedResults.counts[key] || 0
+        }));
+        break;
+        
       case AnalyticalOperationType.STATISTICAL:
         // Calculate basic statistics
         const stats = this.statisticalAnalysis.calculateBasicStats(processedData);
@@ -641,131 +691,10 @@ After completing all steps, provide a concise summary of the key insights and fi
         }
         break;
         
-      case AnalyticalOperationType.FORECASTING:
-        // Generate forecast
-        if (processedData.length >= 5) {
-          // Extract numeric values for forecasting
-          let timeSeriesData: number[] = [];
-          
-          if (Array.isArray(processedData) && typeof processedData[0] === 'number') {
-            // If data is already an array of numbers
-            timeSeriesData = processedData as number[];
-          } else if (Array.isArray(processedData) && typeof processedData[0] === 'object') {
-            // If data is an array of objects, extract the 'value' property or first numeric property
-            const firstItem = processedData[0];
-            if (firstItem && 'value' in firstItem && typeof firstItem.value === 'number') {
-              timeSeriesData = processedData.map(item => (item as any).value as number);
-            } else if (firstItem) {
-              // Find the first numeric property
-              const numericProp = Object.keys(firstItem).find(key => typeof firstItem[key] === 'number');
-              if (numericProp) {
-                timeSeriesData = processedData.map(item => (item as any)[numericProp] as number);
-              }
-            }
-          }
-          
-          if (timeSeriesData.length >= 5) {
-            const forecast = this.statisticalAnalysis.generateForecast(timeSeriesData);
-            
-            if (forecast) {
-              // Create forecast data points
-              const forecastPoints = forecast.forecastData.map((value, index) => ({
-                type: 'forecast',
-                value,
-                lowerBound: forecast.lowerBound[index],
-                upperBound: forecast.upperBound[index]
-              }));
-              
-              // Add forecast points to processed data
-              // Use type assertion to avoid type error
-              processedData = [...processedData, ...forecastPoints] as any[];
-              
-              insights.push({
-                id: uuidv4(),
-                type: 'forecast',
-                description: `Forecast generated with ${forecast.method} method. MAPE: ${forecast.mape ? (forecast.mape * 100).toFixed(2) + '%' : 'N/A'}`,
-                confidence: 0.8,
-                importance: 0.9,
-                relatedVariables: ['forecast']
-              });
-              
-              visualizationConfig = {
-                type: 'line',
-                data: processedData,
-                xKey: 'index',
-                yKey: 'value',
-                showConfidenceInterval: true
-              };
-            }
-          }
-        }
-        break;
-        
-      case AnalyticalOperationType.COMPARATIVE:
-        // Perform comparative analysis
-        if (processedData.length > 0 && typeof processedData[0] === 'object') {
-          // Extract numeric properties
-          const numericProps = Object.keys(processedData[0]).filter(key => 
-            typeof processedData[0][key] === 'number'
-          );
-          
-          // Create data map for each numeric property
-          const dataMap: Record<string, number[]> = {};
-          numericProps.forEach(prop => {
-            dataMap[prop] = processedData.map(item => item[prop]);
-          });
-          
-          // Calculate correlations between variables
-          for (let i = 0; i < numericProps.length; i++) {
-            for (let j = i + 1; j < numericProps.length; j++) {
-              const correlation = this.statisticalAnalysis.calculateCorrelation(
-                dataMap[numericProps[i]],
-                dataMap[numericProps[j]],
-                numericProps[i],
-                numericProps[j]
-              );
-              
-              if (correlation && correlation.isSignificant) {
-                insights.push({
-                  id: uuidv4(),
-                  type: 'correlation',
-                  description: `There is a ${correlation.coefficient > 0 ? 'positive' : 'negative'} correlation of ${correlation.coefficient.toFixed(2)} between ${correlation.variable1} and ${correlation.variable2} (p-value: ${correlation.pValue.toFixed(4)})`,
-                  confidence: 1 - correlation.pValue,
-                  importance: Math.abs(correlation.coefficient),
-                  relatedVariables: [correlation.variable1, correlation.variable2]
-                });
-              }
-            }
-          }
-          
-          visualizationConfig = {
-            type: 'bar',
-            data: processedData,
-            xKey: numericProps[0],
-            yKey: numericProps[1],
-            comparative: true
-          };
-        }
-        break;
-        
-      case AnalyticalOperationType.INSIGHTS:
-        // Generate insights from the data
-        if (processedData.length > 0 && typeof processedData[0] === 'object') {
-          // Extract numeric properties
-          const numericProps = Object.keys(processedData[0]).filter(key => 
-            typeof processedData[0][key] === 'number'
-          );
-          
-          // Create data map for each numeric property
-          const dataMap: Record<string, number[]> = {};
-          numericProps.forEach(prop => {
-            dataMap[prop] = processedData.map(item => item[prop]);
-          });
-          
-          // Generate statistical insights
-          insights = this.statisticalAnalysis.generateInsights(dataMap);
-        }
-        break;
+      // Handle other operation types...
+      default:
+        // Default insights from base data
+        insights = this.generateBasicInsights(processedData);
     }
 
     return {
@@ -773,6 +702,341 @@ After completing all steps, provide a concise summary of the key insights and fi
       insights,
       visualizationConfig
     };
+  }
+
+  /**
+   * Process data in batches for aggregation operations on large datasets
+   * @param data The full dataset to process
+   * @returns Processed aggregation results
+   */
+  private processBatchedAggregation(data: any[]): {
+    processedData: any[];
+    insights: any[];
+    visualizationConfig?: Record<string, any>;
+  } {
+    this.logger.info(`Processing large dataset with ${data.length} records using batch aggregation`);
+    
+    // Initialize aggregation results
+    const aggregatedResults = {
+      sums: {} as Record<string, number>,
+      counts: {} as Record<string, number>,
+      mins: {} as Record<string, number>,
+      maxes: {} as Record<string, number>
+    };
+    
+    // Process in batches to avoid memory issues
+    const batchSize = 1000;
+    const numBatches = Math.ceil(data.length / batchSize);
+    
+    this.logger.info(`Splitting into ${numBatches} batches of ${batchSize} records each`);
+    
+    // Process each batch
+    for (let i = 0; i < numBatches; i++) {
+      const batchStart = i * batchSize;
+      const batchEnd = Math.min(batchStart + batchSize, data.length);
+      const batch = data.slice(batchStart, batchEnd);
+      
+      this.logger.info(`Processing batch ${i + 1}/${numBatches} with ${batch.length} records`);
+      
+      // Calculate aggregations for this batch
+      const batchAggregations = this.calculateAggregations(batch);
+      
+      // Merge batch results into overall results
+      this.mergeAggregations(aggregatedResults, batchAggregations);
+    }
+    
+    // Generate insights based on the aggregated data
+    const insights = this.generateAggregationInsights(aggregatedResults);
+    
+    // Create visualization configuration
+    const visualizationConfig = {
+      type: 'bar',
+      data: Object.entries(aggregatedResults.sums).map(([key, value]) => ({
+        category: key,
+        value
+      })),
+      xKey: 'category',
+      yKey: 'value',
+      title: 'Aggregation Results'
+    };
+    
+    // Create processed data in the expected format
+    const processedData = Object.entries(aggregatedResults.sums).map(([key, value]) => ({
+      category: key,
+                value,
+      count: aggregatedResults.counts[key] || 0,
+      min: aggregatedResults.mins[key] || 0,
+      max: aggregatedResults.maxes[key] || 0
+    }));
+    
+    this.logger.info(`Aggregation complete, created ${processedData.length} result rows`);
+    
+    return {
+      processedData,
+      insights,
+      visualizationConfig
+    };
+  }
+
+  /**
+   * Calculate aggregations (sum, count, min, max) for a dataset
+   * @param data The data to aggregate
+   * @returns Aggregation results
+   */
+  private calculateAggregations(data: any[]): {
+    sums: Record<string, number>;
+    counts: Record<string, number>;
+    mins: Record<string, number>;
+    maxes: Record<string, number>;
+  } {
+    // Initialize result structure
+    const result = {
+      sums: {} as Record<string, number>,
+      counts: {} as Record<string, number>,
+      mins: {} as Record<string, number>,
+      maxes: {} as Record<string, number>
+    };
+    
+    if (!data || data.length === 0) {
+      return result;
+    }
+    
+    try {
+      // Identify potential grouping fields (categorical) and value fields (numeric)
+      const firstItem = data[0];
+      
+      const potentialGroupFields = Object.keys(firstItem).filter(key => 
+        typeof firstItem[key] === 'string' && 
+        !key.startsWith('_') &&
+        !/^(id|uuid|guid)$/i.test(key)
+      );
+      
+      const potentialValueFields = Object.keys(firstItem).filter(key => 
+        (typeof firstItem[key] === 'number' || 
+         (typeof firstItem[key] === 'string' && !isNaN(parseFloat(firstItem[key]))))
+      );
+      
+      this.logger.info(`Found ${potentialGroupFields.length} potential grouping fields and ${potentialValueFields.length} potential value fields`);
+      
+      // If we don't have both grouping and value fields, we can't perform aggregation
+      if (potentialGroupFields.length === 0 || potentialValueFields.length === 0) {
+        return result;
+      }
+      
+      // Select the most appropriate grouping field (prefer categorical with fewer unique values)
+      let bestGroupField = potentialGroupFields[0];
+      let lowestUniqueValues = Infinity;
+      
+      for (const field of potentialGroupFields) {
+        const uniqueValues = new Set(data.map(item => item[field])).size;
+        if (uniqueValues < lowestUniqueValues) {
+          lowestUniqueValues = uniqueValues;
+          bestGroupField = field;
+        }
+      }
+      
+      // Select the most appropriate value field (prefer price, cost, revenue fields)
+      let bestValueField = potentialValueFields[0];
+      const valueKeywords = ['price', 'cost', 'revenue', 'sales', 'amount', 'value', 'quantity', 'count'];
+      
+      for (const field of potentialValueFields) {
+        const fieldLower = field.toLowerCase();
+        for (const keyword of valueKeywords) {
+          if (fieldLower.includes(keyword)) {
+            bestValueField = field;
+        break;
+          }
+        }
+      }
+      
+      this.logger.info(`Selected grouping field: ${bestGroupField}, value field: ${bestValueField}`);
+      
+      // Process each record
+      for (const record of data) {
+        const groupValue = record[bestGroupField];
+        const numericValue = typeof record[bestValueField] === 'number' 
+          ? record[bestValueField] 
+          : parseFloat(record[bestValueField]);
+        
+        // Skip if we can't get a valid group or numeric value
+        if (!groupValue || isNaN(numericValue)) {
+          continue;
+        }
+        
+        // Initialize group if needed
+        if (!result.sums[groupValue]) {
+          result.sums[groupValue] = 0;
+          result.counts[groupValue] = 0;
+          result.mins[groupValue] = numericValue;
+          result.maxes[groupValue] = numericValue;
+        }
+        
+        // Update aggregations
+        result.sums[groupValue] += numericValue;
+        result.counts[groupValue]++;
+        result.mins[groupValue] = Math.min(result.mins[groupValue], numericValue);
+        result.maxes[groupValue] = Math.max(result.maxes[groupValue], numericValue);
+      }
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`Error calculating aggregations: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return result;
+    }
+  }
+
+  /**
+   * Merge batch aggregation results into the overall results
+   * @param target The target aggregation object to update
+   * @param source The source aggregation object to merge in
+   */
+  private mergeAggregations(
+    target: {
+      sums: Record<string, number>;
+      counts: Record<string, number>;
+      mins: Record<string, number>;
+      maxes: Record<string, number>;
+    },
+    source: {
+      sums: Record<string, number>;
+      counts: Record<string, number>;
+      mins: Record<string, number>;
+      maxes: Record<string, number>;
+    }
+  ): void {
+    // Merge sums and counts
+    for (const [key, value] of Object.entries(source.sums)) {
+      if (!target.sums[key]) {
+        target.sums[key] = 0;
+        target.counts[key] = 0;
+        target.mins[key] = Infinity;
+        target.maxes[key] = -Infinity;
+      }
+      
+      target.sums[key] += value;
+      target.counts[key] += source.counts[key] || 0;
+      
+      // Update min/max if needed
+      if (source.mins[key] !== undefined) {
+        target.mins[key] = Math.min(target.mins[key], source.mins[key]);
+      }
+      if (source.maxes[key] !== undefined) {
+        target.maxes[key] = Math.max(target.maxes[key], source.maxes[key]);
+      }
+    }
+  }
+
+  /**
+   * Generate insights based on aggregation results
+   * @param aggregatedResults The aggregation results
+   * @returns Array of insights
+   */
+  private generateAggregationInsights(aggregatedResults: {
+    sums: Record<string, number>;
+    counts: Record<string, number>;
+    mins?: Record<string, number>;
+    maxes?: Record<string, number>;
+  }): any[] {
+    const insights: any[] = [];
+    
+    try {
+      // Calculate the total sum across all categories
+      const totalSum = Object.values(aggregatedResults.sums).reduce((sum, value) => sum + value, 0);
+      const totalCount = Object.values(aggregatedResults.counts).reduce((sum, value) => sum + value, 0);
+      
+      insights.push({
+        id: uuidv4(),
+        type: 'total',
+        description: `Total sum: ${this.formatNumber(totalSum)}`,
+        importance: 1,
+        confidence: 1,
+        value: totalSum // Add the raw value for calculations
+      });
+      
+      insights.push({
+        id: uuidv4(),
+        type: 'count',
+        description: `Total records: ${totalCount}`,
+        importance: 0.9,
+        confidence: 1,
+        value: totalCount // Add the raw value for calculations
+      });
+      
+      // Calculate average
+      if (totalCount > 0) {
+        const average = totalSum / totalCount;
+                insights.push({
+                  id: uuidv4(),
+          type: 'average',
+          description: `Average value: ${this.formatNumber(average)}`,
+          importance: 0.8,
+          confidence: 1,
+          value: average // Add the raw value for calculations
+        });
+      }
+      
+      // Find highest and lowest categories
+      if (Object.keys(aggregatedResults.sums).length > 0) {
+        // Sort categories by sum
+        const sortedCategories = Object.entries(aggregatedResults.sums)
+          .sort((a, b) => b[1] - a[1]);
+          
+        const highest = sortedCategories[0];
+        const lowest = sortedCategories[sortedCategories.length - 1];
+        
+        if (highest) {
+          const highestPercentage = (highest[1] / totalSum * 100).toFixed(1);
+          insights.push({
+            id: uuidv4(),
+            type: 'highest',
+            description: `Highest total: ${highest[0]} (${this.formatNumber(highest[1])}, ${highestPercentage}% of total)`,
+            importance: 0.9,
+            confidence: 1,
+            value: highest[1], // Add the raw value for calculations
+            category: highest[0] // Add the category name
+          });
+        }
+        
+        if (lowest && lowest !== highest) {
+          const lowestPercentage = (lowest[1] / totalSum * 100).toFixed(1);
+          insights.push({
+            id: uuidv4(),
+            type: 'lowest',
+            description: `Lowest total: ${lowest[0]} (${this.formatNumber(lowest[1])}, ${lowestPercentage}% of total)`,
+            importance: 0.7,
+            confidence: 1,
+            value: lowest[1], // Add the raw value for calculations
+            category: lowest[0] // Add the category name
+          });
+        }
+      }
+      
+      return insights;
+    } catch (error) {
+      this.logger.error(`Error generating aggregation insights: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return [];
+    }
+  }
+
+  /**
+   * Format a number for display in insights
+   * @param value The number to format
+   * @returns Formatted string
+   */
+  private formatNumber(value: number): string {
+    try {
+      // Remove any spaces that might cause display issues like "$ 2, 0 0 0 0"
+      if (value >= 1000000) {
+        return `${(value / 1000000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}M`;
+      } else if (value >= 1000) {
+        return `${(value / 1000).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}K`;
+      } else {
+        return value.toLocaleString('en-US', {maximumFractionDigits: 2}).replace(/\s+/g, '');
+      }
+    } catch (error) {
+      // Fallback to simple formatting if there's an error
+      return value.toString();
+    }
   }
 
   /**
@@ -789,5 +1053,174 @@ After completing all steps, provide a concise summary of the key insights and fi
     const { cleanedData } = this.statisticalAnalysis.detectAndRemoveOutliers(data);
     
     return cleanedData;
+  }
+
+  /**
+   * Generate basic insights from data
+   * @param data The data to analyze
+   * @returns Array of basic insights
+   */
+  public generateBasicInsights(data: any[]): any[] {
+    const insights: any[] = [];
+    
+    try {
+      if (!data || data.length === 0) {
+        return insights;
+      }
+      
+      // Add insight about the data size
+      insights.push({
+        id: uuidv4(),
+        type: 'count',
+        description: `Analyzed ${data.length} records`,
+        importance: 0.5,
+        confidence: 1
+      });
+      
+      // Check if data has numeric properties for basic stats
+      if (typeof data[0] === 'object') {
+        // Find numeric properties with priority for sales, price, revenue, etc.
+        const numericProps = Object.keys(data[0])
+          .filter(key => 
+            typeof data[0][key] === 'number' || 
+            (typeof data[0][key] === 'string' && !isNaN(parseFloat(data[0][key])))
+          );
+        
+        // Sort numeric properties by priority - price/revenue/sales first
+        const priorityProps = numericProps.sort((a, b) => {
+          const aPriority = /price|cost|revenue|sales|amount|total/i.test(a) ? 0 : 1;
+          const bPriority = /price|cost|revenue|sales|amount|total/i.test(b) ? 0 : 1;
+          return aPriority - bPriority;
+        });
+        
+        // If we have numeric properties, add basic stats
+        if (priorityProps.length > 0) {
+          // Calculate basic stats for highest priority numeric property
+          const prop = priorityProps[0];
+          // Process data in batches to handle large datasets
+          const batchSize = 10000;
+          let sum = 0;
+          let count = 0;
+          let min = Infinity;
+          let max = -Infinity;
+          
+          // Process data in batches
+          for (let i = 0; i < data.length; i += batchSize) {
+            const batch = data.slice(i, Math.min(i + batchSize, data.length));
+            const values = batch
+              .map(item => {
+                // Clean and extract numeric value
+                let val = item[prop];
+                if (typeof val === 'string') {
+                  // Remove currency symbols, commas, etc.
+                  val = val.replace(/[$,€£¥]/g, '');
+                  val = parseFloat(val);
+                }
+                return typeof val === 'number' && !isNaN(val) ? val : null;
+              })
+              .filter(val => val !== null) as number[];
+            
+            if (values.length > 0) {
+              // Update totals
+              const batchSum = values.reduce((acc, val) => acc + val, 0);
+              sum += batchSum;
+              count += values.length;
+              min = Math.min(min, ...values);
+              max = Math.max(max, ...values);
+            }
+          }
+          
+          // Only add insights if we have valid data
+          if (count > 0) {
+            const avg = sum / count;
+            
+            // Add insights
+            insights.push({
+              id: uuidv4(),
+              type: 'sum',
+              description: `Total ${prop}: ${this.formatNumber(sum)}`,
+              importance: 0.9,
+              confidence: 1,
+              value: sum
+            });
+            
+            insights.push({
+              id: uuidv4(),
+              type: 'average',
+              description: `Average ${prop}: ${this.formatNumber(avg)}`,
+              importance: 0.7,
+              confidence: 1,
+              value: avg
+            });
+            
+            insights.push({
+              id: uuidv4(),
+              type: 'range',
+              description: `Range of ${prop}: ${this.formatNumber(min)} to ${this.formatNumber(max)}`,
+              importance: 0.6,
+              confidence: 1,
+              min: min,
+              max: max
+            });
+          }
+          
+          // Check if there are categorical properties to analyze
+          const categoricalProps = Object.keys(data[0]).filter(key => 
+            typeof data[0][key] === 'string' && 
+            !/^id$/i.test(key) && 
+            !numericProps.includes(key)
+          );
+          
+          if (categoricalProps.length > 0) {
+            // Find the most informative categorical property (one with reasonable number of distinct values)
+            let selectedProp = categoricalProps[0];
+            let bestDistinctCount = 0;
+            
+            for (const catProp of categoricalProps) {
+              // Sample the data to estimate distinct values
+              const sample = data.slice(0, Math.min(1000, data.length));
+              const distinctValues = new Set(sample.map(item => item[catProp])).size;
+              
+              // Good categorical properties have between 2 and 20 distinct values
+              if (distinctValues >= 2 && distinctValues <= 20 && distinctValues > bestDistinctCount) {
+                selectedProp = catProp;
+                bestDistinctCount = distinctValues;
+              }
+            }
+            
+            // Only add distribution insight if we found a good categorical property
+            if (bestDistinctCount >= 2) {
+              // Calculate distribution in batches
+              const distribution: Record<string, number> = {};
+              
+              for (let i = 0; i < data.length; i += batchSize) {
+                const batch = data.slice(i, Math.min(i + batchSize, data.length));
+                
+                for (const item of batch) {
+                  const value = String(item[selectedProp] || 'Unknown').trim();
+                  if (value) {
+                    distribution[value] = (distribution[value] || 0) + 1;
+                  }
+                }
+              }
+              
+              insights.push({
+                id: uuidv4(),
+                type: 'distribution',
+                description: `Distribution by ${selectedProp}`,
+                importance: 0.8,
+                confidence: 0.9,
+                distribution
+              });
+            }
+          }
+        }
+      }
+      
+      return insights;
+    } catch (error) {
+      this.logger.error(`Error generating basic insights: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return insights;
+    }
   }
 } 

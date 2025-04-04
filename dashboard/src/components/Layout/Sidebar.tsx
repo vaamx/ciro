@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Database, 
-  Brain, 
-  Workflow, 
   MessageSquare,
   HelpCircle,
   Building2,
-  ChevronRight
+  ChevronRight,
+  Briefcase,
+  Palette,
+  Lightbulb,
+  Wrench,
+  Phone
 } from 'lucide-react';
 import darkLogo from '../../styles/logos/darklogo.png';
 import lightLogo from '../../styles/logos/lightlogo.png';
@@ -21,48 +24,93 @@ interface SidebarProps {
   isMobile?: boolean;
 }
 
+// Define section headings for groups of navigation items
+const sectionHeadings = {
+  overview: "Overview",
+  toolsAnalytics: "Tools & Analytics",
+  communications: "Communications",
+  management: "Management"
+};
+
 const navItems = [
+  // Overview Section
   { 
-    name: 'Overview', 
+    name: 'Dashboard', 
     icon: LayoutDashboard, 
     section: 'overview', 
     path: '/overview', 
-    comingSoon: false
+    comingSoon: false,
+    group: 'overview'
   },
   { 
     name: 'Data Sources', 
     icon: Database, 
     section: 'data', 
     path: '/data-sources', 
-    comingSoon: false
+    comingSoon: false,
+    group: 'overview'
   },
   { 
-    name: 'Decisions', 
-    icon: Brain, 
-    section: 'decisions', 
-    path: '/decisions', 
-    comingSoon: true
+    name: 'Studio', 
+    icon: Briefcase, 
+    section: 'studio', 
+    path: '/studio', 
+    comingSoon: false,
+    group: 'overview'
   },
   { 
-    name: 'Automations', 
-    icon: Workflow, 
-    section: 'automations', 
-    path: '/automations', 
-    comingSoon: true
+    name: 'Gallery', 
+    icon: Palette, 
+    section: 'gallery', 
+    path: '/gallery', 
+    comingSoon: false,
+    group: 'overview'
+  },
+  
+  // Tools & Analytics Section
+  { 
+    name: 'Insights', 
+    icon: Lightbulb, 
+    section: 'insights', 
+    path: '/insights', 
+    comingSoon: false,
+    group: 'toolsAnalytics'
   },
   { 
-    name: 'Communications', 
+    name: 'Toolkit', 
+    icon: Wrench, 
+    section: 'toolkit', 
+    path: '/toolkit', 
+    comingSoon: false,
+    group: 'toolsAnalytics'
+  },
+  
+  // Communications Section
+  { 
+    name: 'Chatbot', 
     icon: MessageSquare, 
-    section: 'communications', 
-    path: '/communications', 
-    comingSoon: true
+    section: 'chatbot', 
+    path: '/communications/chatbot', 
+    comingSoon: true,
+    group: 'communications'
   },
+  { 
+    name: 'Voice', 
+    icon: Phone, 
+    section: 'voice', 
+    path: '/communications/voice', 
+    comingSoon: true,
+    group: 'communications'
+  },
+  
+  // Management Section
   { 
     name: 'Organizations', 
     icon: Building2, 
     section: 'organizations', 
     path: '/organizations', 
-    comingSoon: false
+    comingSoon: false,
+    group: 'management'
   }
 ];
 
@@ -85,6 +133,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // For mobile, sidebar should always be expanded when visible
   const sidebarWidth = isMobile ? 'w-72' : (isSidebarOpen ? 'w-64' : 'w-16');
+  
+  // Group navigation items by their group property
+  const groupedNavItems: Record<string, typeof navItems> = {};
+  navItems.forEach(item => {
+    if (!groupedNavItems[item.group]) {
+      groupedNavItems[item.group] = [];
+    }
+    groupedNavItems[item.group].push(item);
+  });
+  
+  // Get all unique groups in the order they appear in navItems
+  const groups = [...new Set(navItems.map(item => item.group))];
   
   return (
     <>
@@ -146,89 +206,108 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Navigation section */}
           <nav className="flex-1 pt-2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
             <div className="px-2 space-y-0.5">
-              {navItems.map((item) => (
-                <div key={item.section} className="relative group/item">
-                  {/* Tooltip - only show on desktop collapsed state */}
-                  {!isSidebarOpen && !isMobile && hoveredItem === item.section && (
-                    <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50">
-                      <div className="px-2 py-1">
-                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl dark:shadow-gray-900/50 p-3 
-                          border border-gray-100/50 dark:border-gray-700/50 backdrop-blur-lg
-                          animate-fade-in whitespace-nowrap">
-                          <div className="font-medium text-gray-900 dark:text-white mb-1">{item.name}</div>
-                          {item.comingSoon && (
-                            <div className="flex items-center mt-2 space-x-1.5">
-                              <div className="w-1.5 h-1.5 rounded-full bg-purple-500 dark:bg-purple-400 animate-pulse"></div>
-                              <span className="text-xs text-purple-600 dark:text-purple-400">Coming Soon</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+              {groups.map((group) => (
+                <div key={group} className="mb-3">
+                  {/* Section Header - only display when sidebar is open */}
+                  {(isSidebarOpen || isMobile) && (
+                    <div className="pl-3 pb-1 pt-3">
+                      <h3 className="text-xs uppercase font-medium text-gray-500 dark:text-gray-400">
+                        {sectionHeadings[group as keyof typeof sectionHeadings]}
+                      </h3>
                     </div>
                   )}
-
-                  {/* Navigation item */}
-                  <button
-                    onClick={() => handleNavigation(item)}
-                    onMouseEnter={() => setHoveredItem(item.section)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                    className={`
-                      w-full rounded-lg px-3 py-2.5
-                      transition-all duration-200 ease-in-out
-                      group relative
-                      cursor-pointer
-                      ${activeSection === item.section
-                        ? 'bg-gradient-to-r from-purple-50 to-purple-50/50 dark:from-purple-900/20 dark:to-purple-900/10 text-purple-600 dark:text-purple-400'
-                        : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400'
-                      }
-                      ${item.comingSoon 
-                        ? 'opacity-50 hover:opacity-75 cursor-not-allowed' 
-                        : 'hover:text-purple-600 dark:hover:text-purple-400'
-                      }
-                    `}
-                  >
-                    <div className="flex items-center min-w-0">
-                      {/* Icon */}
-                      <div className={`
-                        flex-shrink-0 
-                        transition-all duration-200
-                        rounded-lg p-1.5
-                        ${activeSection === item.section
-                          ? 'text-purple-600 dark:text-purple-400 bg-purple-100/50 dark:bg-purple-900/30'
-                          : 'text-gray-500 dark:text-gray-400 group-hover:text-purple-600 dark:group-hover:text-purple-400'
-                        }
-                      `}>
-                        <item.icon className="w-[18px] h-[18px]" />
-                      </div>
-
-                      {/* Text content */}
-                      {(isSidebarOpen || isMobile) && (
-                        <div className="ml-3 flex-1 overflow-hidden">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center min-w-0 flex-1">
-                              <span className="font-medium truncate text-sm">
-                                {item.name}
-                              </span>
+                  
+                  {/* Section Divider - only display when sidebar is collapsed */}
+                  {!isSidebarOpen && !isMobile && group !== groups[0] && (
+                    <div className="mx-2 my-3 border-t border-gray-100/50 dark:border-gray-800/50"></div>
+                  )}
+                  
+                  {/* Group Items */}
+                  {groupedNavItems[group].map((item) => (
+                    <div key={item.section} className="relative group/item">
+                      {/* Tooltip - only show on desktop collapsed state */}
+                      {!isSidebarOpen && !isMobile && hoveredItem === item.section && (
+                        <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50">
+                          <div className="px-2 py-1">
+                            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl dark:shadow-gray-900/50 p-3 
+                              border border-gray-100/50 dark:border-gray-700/50 backdrop-blur-lg
+                              animate-fade-in whitespace-nowrap">
+                              <div className="font-medium text-gray-900 dark:text-white mb-1">{item.name}</div>
                               {item.comingSoon && (
-                                <div className="ml-2 px-1.5 py-0.5 flex items-center space-x-1 bg-purple-50 dark:bg-purple-900/30 rounded-full ring-1 ring-purple-100/50 dark:ring-purple-800/50">
-                                  <div className="w-1 h-1 rounded-full bg-purple-500 dark:bg-purple-400 animate-pulse"></div>
-                                  <span className="text-[10px] font-medium text-purple-700 dark:text-purple-400 truncate">
-                                    Soon
-                                  </span>
+                                <div className="flex items-center mt-2 space-x-1.5">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500 dark:bg-purple-400 animate-pulse"></div>
+                                  <span className="text-xs text-purple-600 dark:text-purple-400">Coming Soon</span>
                                 </div>
                               )}
                             </div>
-                            <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 transition-all duration-200
-                              ${activeSection === item.section 
-                                ? 'opacity-100 text-purple-400' 
-                                : 'opacity-0 group-hover:opacity-100'
-                              }`} 
-                            />
                           </div>
                         </div>
                       )}
+
+                      {/* Navigation item */}
+                      <button
+                        onClick={() => handleNavigation(item)}
+                        onMouseEnter={() => setHoveredItem(item.section)}
+                        onMouseLeave={() => setHoveredItem(null)}
+                        className={`
+                          w-full rounded-lg px-3 py-2.5
+                          transition-all duration-200 ease-in-out
+                          group relative
+                          cursor-pointer
+                          ${activeSection === item.section
+                            ? 'bg-gradient-to-r from-purple-50 to-purple-50/50 dark:from-purple-900/20 dark:to-purple-900/10 text-purple-600 dark:text-purple-400'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-600 dark:text-gray-400'
+                          }
+                          ${item.comingSoon 
+                            ? 'opacity-50 hover:opacity-75 cursor-not-allowed' 
+                            : 'hover:text-purple-600 dark:hover:text-purple-400'
+                          }
+                        `}
+                      >
+                        <div className="flex items-center min-w-0">
+                          {/* Icon */}
+                          <div className={`
+                            flex-shrink-0 
+                            transition-all duration-200
+                            rounded-lg p-1.5
+                            ${activeSection === item.section
+                              ? 'text-purple-600 dark:text-purple-400 bg-purple-100/50 dark:bg-purple-900/30'
+                              : 'text-gray-500 dark:text-gray-400 group-hover:text-purple-600 dark:group-hover:text-purple-400'
+                            }
+                          `}>
+                            <item.icon className="w-[18px] h-[18px]" />
+                          </div>
+
+                          {/* Text content */}
+                          {(isSidebarOpen || isMobile) && (
+                            <div className="ml-3 flex-1 overflow-hidden">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center min-w-0 flex-1">
+                                  <span className="font-medium truncate text-sm">
+                                    {item.name}
+                                  </span>
+                                  {item.comingSoon && (
+                                    <div className="ml-2 px-1.5 py-0.5 flex items-center space-x-1 bg-purple-50 dark:bg-purple-900/30 rounded-full ring-1 ring-purple-100/50 dark:ring-purple-800/50">
+                                      <div className="w-1 h-1 rounded-full bg-purple-500 dark:bg-purple-400 animate-pulse"></div>
+                                      <span className="text-[10px] font-medium text-purple-700 dark:text-purple-400 truncate">
+                                        Soon
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 transition-all duration-200
+                                  ${activeSection === item.section 
+                                    ? 'opacity-100 text-purple-400' 
+                                    : 'opacity-0 group-hover:opacity-100'
+                                  }`} 
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </button>
                     </div>
-                  </button>
+                  ))}
                 </div>
               ))}
             </div>

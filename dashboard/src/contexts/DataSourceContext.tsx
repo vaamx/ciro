@@ -1,5 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
-import { buildApiUrl } from '../api-config';
+import { buildApiUrl } from './AuthContext';
 
 export interface DataSource {
   id: string;
@@ -19,7 +19,7 @@ class DataSourceApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = '/api/data-sources';
+    this.baseUrl = buildApiUrl('data-sources');
   }
 
   private getHeaders() {
@@ -31,8 +31,7 @@ class DataSourceApiService {
   }
 
   async getItems(organizationId: number): Promise<DataSource[]> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}?organization_id=${organizationId}`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}?organization_id=${organizationId}`, {
       headers: this.getHeaders(),
       credentials: 'include'
     });
@@ -45,8 +44,7 @@ class DataSourceApiService {
   }
 
   async createItem(dataSource: Partial<DataSource>): Promise<DataSource> {
-    const apiUrl = buildApiUrl(this.baseUrl);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(this.baseUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -61,8 +59,7 @@ class DataSourceApiService {
   }
 
   async updateItem(id: string, dataSource: Partial<DataSource>): Promise<DataSource> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}`, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -77,8 +74,7 @@ class DataSourceApiService {
   }
 
   async deleteItem(id: string): Promise<void> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
       credentials: 'include'
@@ -91,8 +87,7 @@ class DataSourceApiService {
 
   // Additional data source specific methods
   async testConnection(id: string): Promise<{ success: boolean; error?: string }> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/test`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}/test`, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include'
@@ -102,8 +97,7 @@ class DataSourceApiService {
   }
 
   async syncData(id: string): Promise<{ success: boolean; error?: string }> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/sync`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}/sync`, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include'

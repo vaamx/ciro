@@ -7,7 +7,8 @@ import {
   Moon,
   Sun,
   Shield,
-  Key
+  Key,
+  Loader2
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -28,7 +29,10 @@ export const UserMenu: React.FC<UserMenuProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { logout } = useAuth();
+  const { logout, isLoading } = useAuth();
+
+  // Handle missing, empty, or default user name
+  const displayName = user.name && user.name !== 'user' ? user.name : 'User';
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -70,7 +74,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
           )}
         </div>
         <div className="hidden sm:block text-left">
-          <p className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</p>
+          <p className="text-sm font-medium text-gray-900 dark:text-white">{displayName}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400">{user.role}</p>
         </div>
         <ChevronDown className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${
@@ -100,7 +104,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({
                 )}
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">{displayName}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">{user.role}</p>
                 <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">Manage your account</p>
               </div>
@@ -152,14 +156,20 @@ export const UserMenu: React.FC<UserMenuProps> = ({
           <div className="border-t border-gray-100 dark:border-gray-700/50 pt-2 mt-2">
             <button 
               onClick={handleSignOut}
+              disabled={isLoading}
               className="w-full px-4 py-2.5 flex items-center space-x-3 
                 text-red-600 dark:text-red-400 
                 hover:bg-red-50 dark:hover:bg-red-900/20 
                 active:bg-red-100 dark:active:bg-red-900/30
-                transition-colors"
+                transition-colors
+                disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <LogOut className="w-4 h-4" />
-              <span className="text-sm">Sign Out</span>
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <LogOut className="w-4 h-4" />
+              )}
+              <span className="text-sm">{isLoading ? 'Signing Out...' : 'Sign Out'}</span>
             </button>
           </div>
         </div>

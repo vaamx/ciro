@@ -330,7 +330,7 @@ export const UniversalStructuredResponseView: React.FC<UniversalStructuredRespon
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="text-xl font-medium text-gray-800 dark:text-gray-200">
-                      Analysis Steps
+                      Insights & Visualizations
                     </h2>
                     
                     {/* Use StepIndicator */}

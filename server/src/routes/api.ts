@@ -14,6 +14,8 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { Response } from '../types/express-types';
+import visualizationRoutes from './visualization.routes';
+import { VisualizationController } from '../controllers/visualization.controller';
 
 // Force Node to use the actual express module, not the type definition
 // @ts-ignore
@@ -41,6 +43,7 @@ const dataSourceController = new DataSourceController();
 const logger = createServiceLogger('ApiRoutes');
 const qdrantService = QdrantService.getInstance();
 const openAIService = OpenAIService.getInstance();
+const visualizationController = new VisualizationController();
 
 // Add clock data endpoint
 router.get('/qdrant/clock-data/:collection/:id', asyncHandler<AuthRequest>(async (req, res) => {
@@ -114,6 +117,15 @@ const wrapController = (fn: any): RequestHandler => {
     return fn(req, res);
   };
 };
+
+// Add visualization routes
+router.use('/visualizations', visualizationRoutes);
+
+// After the existing visualization routes
+// Add direct route for visualization generation (this route will work regardless of whether the module routes work)
+router.post('/visualizations/generate/:dataSourceId', authenticate, 
+  wrapController((req, res) => visualizationController.generateVisualization(req, res))
+);
 
 // Data Sources routes
 router.get('/data-sources', authenticate, dataSourceController.getDataSources as RequestHandler);

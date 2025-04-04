@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { createPortal } from 'react-dom';
 import type { Widget } from './WidgetManager';
-import type { MetricCard } from './StaticMetricsCards';
+import type { MetricCard } from '../../types/dashboard';
 
 interface DashboardModalProps {
   isOpen: boolean;

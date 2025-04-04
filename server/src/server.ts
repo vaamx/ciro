@@ -10,6 +10,8 @@ import { Server as HttpServer, createServer } from 'http';
 import { config } from './config';
 import appExpress from './app';
 import { SocketService } from './services/socket.service';
+import { WebSocketService } from './services/websocket.service';
+import { EventManager } from './services/event-manager';
 import http from 'http';
 import * as winston from 'winston';
 import { startScheduledTasks, stopScheduledTasks } from './scheduled-tasks';
@@ -56,13 +58,31 @@ const port = config.port;
 export default class Server {
   private httpServer: http.Server;
   private socketService: SocketService;
+  private webSocketService: WebSocketService;
+  private eventManager: EventManager;
 
   constructor() {
     this.httpServer = http.createServer(appExpress);
-    this.socketService = SocketService.getInstance();
     
-    // Initialize Socket.IO with the HTTP server
-    this.socketService.initialize(this.httpServer);
+    try {
+      // Initialize the EventManager first (to allow subscriptions)
+      this.eventManager = EventManager.getInstance();
+      logger.info('EventManager initialized');
+      
+      // Initialize Socket.IO with the HTTP server
+      this.socketService = SocketService.getInstance();
+      this.socketService.initialize(this.httpServer);
+      logger.info('Socket.IO service initialized');
+      
+      // Initialize WebSocket service with the HTTP server - will reuse SocketService's Socket.IO instance
+      this.webSocketService = new WebSocketService();
+      this.webSocketService.initialize(this.httpServer);
+      logger.info('WebSocket service initialized');
+      
+      logger.info('All socket services and event manager initialized successfully');
+    } catch (error) {
+      logger.error('Error initializing services:', error);
+    }
     
     // Handle server errors
     this.httpServer.on('error', (error) => {

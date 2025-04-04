@@ -9,6 +9,15 @@ const UPLOAD_DIR = 'uploads';
 const ORGANIZATIONS_DIR = 'organizations';
 const UPLOAD_PATH = path.join(UPLOAD_DIR, ORGANIZATIONS_DIR);
 
+// Simple in-memory cache for responses
+interface CacheItem {
+  data: any;
+  timestamp: number;
+}
+
+const cache: Record<string, CacheItem> = {};
+const CACHE_TTL = 60 * 1000; // 60 seconds 
+
 // Helper function to normalize paths
 const normalizePath = (filePath: string) => {
   // Remove leading slash and /files prefix if present
@@ -36,10 +45,42 @@ const getFilesystemPath = (relativePath: string) => {
   return path.join(UPLOAD_DIR, normalizePath(relativePath));
 };
 
+// Helper function to invalidate organization caches
+const invalidateOrganizationCache = (userId?: number, organizationId?: number | string) => {
+  const keys = Object.keys(cache);
+  
+  keys.forEach(key => {
+    // Invalidate user's organization cache
+    if (userId && key.startsWith(`organizations:${userId}`)) {
+      delete cache[key];
+    }
+
+    // Invalidate specific organization's team cache
+    if (organizationId && key.startsWith(`teams:${organizationId}`)) {
+      delete cache[key];
+    }
+    
+    // If no params provided, clear all organization-related caches
+    if (!userId && !organizationId && (key.startsWith('organizations:') || key.startsWith('teams:'))) {
+      delete cache[key];
+    }
+  });
+};
+
 export const organizationController = {
   // Get all organizations for the current user
   async getOrganizations(req: Request, res: Response) {
     try {
+      const userId = req.user!.id;
+      const cacheKey = `organizations:${userId}`;
+      
+      // Check if we have a fresh cached response
+      const cachedItem = cache[cacheKey];
+      if (cachedItem && (Date.now() - cachedItem.timestamp) < CACHE_TTL) {
+        console.log(`Returning cached organizations for user ${userId}`);
+        return res.json(cachedItem.data);
+      }
+      
       // Get organizations with member count in a single query
       const organizations = await db.raw(`
         SELECT 
@@ -50,7 +91,7 @@ export const organizationController = {
         WHERE om.user_id = ?
         GROUP BY o.id
         ORDER BY o.name ASC
-      `, [req.user!.id]);
+      `, [userId]);
 
       // Add the /files prefix to logo_url in the response
       const processedOrganizations = organizations.rows.map((org: any) => ({
@@ -58,6 +99,12 @@ export const organizationController = {
         logo_url: org.logo_url ? createClientUrl(org.logo_url) : null,
         member_count: parseInt(org.member_count)
       }));
+      
+      // Cache the response
+      cache[cacheKey] = {
+        data: processedOrganizations,
+        timestamp: Date.now()
+      };
 
       res.json(processedOrganizations);
     } catch (error) {
@@ -70,6 +117,7 @@ export const organizationController = {
   async createOrganization(req: Request, res: Response) {
     const { name, description } = req.body;
     const logoFile = req.file;
+    const userId = req.user!.id;
 
     if (!name) {
       return res.status(400).json({ error: 'Organization name is required' });
@@ -158,6 +206,9 @@ export const organizationController = {
         });
       }
 
+      // Invalidate the user's organization cache
+      invalidateOrganizationCache(userId);
+
       res.status(201).json(organization);
     } catch (error) {
       console.error('Error creating organization:', error);
@@ -170,6 +221,7 @@ export const organizationController = {
     const { id } = req.params;
     const { name, description } = req.body;
     const logoFile = req.file;
+    const userId = req.user!.id;
 
     try {
       // Check if user has admin rights
@@ -240,6 +292,9 @@ export const organizationController = {
         organization.logo_url = createClientUrl(organization.logo_url);
       }
 
+      // Invalidate both organization and team caches
+      invalidateOrganizationCache(userId, id);
+
       res.json(organization);
     } catch (error) {
       console.error('Error updating organization:', error);
@@ -250,6 +305,7 @@ export const organizationController = {
   // Delete an organization
   async deleteOrganization(req: Request, res: Response) {
     const { id } = req.params;
+    const userId = req.user!.id;
 
     try {
       // Check if user has admin rights
@@ -284,6 +340,9 @@ export const organizationController = {
         }
       });
 
+      // Invalidate both organization and team caches
+      invalidateOrganizationCache(userId, id);
+
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting organization:', error);
@@ -294,13 +353,23 @@ export const organizationController = {
   // Get organization teams
   async getOrganizationTeams(req: Request, res: Response) {
     const { organizationId } = req.params;
-
+    const userId = req.user!.id;
+    
     try {
+      const cacheKey = `teams:${organizationId}:${userId}`;
+      
+      // Check if we have a fresh cached response
+      const cachedItem = cache[cacheKey];
+      if (cachedItem && (Date.now() - cachedItem.timestamp) < CACHE_TTL) {
+        console.log(`Returning cached teams for organization ${organizationId} and user ${userId}`);
+        return res.json(cachedItem.data);
+      }
+    
       // Check if user is a member of the organization
       const member = await db('organization_members')
         .where({
           organization_id: organizationId,
-          user_id: req.user!.id,
+          user_id: userId,
         })
         .first();
 
@@ -311,6 +380,12 @@ export const organizationController = {
       const teams = await db('teams')
         .where('organization_id', organizationId)
         .select('*');
+        
+      // Cache the response
+      cache[cacheKey] = {
+        data: teams,
+        timestamp: Date.now()
+      };
 
       res.json(teams);
     } catch (error) {

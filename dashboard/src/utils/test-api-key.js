@@ -2,6 +2,8 @@
  * Utility functions for testing OpenAI API keys
  */
 
+import { buildApiUrl } from '../contexts/AuthContext';
+
 // Flag to track if we're using mock data due to missing API endpoints
 let useMockTests = false;
 
@@ -88,7 +90,7 @@ export async function testServerApiKey() {
   try {
     console.log('Testing server API key...');
     
-    const response = await fetch('/api/config/test-openai-key', {
+    const response = await fetch(buildApiUrl('config/test-openai-key'), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'

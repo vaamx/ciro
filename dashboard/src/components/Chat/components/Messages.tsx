@@ -86,7 +86,7 @@ export const Messages: React.FC<MessagesProps> = ({ messages, onCopyMessage, onR
   });
   
   return (
-    <div className="w-full space-y-4">
+    <div className="w-full space-y-3">
       {filteredMessages.map((message) => {
         if (message.role === 'assistant') {
           return (

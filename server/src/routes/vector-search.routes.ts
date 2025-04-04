@@ -98,16 +98,16 @@ router.post('/text-search', authenticate, async (req, res) => {
  */
 router.post('/search', authenticate, async (req, res) => {
   try {
-    const { collection_name, vector, filter, limit = 5 } = req.body;
+    const { collection_name, vector, filter, limit = 5, similarity_threshold = 0.2 } = req.body;
     
     if (!collection_name || !vector) {
       return res.status(400).json({ error: 'Collection name and vector are required' });
     }
     
-    logger.info(`Qdrant search request for collection: ${collection_name}, vector length: ${vector.length}, limit: ${limit}`);
+    logger.info(`Qdrant search request for collection: ${collection_name}, vector length: ${vector.length}, limit: ${limit}, threshold: ${similarity_threshold}`);
     
     // Perform the vector search
-    const results = await qdrantService.search(collection_name, vector, filter, limit);
+    const results = await qdrantService.search(collection_name, vector, filter, limit, similarity_threshold);
     
     // Format response to match expected format
     return res.json({

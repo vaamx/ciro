@@ -13,7 +13,8 @@ export type DataSourceType =
   | 'custom' 
   | 'crm-hubspot' 
   | 'warehouse' 
-  | 'snowflake';
+  | 'snowflake'
+  | 'qdrant';
 
 export type DataSourceStatus = 
   | 'connected' 
@@ -98,10 +99,27 @@ export interface SnowflakeDataSource extends BaseDataSource {
   };
 }
 
+// After SnowflakeDataSource interface, add QdrantDataSource interface
+export interface QdrantDataSource extends BaseDataSource {
+  type: 'qdrant';
+  metadata: {
+    collectionName: string;
+    dimensions?: number;
+    vectorType?: string;
+    recordCount?: number;
+    lastUpdated?: string;
+    status?: 'active' | 'indexing' | 'error';
+    records: number;
+    syncRate: number;
+    avgSyncTime: string;
+  };
+}
+
 // Union type of all data source types
 export type DataSource = 
   | LocalFileDataSource 
   | SnowflakeDataSource
+  | QdrantDataSource
   | (BaseDataSource & { metadata?: Record<string, any> }); // For other types
 
 // Type guard functions to check specific data source types
@@ -111,6 +129,11 @@ export function isLocalFileDataSource(dataSource: DataSource): dataSource is Loc
 
 export function isSnowflakeDataSource(dataSource: DataSource): dataSource is SnowflakeDataSource {
   return dataSource.type === 'snowflake';
+}
+
+// Add a type guard for QdrantDataSource
+export function isQdrantDataSource(dataSource: DataSource): dataSource is QdrantDataSource {
+  return dataSource.type === 'qdrant';
 }
 
 // Adapter function to ensure metadata has required metrics fields

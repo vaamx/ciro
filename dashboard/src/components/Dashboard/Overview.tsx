@@ -1,12 +1,10 @@
 import React from 'react';
 import { 
-  BarChart3, 
   Brain, 
   Workflow, 
   MessageSquare, 
   Database,
   ArrowUpRight,
-  Activity,
   Link,
   Cloud
 } from 'lucide-react';

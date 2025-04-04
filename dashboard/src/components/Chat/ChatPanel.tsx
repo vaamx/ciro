@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { type ChatSettings, type ChatUIConfig, type ChatMessage } from './types';
 import { Thread } from './components/Thread';
 import { useChat } from './providers/ChatProvider';
-import { useRag } from '../../hooks/useRag';
+// Remove unused import
+// import { useRag } from '../../hooks/useRag';
 import { KnowledgeSidebar } from '../knowledge/KnowledgeSidebar';
 import { useKnowledge } from '../../providers/KnowledgeProvider';
 import { apiService } from '../../services/api';
@@ -231,7 +232,8 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
     _emergency
   } = useChat();
 
-  const { queryDataSources } = useRag();
+  // Remove or comment out the unused queryDataSources
+  // const { queryDataSources } = useRag();
   const { activeSource, setActiveSource } = useKnowledge();
   const { isAuthenticated, user } = useAuth();
   const { currentOrganization } = useOrganization();
@@ -722,7 +724,8 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
         dataSourceType: dataSourceType,
         collectionName: collectionName,
         collectionId: activeSource.id,
-        useEnhancedVisualization: true
+        useEnhancedVisualization: true,
+        streamResponse: true // Enable streaming response mode
       };
       
       console.log('Data source type:', dataSourceType || 'unknown');
@@ -737,186 +740,77 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
         metadata: enhancedMetadata
       };
       
-      // Show typing indicator
+      // Generate unique ID for the assistant message
+      const assistantMessageId = `assistant-${Date.now()}`;
+      
+      // Show typing indicator with enhanced thinking process
       const typingMessage: ChatMessage = {
-        id: `typing-${Date.now()}`,
+        id: assistantMessageId,
         role: 'assistant',
         content: 'Thinking...',
         timestamp: Date.now(),
         status: 'loading',
         metadata: {
           ...enhancedMetadata,
-          isTyping: true
+          isTyping: true,
+          showThinking: true, // Enable thinking process visualization
+          useStreamingResponse: true // Use new streamed response mode
         }
       };
       
-      console.log('Sending message:', message);
-      console.log('Current messages:', messages);
-      
-      // Create a stable copy of current messages to avoid race conditions
-      let updatedMessages = [...(messages || []), userMessage];
-      
-      // Update emergency context to ensure they're displayed
+      // Add the user message to the messages array
+      const updatedMessages = [...messages, userMessage];
       _emergency.setMessages(updatedMessages);
       
-      console.log('Added user message, new messages state:', updatedMessages);
-      
-      // After a brief delay, add the typing indicator
+      // Add the typing message after a short delay
       setTimeout(() => {
-        updatedMessages = [...updatedMessages, typingMessage];
-        _emergency.setMessages(updatedMessages);
-        console.log('Added typing indicator, new messages state:', updatedMessages);
-      }, 300);
+        const messagesWithTyping = [...updatedMessages, typingMessage];
+        _emergency.setMessages(messagesWithTyping);
 
-      // Set a recovery timer to ensure thinking message eventually transitions to complete
-      // even if the backend fails to respond
-      const recoveryTimer = setTimeout(() => {
-        console.warn('Recovery timer triggered - checking if thinking message still exists');
+        // Set up a simple manual streaming effect
+        // This is a temporary solution until the backend supports real streaming
+        let streamedContent = '';
+        let streamCounter = 0;
+        const fullResponse = 'I\'m analyzing your data and preparing a response...';
         
-        // Get current messages from context
-        const currentMessages = messages;
-        
-        // Check if typing message still exists and is in loading state
-        const hasStuckTypingMessage = currentMessages.some(
-          msg => msg.id === typingMessage.id && msg.status === 'loading'
-        );
-        
-        if (hasStuckTypingMessage) {
-          console.warn('Found stuck typing message, forcing transition to complete state');
-        
-          // Replace the typing message with a recovery message
-          const recoveryMessage: ChatMessage = {
-            id: `recovery-${Date.now()}`,
-            role: 'assistant',
-            content: 'I found information related to your query in the PDF document. Please see below:',
-            timestamp: Date.now(),
-            status: 'complete' as const,
+        // Simulate streaming at character level
+        const streamInterval = setInterval(() => {
+          if (streamCounter < fullResponse.length) {
+            streamedContent += fullResponse.charAt(streamCounter);
+            streamCounter++;
+            
+            // Update the message with the current streamed content
+            const updatedTypingMessage: ChatMessage = {
+              ...typingMessage,
+              content: streamedContent,
             metadata: {
-              dataSourceId: activeSource?.id || 'unknown',
-              dataSourceName: activeSource?.name || 'unknown', 
-              dataSourceType: dataSourceType || 'unknown',
-              isRecoveryMessage: true,
-              recoveryType: 'timeout'
-            }
-          };
-        
-          // Filter out the typing message and add the recovery message
-          const recoveredMessages = currentMessages.filter(
-            msg => msg.id !== typingMessage.id
-          );
-          recoveredMessages.push(recoveryMessage);
+                ...typingMessage.metadata,
+                streamingContent: streamedContent,
+                partialResponse: true,
+                streamTimestamp: Date.now()
+              }
+            };
+            
+            // Find the typing message and update it
+            const updatedStreamingMessages = messagesWithTyping.map(msg => 
+              msg.id === assistantMessageId ? updatedTypingMessage : msg
+            );
         
           // Update the messages state
-          _emergency.setMessages(recoveredMessages);
+            _emergency.setMessages(updatedStreamingMessages);
+          } else {
+            // Once streaming is done, clear the interval
+            clearInterval(streamInterval);
         }
-      }, 30000); // 30 seconds timeout
+        }, 50); // Stream a character every 50ms for a natural effect
+      }, 300);
 
-      // Send user message to backend
-      try {
+      // Call the standard sendMessage function from the provider
         await sendMessage(message);
         
-        // Clean up recovery timeout once message is sent successfully
-        clearTimeout(recoveryTimer);
-        
-        return; // Successfully sent message
       } catch (error) {
-        console.error('Error sending message to chat:', error);
-        setError(`Error sending message: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        
-        // Remove typing indicator on error
-        const errorMessage: ChatMessage = {
-          id: `error-${Date.now()}`,
-          role: 'error',
-          content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          timestamp: Date.now(),
-          status: 'error',
-          metadata: {}
-        };
-        
-        const errorMessages = updatedMessages.filter(m => m.id !== typingMessage.id);
-        errorMessages.push(errorMessage);
-        _emergency.setMessages(errorMessages);
-        return;
-      }
-      
-      // Query data sources and get AI response
-      try {
-        const response = await queryDataSources(message);
-        if (!response) {
-          throw new Error('No response from data sources');
-        }
-        
-        // Check if the response contains a structured response
-        if (typeof response === 'object' && response.content && response.structuredResponse) {
-          console.log('Received structured response in ChatPanel:', response);
-          
-          // Ensure content is a string
-          let contentStr = response.content;
-          if (typeof contentStr !== 'string') {
-            contentStr = JSON.stringify(contentStr);
-          }
-          
-          // Send the complete response object to ensure the structuredResponse is included
-          const processedResponse = {
-            ...response,
-            content: contentStr
-          };
-          
-          await sendMessage(processedResponse, true);
-        } else {
-          // Create the assistant message
-          let responseContent = response;
-          
-          // Ensure content is a string
-          if (typeof responseContent !== 'string') {
-            console.warn('Received non-string response:', responseContent);
-            responseContent = JSON.stringify(responseContent);
-          }
-          
-          const assistantMessage: ChatMessage = {
-            id: `assistant-${Date.now()}`,
-            role: 'assistant',
-            content: responseContent,
-            timestamp: Date.now(),
-            status: 'complete',
-            metadata: {
-              ...response.metadata,
-              ...enhancedMetadata
-            }
-          };
-          
-          console.log('Creating assistant message:', assistantMessage);
-          
-          // Update messages list by replacing typing indicator with actual response
-          const assistantMessages = updatedMessages.filter(m => m.id !== typingMessage.id);
-          assistantMessages.push(assistantMessage);
-          _emergency.setMessages(assistantMessages);
-          
-          // Also send to backend to ensure it's saved
-          await sendMessage(responseContent, true);
-        }
-      } catch (error) {
-        const queryError = error as Error;
-        console.error('Error querying data sources:', queryError);
-        setError(`Error querying data sources: ${queryError instanceof Error ? queryError.message : 'Unknown error'}`);
-        
-        // Remove typing indicator and add error message
-        const errorMessage: ChatMessage = {
-          id: `error-${Date.now()}`,
-          role: 'error',
-          content: `Error: ${queryError instanceof Error ? queryError.message : 'Unknown error'}`,
-          timestamp: Date.now(),
-          status: 'error',
-          metadata: {}
-        };
-        
-        const errorMessages = updatedMessages.filter(m => m.id !== typingMessage.id);
-        errorMessages.push(errorMessage);
-        _emergency.setMessages(errorMessages);
-      }
-    } catch (err) {
-      console.error('Unhandled error in message sending:', err);
-      setError(`Something went wrong: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('Error sending message:', error);
+      setError(`Error processing your message: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

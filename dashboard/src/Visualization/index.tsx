@@ -2,39 +2,56 @@
  * Visualization module index
  * Exports all visualization components and utilities
  */
-import React, { lazy } from 'react';
-import { ChartProcessor } from './ChartProcessor';
-import { CHART_COLORS, DARK_CHART_COLORS, CHART_BORDER_COLORS } from './constants';
+import React, { lazy, Suspense } from 'react';
 
 // Set to true to enable detailed console logging for debugging
 const DEBUG_MODE = false;
 
-// Lazy-loaded visualization components for better performance
-const BarChart = lazy(() => import('./charts/BarChart'));
-const LineChart = lazy(() => import('./charts/LineChart'));
-const PieChart = lazy(() => import('./charts/PieChart'));
-const AreaChart = lazy(() => import('./charts/AreaChart'));
-const ScatterChart = lazy(() => import('./charts/ScatterChart'));
-const RadarChart = lazy(() => import('./charts/RadarChart'));
+// Import main chart components
+const BaseChart = lazy(() => import('./echarts').then(module => ({ default: module.BaseChart })));
+const BarChart = lazy(() => import('./echarts').then(module => ({ default: module.BarChart })));
+const StackedBarChart = lazy(() => import('./echarts').then(module => ({ default: module.StackedBarChart })));
+const HorizontalBarChart = lazy(() => import('./echarts').then(module => ({ default: module.HorizontalBarChart })));
+const LineChart = lazy(() => import('./echarts').then(module => ({ default: module.LineChart })));
+const AreaChart = lazy(() => import('./echarts').then(module => ({ default: module.AreaChart })));
+const EnhancedAreaChart = lazy(() => import('./echarts').then(module => ({ default: module.EnhancedAreaChart })));
+const PieChart = lazy(() => import('./echarts').then(module => ({ default: module.PieChart })));
+const DonutChart = lazy(() => import('./echarts').then(module => ({ default: module.DonutChart })));
 
-// Additional chart types
-const HeatmapChart = lazy(() => import('./charts/HeatmapChart'));
-const FunnelChart = lazy(() => import('./charts/FunnelChart'));
-const TreemapChart = lazy(() => import('./charts/TreemapChart'));
-const AnimatedChart = lazy(() => import('./charts/AnimatedChart'));
-const ThreeDChart = lazy(() => import('./charts/ThreeDChart'));
-const SankeyDiagram = lazy(() => import('./charts/SankeyDiagram'));
-const GeospatialMap = lazy(() => import('./charts/GeospatialMap'));
-const NetworkGraph = lazy(() => import('./charts/NetworkGraph'));
+// Import specialized charts - defaulting to BaseChart since these aren't fully implemented yet
+const RadarChart = lazy(() => import('./echarts/BaseChart'));
+const ScatterChart = lazy(() => import('./echarts/BaseChart'));  
+const HeatmapChart = lazy(() => import('./echarts/BaseChart'));
+const FunnelChart = lazy(() => import('./echarts/BaseChart'));
+const TreemapChart = lazy(() => import('./echarts/BaseChart'));
+const SankeyDiagram = lazy(() => import('./echarts/BaseChart'));
+const GeospatialMap = lazy(() => import('./echarts/BaseChart'));
+const NetworkGraph = lazy(() => import('./echarts/BaseChart'));
+
+// Initialize themes
+if (typeof document !== 'undefined') {
+  // Dynamically import and register themes at runtime
+  import('./echarts').then(module => {
+    if (module.registerThemes) {
+      module.registerThemes();
+    }
+  });
+}
 
 // Define mapping of type strings to normalized chart types
 const chartTypeMap: Record<string, string> = {
   // Basic chart types
   'bar': 'bar',
   'column': 'bar',
+  'stacked bar': 'stackedBar',
+  'stacked column': 'stackedBar',
+  'horizontal bar': 'horizontalBar',
   'line': 'line',
   'area': 'area',
+  'enhanced area': 'enhancedArea',
   'pie': 'pie',
+  'donut': 'donut',
+  'doughnut': 'donut',
   'scatter': 'scatter',
   'radar': 'radar',
   
@@ -46,11 +63,6 @@ const chartTypeMap: Record<string, string> = {
   'treemap': 'treemap',
   'tree map': 'treemap',
   'tree': 'treemap',
-  'animated': 'animated',
-  'animation': 'animated',
-  '3d': 'threeD',
-  'three dimensional': 'threeD',
-  'threeD': 'threeD',
   'sankey': 'sankey',
   'flow': 'sankey',
   'map': 'geospatial',
@@ -123,392 +135,136 @@ const Visualization = ({
   // Normalize the requested chart type
   const normalizedType = normalizeChartType(type);
   
-  // CRITICAL OVERRIDE: Force chart type based on URL parameters
-  // Check URL for chart type parameter
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlChartType = urlParams.get('chartType') || '';
-  const urlHasChartType = urlChartType !== '';
-  const urlHasPieChart = urlChartType === 'pie' || 
-                        urlParams.get('pieChart') === 'true' || 
-                        window.location.search.toLowerCase().includes('pie+chart');
-                      
-  // Check options for chart type override
-  const optionsHasChartType = options?.forceChartType !== undefined;
-  const optionsHasPieChart = options?.forceChartType === 'pie' || options?.isPieChart;
+  // Determine final chart type with all overrides applied
+  const effectiveType = determineEffectiveChartType(normalizedType, options);
   
-  // Check document title or last user query for chart type mentions
-  const documentTitle = document.title.toLowerCase();
-  const lastUserQuery = typeof window !== 'undefined' && 
-                      'LAST_USER_QUERY' in window ? 
-                      (window as any).LAST_USER_QUERY : '';
-  const lastUserQueryLower = (typeof lastUserQuery === 'string') ? lastUserQuery.toLowerCase() : '';
+  // Prepare chart data for visualization
+  const preparedData = prepareChartData(effectiveType, data, xKey, yKey);
   
-  // Check for pie chart specifically
-  const hasPieChartInContext = documentTitle.includes('pie chart') || 
-                              lastUserQueryLower.includes('pie chart');
-  
-  // Determine chart type from context for other charts
-  const detectChartTypeFromContext = (): string | null => {
-    const content = documentTitle + ' ' + lastUserQueryLower;
-    
-    for (const [term, chartType] of Object.entries(chartTypeMap)) {
-      if (content.includes(term)) {
-        if (DEBUG_MODE) {
-          console.log(`[CHART DEBUG] Detected "${term}" in context, mapped to chart type: "${chartType}"`);
-        }
-        return chartType;
-      }
-    }
-    
-    return null; // No match found
-  };
-  
-  const contextChartType = detectChartTypeFromContext();
-  
-  // Final determination: what chart type should we use?
-  const shouldForcePieChart = urlHasPieChart || optionsHasPieChart || hasPieChartInContext || normalizedType === 'pie';
-  
-  // Priority: Direct type specification overrides everything else
-  let effectiveType = normalizedType;
-  
-  let typeSource = "direct";
-  
-  // Apply different override sources with debug tracing
-  if (urlHasChartType) {
-    const urlNormalizedType = normalizeChartType(urlChartType);
-    if (DEBUG_MODE) {
-      console.log(`[CHART DEBUG] URL override: "${urlChartType}" -> "${urlNormalizedType}"`);
-    }
-    effectiveType = urlNormalizedType;
-    typeSource = "url";
-  } else if (optionsHasChartType) {
-    const optionsNormalizedType = normalizeChartType(options?.forceChartType);
-    if (DEBUG_MODE) {
-      console.log(`[CHART DEBUG] Options override: "${options?.forceChartType}" -> "${optionsNormalizedType}"`);
-    }
-    effectiveType = optionsNormalizedType;
-    typeSource = "options";
-  } else if (contextChartType) {
-    if (DEBUG_MODE) {
-      console.log(`[CHART DEBUG] Context override: detected "${contextChartType}"`);
-    }
-    effectiveType = contextChartType;
-    typeSource = "context";
-  }
-  
-  // Special case: force pie chart if the criteria is met
-  if (shouldForcePieChart && effectiveType !== 'pie') {
-    if (DEBUG_MODE) {
-      console.log(`[CHART DEBUG] Pie override: forcing pie chart (was "${effectiveType}")`);
-    }
-    effectiveType = 'pie';
-    typeSource = "pie-override";
-  }
-  
-  // Check local storage for debugging overrides
-  const storedChartType = localStorage.getItem('FORCE_CHART_TYPE');
-  if (storedChartType) {
-    const storedNormalizedType = normalizeChartType(storedChartType);
-    if (DEBUG_MODE) {
-      console.log(`[CHART DEBUG] localStorage override: "${storedChartType}" -> "${storedNormalizedType}"`);
-    }
-    effectiveType = storedNormalizedType;
-    typeSource = "localStorage";
-  }
-  
-  // Get the appropriate color palette based on theme
-  const colorPalette = theme === 'dark' ? DARK_CHART_COLORS : CHART_COLORS;
-  const borderColors = CHART_BORDER_COLORS;
-  
-  // Prepare sample data for charts that need special formatting
-  const prepareChartData = (chartType: string, inputData: any[]) => {
-    // Only process if we have data
-    if (!inputData || !Array.isArray(inputData) || inputData.length === 0) {
-      return inputData;
-    }
-    
-    // Special data preparation for different chart types
-    switch(chartType) {
-      case 'heatmap':
-        // Heatmap expects 2D array of values
-        if (!Array.isArray(inputData[0])) {
-          // Convert standard data to 2D array for heatmap
-          // Extract unique x and y categories for creating a grid
-          const xValues = [...new Set(inputData.map(d => d[xKey || 'x']))];
-          const yValues = [...new Set(inputData.map(d => d[yKey || 'y']))];
-          
-          // Create a grid with intensity values
-          return yValues.map(y => 
-            xValues.map(x => {
-              const match = inputData.find(d => d[xKey || 'x'] === x && d[yKey || 'y'] === y);
-              return match ? match['value'] || 0.5 : 0;
-            })
-          );
-        }
-        return inputData;
-        
-      case 'treemap':
-        // Treemap often expects hierarchical data
-        if (inputData[0] && !inputData[0].children) {
-          // Convert flat data to simple hierarchy
-          return [{
-            name: "Root",
-            children: inputData.map(item => ({
-              name: item[xKey || 'name'] || 'Unknown',
-              value: parseFloat(item[yKey || 'value']) || 1
-            }))
-          }];
-        }
-        return inputData;
-        
-      default:
-        return inputData;
-    }
-  };
-  
-  // Prepare chart options based on type
-  const getTypeSpecificOptions = (chartType: string) => {
-    switch(chartType) {
-      case 'pie':
-        return {
-          forceChartType: 'pie',
-          isPieChart: true,
-          useMultipleColors: true
-        };
-      case 'heatmap':
-        return {
-          useColorGradient: true,
-          showLegend: true,
-          title: 'Heatmap Visualization'
-        };
-      case 'treemap':
-        return {
-          hierarchical: true,
-          useColorGradient: true,
-          title: 'Treemap Visualization'
-        };
-      case 'network':
-        return {
-          interactive: true,
-          enableZoom: true,
-          title: 'Network Graph'
-        };
-      case 'geospatial':
-        return {
-          projection: 'mercator',
-          enableZoom: true,
-          title: 'Geospatial Map'
-        };
-      case 'funnel':
-        return {
-          invertedColors: false,
-          showPercentage: true,
-          title: 'Funnel Chart'
-        };
-      case 'sankey':
-        return {
-          nodeWidth: 20,
-          nodePadding: 10,
-          title: 'Sankey Diagram'
-        };
-      case 'threeD':
-        return {
-          rotationEnabled: true,
-          title: '3D Visualization'
-        };
-      default:
-        return {};
-    }
-  };
-  
-  // Process data based on chart type
-  const processedData = prepareChartData(effectiveType, data);
-  
-  // Override original options with type-specific settings
-  const effectiveOptions = {
-    // Base options with color support
-    colors: colorPalette,
-    borderColors: borderColors,
-    
-    // Core visualization options
-    useDirectColorAssignment: true,  // Enable by default for consistent coloring
-    animation: true,
-    maintainAspectRatio: false,
-    barPercentage: 0.8,
-    categoryPercentage: 0.7,
-    borderRadius: 4,
-    responsive: true,
-    
-    // Add axis labels if provided
-    xAxisLabel: labels?.xAxis || '',
-    yAxisLabel: labels?.yAxis || '',
-    
-    // Chart type (for components that need to know their type)
-    chartType: effectiveType,
-    
-    // User provided options override defaults
-    ...(options || {}),
-    
-    // Chart type specific options
-    ...getTypeSpecificOptions(effectiveType)
-  };
-  
-  // Log detailed visualization props for debugging
-  if (DEBUG_MODE) {
-    console.log('Visualization final props:', { 
-      type, 
-      normalizedType,
-      effectiveType,
-      typeSource,
-      data: processedData?.length ? `[${processedData.length} items]` : 'No data',
-      options: effectiveOptions,
-      chartType: effectiveOptions.chartType
-    });
-  }
-  
-  // Ensure we have a valid dataset and type
-  if (!processedData || processedData.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full w-full bg-gray-100 dark:bg-gray-800 rounded-md">
-        <p className="text-gray-500 dark:text-gray-400">No data available</p>
-      </div>
-    );
-  }
-
-  // Force set a chart type for testing or emergency override
-  // This function is exposed globally for debugging
-  const forceChartType = (chartType: string, value = true) => {
-    try {
-      if (value) {
-        localStorage.setItem('FORCE_CHART_TYPE', chartType);
-        console.log(`[CRITICAL DEBUG] Set FORCE_CHART_TYPE to ${chartType}`);
-      } else {
-        localStorage.removeItem('FORCE_CHART_TYPE');
-        console.log('[CRITICAL DEBUG] Removed FORCE_CHART_TYPE override');
-      }
-      // Force reload the page to apply the change
-      window.location.reload();
-    } catch (e) {
-      console.error('Failed to set force chart type:', e);
-    }
-  };
-  
-  // Backward compatibility for pie chart override
-  const forcePieChart = (value = true) => {
-    forceChartType('pie', value);
-  };
-  
-  // Expose the functions globally for debugging
-  if (typeof window !== 'undefined') {
-    (window as any).forceChartType = forceChartType;
-    (window as any).forcePieChart = forcePieChart;
-  }
-
-  // Prepare standard props for all chart types
-  const chartProps = {
-    data: processedData,
-    width,
-    height,
+  // Prepare chart options
+  const chartOptions = {
+    ...options,
+    theme,
     xKey,
     yKey,
     series,
-    labels,
-    options: effectiveOptions,
-    theme,
-    type: effectiveType
+    labels
   };
-
-  // Enhanced error handling for component rendering
-  const renderChartWithErrorHandling = (ChartComponent: React.LazyExoticComponent<React.FC<VisualizationProps>>) => {
-    try {
-      // Wrap in error boundary
-      return (
-        <React.Suspense fallback={
-          <div className="flex items-center justify-center h-full w-full bg-gray-100 dark:bg-gray-800 rounded-md">
-            <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading visualization...</div>
-          </div>
-        }>
-          <ChartErrorBoundary fallback={
-            <div className="flex flex-col items-center justify-center h-full w-full bg-red-50 dark:bg-red-900 rounded-md p-4">
-              <p className="text-red-500 dark:text-red-300 text-center mb-2">
-                Error rendering {effectiveType} chart
-              </p>
-              <details className="text-xs text-gray-500 dark:text-gray-400 max-w-full overflow-auto">
-                <summary>Debug Info</summary>
-                <pre className="whitespace-pre-wrap">
-                  Chart type: {effectiveType}
-                  Data sample: {JSON.stringify(processedData?.slice(0, 1), null, 2)}
-                </pre>
-              </details>
-            </div>
-          }>
-            <ChartComponent {...chartProps} />
-          </ChartErrorBoundary>
-        </React.Suspense>
-      );
-    } catch (error) {
-      console.error(`[CHART ERROR] Failed to render chart of type ${effectiveType}:`, error);
-      return (
-        <div className="flex flex-col items-center justify-center h-full w-full bg-red-50 dark:bg-red-900 rounded-md p-4">
-          <p className="text-red-500 dark:text-red-300 text-center mb-2">
-            Error rendering {effectiveType} chart: {String(error)}
-          </p>
-          <details className="text-xs text-gray-500 dark:text-gray-400">
-            <summary>Stack Trace</summary>
-            <pre className="whitespace-pre-wrap">
-              {error instanceof Error ? error.stack : 'No stack trace available'}
-            </pre>
-          </details>
-        </div>
-      );
-    }
-  };
-
-  // Render based on chart type with suspense for lazy loading
-  // Removed log: console.log(`[CRITICAL DEBUG] Rendering chart component for type: "${effectiveType}"`);
   
-  // Switch based on effective chart type
-  switch (effectiveType) {
-    case 'pie':
-      return renderChartWithErrorHandling(PieChart);
-    case 'line':
-      return renderChartWithErrorHandling(LineChart);
-    case 'area':
-      return renderChartWithErrorHandling(AreaChart);
-    case 'scatter':
-      return renderChartWithErrorHandling(ScatterChart);
-    case 'radar':
-      return renderChartWithErrorHandling(RadarChart);
-    case 'heatmap':
-      return renderChartWithErrorHandling(HeatmapChart);
-    case 'funnel':
-      return renderChartWithErrorHandling(FunnelChart);
-    case 'treemap':
-      return renderChartWithErrorHandling(TreemapChart);
-    case 'animated':
-      return renderChartWithErrorHandling(AnimatedChart);
-    case 'threeD':
-      return renderChartWithErrorHandling(ThreeDChart);
-    case 'sankey':
-      return renderChartWithErrorHandling(SankeyDiagram);
-    case 'geospatial':
-      return renderChartWithErrorHandling(GeospatialMap);
-    case 'network':
-      return renderChartWithErrorHandling(NetworkGraph);
+  // Main render function to show appropriate chart
+  return (
+    <Suspense fallback={<LoadingVisualization />}>
+      <ChartErrorBoundary fallback={<ErrorVisualization error="Failed to render chart" />}>
+        {renderChart(effectiveType, preparedData, width, height, chartOptions)}
+      </ChartErrorBoundary>
+    </Suspense>
+  );
+};
+
+// Helper to determine effective chart type with all overrides
+const determineEffectiveChartType = (normalizedType: string, options?: Record<string, any>): string => {
+  // Check URL for chart type parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlChartType = urlParams.get('chartType') || '';
+  
+  // Check options for chart type override
+  const optionsChartType = options?.forceChartType;
+  
+  // Priority: URL > Options > Direct specification
+  if (urlChartType) {
+    return normalizeChartType(urlChartType);
+  }
+  
+  if (optionsChartType) {
+    return normalizeChartType(optionsChartType);
+  }
+  
+  return normalizedType;
+};
+
+// Helper to prepare data for specific chart types
+const prepareChartData = (_chartType: string, data: any[], _xKey?: string, _yKey?: string) => {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return [];
+  }
+  
+  // Default transformations (return as-is for most charts)
+  return data;
+};
+
+// Loading component with improved styling
+const LoadingVisualization = () => (
+  <div className="flex items-center justify-center h-full text-center p-6 bg-gray-50 dark:bg-gray-800/30 rounded-lg animate-pulse">
+    <div className="flex flex-col items-center">
+      <div className="w-10 h-10 border-4 border-gray-200 dark:border-gray-700 border-t-blue-500 dark:border-t-blue-400 rounded-full animate-spin"></div>
+      <p className="mt-4 text-sm text-gray-600 dark:text-gray-300 font-medium">Loading visualization data...</p>
+    </div>
+  </div>
+);
+
+// Error component
+const ErrorVisualization = ({ error }: { error: string }) => (
+  <div className="flex flex-col h-full p-6 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 overflow-y-auto">
+    <div className="flex items-center mb-3">
+      <svg className="w-5 h-5 text-red-500 dark:text-red-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <circle cx="12" cy="12" r="10" strokeWidth="2" />
+        <path d="M12 8v4m0 4h.01" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+      <h3 className="text-base font-medium text-red-700 dark:text-red-300">Visualization Error</h3>
+    </div>
+    <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+  </div>
+);
+
+// Render the appropriate chart based on type
+const renderChart = (chartType: string, data: any[], width: string | number, height: string | number, options: any) => {
+  const commonProps = {
+    data,
+    width,
+    height,
+    ...options
+  };
+
+  switch (chartType) {
     case 'bar':
+      return <BarChart {...commonProps} />;
+    case 'stackedBar':
+      return <StackedBarChart {...commonProps} />;
+    case 'horizontalBar':
+      return <HorizontalBarChart {...commonProps} />;
+    case 'line':
+      return <LineChart {...commonProps} />;
+    case 'area':
+      return <AreaChart {...commonProps} />;
+    case 'enhancedArea':
+      return <EnhancedAreaChart {...commonProps} />;
+    case 'pie':
+      return <PieChart {...commonProps} />;
+    case 'donut':
+      return <DonutChart {...commonProps} />;
+    case 'scatter':
+      return <ScatterChart {...commonProps} />;
+    case 'radar':
+      return <RadarChart {...commonProps} />;
+    case 'heatmap':
+      return <HeatmapChart {...commonProps} />;
+    case 'funnel':
+      return <FunnelChart {...commonProps} />;
+    case 'treemap':
+      return <TreemapChart {...commonProps} />;
+    case 'sankey':
+      return <SankeyDiagram {...commonProps} />;
+    case 'geospatial':
+      return <GeospatialMap {...commonProps} />;
+    case 'network':
+      return <NetworkGraph {...commonProps} />;
     default:
-      return renderChartWithErrorHandling(BarChart);
+      // Fallback to BaseChart with specified type
+      return <BaseChart {...commonProps} type={chartType} />;
   }
 };
 
-// Export the ChartProcessor for data transformation
-export { ChartProcessor };
-
-// Export both as named and default export
-export { Visualization };
-export default Visualization;
-
-// Add ChartErrorBoundary component at the top of the file
+// Error boundary for chart rendering failures
 class ChartErrorBoundary extends React.Component<
   { children: React.ReactNode; fallback: React.ReactNode },
   { hasError: boolean; error: Error | null }
@@ -523,7 +279,7 @@ class ChartErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("[CHART ERROR] Chart component failed:", error, errorInfo);
+    console.error('Chart rendering error:', error, errorInfo);
   }
 
   render() {
@@ -532,4 +288,20 @@ class ChartErrorBoundary extends React.Component<
     }
     return this.props.children;
   }
-} 
+}
+
+// Export the main visualization component
+export { Visualization };
+
+// Export the ECharts components for direct use
+export { 
+  BaseChart, 
+  BarChart, 
+  StackedBarChart, 
+  HorizontalBarChart, 
+  LineChart, 
+  AreaChart,
+  EnhancedAreaChart, 
+  PieChart, 
+  DonutChart 
+}; 

@@ -78,59 +78,53 @@ export const UserMessage: React.FC<UserMessageProps> = ({
       case 'minimal':
         return `bg-transparent border-none px-1 py-1 shadow-none`;
       case 'classic':
-        return `bg-${accentColor}-100 dark:bg-${accentColor}-900/30 rounded-lg px-3 py-2 shadow-sm border border-${accentColor}-200 dark:border-${accentColor}-800/40`;
+        return `bg-${accentColor}-100 dark:bg-${accentColor}-900/30 rounded-lg px-2 py-2 shadow-sm border border-${accentColor}-200 dark:border-${accentColor}-800/40`;
       case 'modern':
       default:
-        return `bg-${accentColor}-50 dark:bg-${accentColor}-900/20 rounded-xl px-4 py-3 shadow-sm border border-${accentColor}-100 dark:border-${accentColor}-800/60`;
+        return `bg-${accentColor}-50 dark:bg-${accentColor}-900/20 rounded-xl px-3 py-3 shadow-sm border border-${accentColor}-100 dark:border-${accentColor}-800/60 backdrop-blur-[2px]`;
     }
   };
 
   const renderAvatar = () => {
     if (!showAvatar || !isFirstInGroup) return null;
     
-    return (
-      <div className={`flex-shrink-0 ${messageAlignment === 'right' ? 'ml-3 order-2' : 'mr-3 order-1'}`}>
-        <div className={`w-9 h-9 rounded-full bg-gradient-to-br from-${accentColor}-500 to-${accentColor === 'blue' ? 'indigo' : accentColor}-600 flex items-center justify-center text-white shadow-md ring-2 ring-${accentColor}-100 dark:ring-${accentColor}-900/30`}>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-            <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM3.751 20.105a8.25 8.25 0 0116.498 0 .75.75 0 01-.437.695A18.683 18.683 0 0112 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 01-.437-.695z" clipRule="evenodd" />
-          </svg>
-        </div>
-      </div>
-    );
-  };
-
-  const renderMessageContent = () => {
-    if (isEditing) {
-      return (
-        <div className={`bg-white dark:bg-gray-800 p-3 rounded-xl border border-${accentColor}-200 dark:border-${accentColor}-900/30 w-full`}>
-          <textarea
-            value={editedContent}
-            onChange={(e) => setEditedContent(e.target.value)}
-            className={`w-full p-2 bg-${accentColor}-50 dark:bg-${accentColor}-900/20 border border-${accentColor}-200 dark:border-${accentColor}-800/60 rounded-md focus:outline-none focus:ring-2 focus:ring-${accentColor}-500 dark:focus:ring-${accentColor}-600 resize-none ${isMobile ? 'text-base' : 'text-sm'}`}
-            rows={Math.max(3, editedContent.split('\n').length)}
-          />
-          <div className="flex justify-end space-x-2 mt-2">
-            <button
-              onClick={() => setIsEditing(false)}
-              className={`px-3 py-1 text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors ${isMobile ? 'text-base py-2 px-4' : ''}`}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleEditSubmit}
-              className={`px-3 py-1 text-sm text-white bg-${accentColor}-600 dark:bg-${accentColor}-700 rounded-md hover:bg-${accentColor}-700 dark:hover:bg-${accentColor}-600 transition-colors ${isMobile ? 'text-base py-2 px-4' : ''}`}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      );
+    // Moderately spaced avatar and message bubble
+    const avatarContainerClasses = messageAlignment === 'right' ? 'ml-2 order-2' : 'mr-2 order-1';
+    
+    // Enhanced color classes with more vibrant gradients
+    let bgColorClass = 'bg-blue-500';
+    let ringColorClass = 'ring-blue-100 dark:ring-blue-900/30';
+    
+    if (accentColor === 'blue') {
+      bgColorClass = 'bg-gradient-to-br from-blue-400 via-blue-500 to-indigo-600';
+    } else if (accentColor === 'green') {
+      bgColorClass = 'bg-gradient-to-br from-emerald-400 via-green-500 to-teal-600';
+      ringColorClass = 'ring-emerald-100 dark:ring-emerald-900/30';
+    } else if (accentColor === 'purple') {
+      bgColorClass = 'bg-gradient-to-br from-violet-400 via-purple-500 to-indigo-600';
+      ringColorClass = 'ring-violet-100 dark:ring-violet-900/30';
+    } else if (accentColor === 'red') {
+      bgColorClass = 'bg-gradient-to-br from-rose-400 via-red-500 to-orange-600';
+      ringColorClass = 'ring-rose-100 dark:ring-rose-900/30';
+    } else if (accentColor === 'yellow') {
+      bgColorClass = 'bg-gradient-to-br from-amber-400 via-yellow-500 to-orange-600';
+      ringColorClass = 'ring-amber-100 dark:ring-amber-900/30';
+    } else if (accentColor === 'pink') {
+      bgColorClass = 'bg-gradient-to-br from-pink-400 via-fuchsia-500 to-purple-600';
+      ringColorClass = 'ring-pink-100 dark:ring-pink-900/30';
     }
-
+    
     return (
-      <div className={getBubbleStyles()}>
-        <div className={`prose ${isMobile ? 'prose-base' : 'prose-sm'} dark:prose-invert max-w-none prose-p:leading-relaxed`}>
-          <MessageMarkdown content={message.content} />
+      <div className={`flex-shrink-0 ${avatarContainerClasses} flex items-center`}>
+        <div className={`w-10 h-10 rounded-full ${bgColorClass} flex items-center justify-center text-white shadow-lg ring-2 ${ringColorClass} overflow-hidden relative transition-all hover:scale-105 duration-300`}>
+          {/* Enhanced stylized avatar with more sophisticated effects */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-30"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-40 mix-blend-overlay"></div>
+          
+          {/* Light reflection effect */}
+          <div className="absolute top-0 left-1/4 w-1/2 h-1/3 bg-white/30 rounded-full blur-sm transform -translate-y-1/2"></div>
+          
+          <span className="text-base font-bold relative z-10 tracking-wider drop-shadow-sm">U</span>
         </div>
       </div>
     );
@@ -243,36 +237,80 @@ export const UserMessage: React.FC<UserMessageProps> = ({
   };
 
   return (
-    <motion.div
-      variants={messageVariants}
+    <motion.div 
+      className={`
+        relative group
+        flex flex-col
+        w-full
+        text-sm md:text-base
+        ${isFirstInGroup ? 'pt-1' : 'pt-0.5'}
+        ${isLastInGroup ? 'pb-1' : 'pb-0.5'}
+        ${isInGroup ? 'pl-3 border-l-2 border-gray-100 dark:border-gray-800' : ''}
+      `}
       initial="initial"
       animate="animate"
       exit="exit"
-      className={`group relative flex w-full max-w-full ${
-        isFirstInGroup ? 'mt-6' : 'mt-1'
-      } ${isLastInGroup ? 'mb-6' : 'mb-1'} ${
-        isInGroup ? 'pl-4 border-l-2 border-gray-100 dark:border-gray-800' : ''
-      }`}
+      variants={messageVariants}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
     >
-      <div className={`flex items-start w-full ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
-        {/* Avatar (right-aligned messages have avatar on the right) */}
-        {messageAlignment === 'left' && renderAvatar()}
-        
-        {/* Message content */}
-        <div className={`relative flex-1 ${isMobile ? 'max-w-[90%]' : 'max-w-[85%]'} ${messageAlignment === 'right' ? 'text-right' : 'text-left'} ${
-          messageAlignment === 'right' ? 'mr-2' : 'ml-2'
-        } ${!showAvatar || !isFirstInGroup ? (messageAlignment === 'right' ? 'mr-11' : 'ml-11') : ''}`}>
-          {renderMessageContent()}
-          {renderReactions()}
-          {renderMessageMetadata()}
-          {renderMessageActions()}
+      {isEditing ? (
+        <div className="flex flex-col space-y-2 mx-2">
+          <textarea
+            className="p-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 w-full resize-none"
+            value={editedContent}
+            onChange={(e) => setEditedContent(e.target.value)}
+            rows={Math.max(3, editedContent.split('\n').length)}
+            autoFocus
+          />
+          <div className="flex justify-end space-x-2">
+            <button
+              className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
+              onClick={() => setIsEditing(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className={`px-3 py-1 bg-${accentColor}-500 text-white rounded-md hover:bg-${accentColor}-600`}
+              onClick={handleEditSubmit}
+            >
+              Save
+            </button>
+          </div>
         </div>
-        
-        {/* Avatar (right-aligned messages have avatar on the right) */}
-        {messageAlignment === 'right' && renderAvatar()}
-      </div>
+      ) : (
+        <div className={`flex items-start space-x-2 w-full ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
+          {renderAvatar()}
+          
+          <div className={`relative flex-1 min-w-0 ${isMobile ? 'max-w-[95%]' : 'max-w-[95%]'} ${messageAlignment === 'right' ? 'ml-auto' : 'mr-auto'}`}>
+            <div className={`
+              flex items-center space-x-1 text-xs text-gray-500 dark:text-gray-400
+              ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}
+              ${!showAvatar ? 'pr-6' : ''}
+              ${isMobile ? 'text-sm' : ''}
+            `}>
+              {message.timestamp && showMetadata && (
+                <div className="flex items-center opacity-70">
+                  <ClockIcon className="h-3 w-3 mr-1" />
+                  <span>{formatTimestamp(message.timestamp)}</span>
+                </div>
+              )}
+              {showAvatar && (
+                <span className="font-medium">You</span>
+              )}
+            </div>
+            <div className={`transition-all duration-200 ${getBubbleStyles()} hover:shadow-md`}>
+              <div className={`prose ${isMobile ? 'prose-base' : 'prose-sm'} dark:prose-invert max-w-none prose-p:leading-relaxed`}>
+                <MessageMarkdown content={message.content} />
+              </div>
+            </div>
+            {renderReactions()}
+            {renderMessageMetadata()}
+            {renderMessageActions()}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }; 

@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with legacy-peer-deps flag
+# Install dependencies with legacy-peer-deps to resolve conflicts
 RUN npm install --legacy-peer-deps
 
 # Copy source code

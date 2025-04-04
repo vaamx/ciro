@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { removeAuthToken } from '../utils/authToken';
+import { emitUserLoggedOut } from '../services/events';
 
 // Use environment variable or fallback to relative path
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -51,85 +53,15 @@ interface AuthContextType {
   clearError: () => void;
   requestPasswordReset: (email: string) => Promise<void>;
   resetPassword: (token: string, password: string) => Promise<void>;
-  emitAuthError: (message: string) => void;
-  disableLoginPrompt: (seconds?: number) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Start with loading true to prevent flicker
   const [error, setError] = useState<string | null>(null);
-  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
-  const [loginPromptDisabled, setLoginPromptDisabled] = useState(false);
-
-  // Add use effect to check if login is needed on auth errors
-  useEffect(() => {
-    // Listen for auth errors from anywhere in the app
-    const handleAuthError = (event: CustomEvent) => {
-      console.log('Auth error detected:', event.detail);
-      
-      // Only show the login prompt if it's not disabled
-      if (!loginPromptDisabled) {
-        // Check the current path - only show login for sensitive areas
-        const path = window.location.pathname.toLowerCase();
-        // List of paths that require authentication
-        const authRequiredPaths = [
-          '/dashboards',
-          '/organizations',
-          '/settings',
-          '/analytics',
-          '/admin'
-        ];
-        
-        // Check if we're on a path that requires authentication
-        const requiresAuth = authRequiredPaths.some(authPath => 
-          path.includes(authPath) || path === '/'
-        );
-        
-        if (requiresAuth) {
-          setShowLoginPrompt(true);
-        } else {
-          // For non-critical paths, just log the error without showing the prompt
-          console.warn('Authentication issue on non-critical path. Login prompt suppressed.');
-        }
-      } else {
-        console.log('Login prompt disabled, suppressing auth error UI');
-      }
-    };
-
-    // Create custom event listener
-    window.addEventListener('auth:error' as any, handleAuthError);
-
-    return () => {
-      window.removeEventListener('auth:error' as any, handleAuthError);
-    };
-  }, [loginPromptDisabled]);
-
-  // Add a function to emit auth errors from anywhere
-  const emitAuthError = useCallback((message: string) => {
-    const event = new CustomEvent('auth:error', { 
-      detail: { message } 
-    });
-    window.dispatchEvent(event);
-  }, []);
-
-  // Add a function to temporarily disable the login prompt
-  const disableLoginPrompt = useCallback((seconds: number = 60) => {
-    setLoginPromptDisabled(true);
-    // Re-enable after specified seconds
-    setTimeout(() => {
-      setLoginPromptDisabled(false);
-    }, seconds * 1000);
-  }, []);
-
-  // Expose the emitAuthError function
-  useEffect(() => {
-    (window as any).emitAuthError = emitAuthError;
-    // Also expose the disable function
-    (window as any).disableLoginPrompt = disableLoginPrompt;
-  }, [emitAuthError, disableLoginPrompt]);
+  const [sessionState, setSessionState] = useState<'initializing' | 'restoring' | 'authenticated' | 'unauthenticated'>('initializing');
 
   const clearError = useCallback(() => {
     setError(null);
@@ -173,19 +105,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('No authentication token received');
       }
 
-      // Save the auth token in both localStorage and sessionStorage for redundancy
+      // Save the auth token
       localStorage.setItem('auth_token', data.token);
-      // Also store in sessionStorage as a backup
-      try {
-        sessionStorage.setItem('auth_token', data.token);
-      } catch (e) {
-        console.warn('Could not save token to sessionStorage:', e);
-      }
-      
-      // Store the login timestamp
-      localStorage.setItem('auth_timestamp', Date.now().toString());
-      
-      console.log('Token saved to storage:', data.token.substring(0, 10) + '...');
+      console.log('Token saved to localStorage:', data.token.substring(0, 10) + '...');
       
       if (!data.user) {
         throw new Error('No user data received');
@@ -193,11 +115,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(data.user);
       console.log('User set in AuthContext:', data.user);
+      
+      // Dispatch an auth event to notify other components
+      const authEvent = new CustomEvent('auth-state-changed', { 
+        detail: { authenticated: true, user: data.user } 
+      });
+      window.dispatchEvent(authEvent);
+      
+      // Set session state explicitly
+      setSessionState('authenticated');
     } catch (err) {
       console.error('Login error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred during login');
       localStorage.removeItem('auth_token');
-      sessionStorage.removeItem('auth_token');
       setUser(null);
       throw err;
     } finally {
@@ -209,126 +139,164 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     let intervalId: number;
     let retryCount = 0;
+    let sessionCheckInProgress = false;
     const maxRetries = 3;
     
+    // Add debug helper
+    if (typeof window !== 'undefined') {
+      // @ts-ignore
+      window.checkAuthStatus = () => {
+        const token = localStorage.getItem('auth_token');
+        console.log('Current auth status:', {
+          token: token ? `${token.substring(0, 10)}...` : 'none',
+          user,
+          isAuthenticated: sessionState === 'authenticated',
+          sessionState
+        });
+        return {
+          hasToken: !!token,
+          hasUser: !!user,
+          isAuthenticated: sessionState === 'authenticated',
+          sessionState
+        };
+      };
+    }
+
     const restoreSession = async () => {
+      if (sessionCheckInProgress) return;
+      sessionCheckInProgress = true;
+
       try {
-        // Check localStorage first
-        let token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('auth_token');
         
-        // If token not in localStorage, try sessionStorage as backup
         if (!token) {
-          const sessionToken = sessionStorage.getItem('auth_token');
-          if (sessionToken) {
-            console.log('Restoring token from sessionStorage');
-            token = sessionToken;
-            // Sync back to localStorage
-            localStorage.setItem('auth_token', sessionToken);
+          if (mounted) {
+            console.log('No token found, user is not authenticated');
+            setUser(null);
+            setSessionState('unauthenticated');
+            setIsLoading(false);
           }
-        }
-        
-        if (!token && mounted) {
-          console.log('No token found in storage, user is not authenticated');
-          setUser(null);
+          sessionCheckInProgress = false;
           return;
         }
-        
-        // Check token age - if over 23 hours, force a refresh
-        const tokenTimestamp = localStorage.getItem('auth_timestamp');
-        const tokenAge = tokenTimestamp ? Date.now() - parseInt(tokenTimestamp) : 0;
-        const maxTokenAge = 23 * 60 * 60 * 1000; // 23 hours in milliseconds
-        
-        if (tokenAge > maxTokenAge) {
-          console.log('Token is aging (over 23 hours old), requesting fresh token');
+
+        if (mounted) {
+          setSessionState('restoring');
         }
 
-        console.log('Attempting to restore session with token:', token?.substring(0, 10) + '...');
+        console.log('Attempting to restore session with token:', token.substring(0, 10) + '...');
+        
+        // Create a timeout for the fetch request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
         const response = await fetch(buildApiUrl('auth/me'), {
           method: 'GET',
-          credentials: 'include', // This ensures cookies are sent
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
-          }
+          },
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-          // Handle specific status codes
-          console.warn(`Session restoration returned status: ${response.status}`);
-          
           if (response.status === 401 && retryCount < maxRetries) {
             retryCount++;
             // Wait before retrying (exponential backoff)
-            const backoffTime = 1000 * Math.pow(2, retryCount);
-            console.log(`Auth token verification failed, retrying in ${backoffTime}ms (attempt ${retryCount}/${maxRetries})`);
-            await new Promise(resolve => setTimeout(resolve, backoffTime));
+            const delay = 1000 * Math.pow(2, retryCount);
+            console.log(`Session restoration failed (attempt ${retryCount}/${maxRetries}), retrying in ${delay}ms`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            sessionCheckInProgress = false;
             return restoreSession();
           }
-          
-          // If we got here, we've exhausted retries or got a non-401 error
-          if (retryCount >= maxRetries) {
-            console.error(`Failed to restore session after ${maxRetries} attempts`);
-          } else {
-            console.error(`Session restoration failed with status ${response.status}`);
-          }
-          
-          throw new Error('Session expired');
+          throw new Error(`Session expired or invalid (status: ${response.status})`);
         }
 
         const data = await response.json();
         
         if (!data || !data.id) {
-          console.error('Invalid user data received:', data);
           throw new Error('Invalid user data received');
         }
 
         // Update token if a new one was provided in the Authorization header
         const newToken = response.headers.get('Authorization')?.split(' ')[1];
         if (newToken && mounted) {
-          console.log('Received new token from server, updating storage');
+          console.log('Updating token in localStorage');
           localStorage.setItem('auth_token', newToken);
-          localStorage.setItem('auth_timestamp', Date.now().toString());
-          
-          // Keep sessionStorage in sync
-          try {
-            sessionStorage.setItem('auth_token', newToken);
-          } catch (e) {
-            console.warn('Could not update sessionStorage with new token:', e);
-          }
         }
 
         if (mounted) {
-          console.log('Session restored successfully, user data:', data.id);
+          console.log('Session restored successfully, user data:', data);
           setUser(data);
+          console.log('User set in AuthContext:', data);
+          
+          // Dispatch an auth event to notify other components
+          const authEvent = new CustomEvent('auth-state-changed', { 
+            detail: { authenticated: true, user: data } 
+          });
+          window.dispatchEvent(authEvent);
+          
+          // Set session state explicitly
+          setSessionState('authenticated');
           retryCount = 0; // Reset retry count on success
         }
       } catch (error) {
         console.error('Session restoration failed:', error);
         if (mounted) {
-          if (retryCount >= maxRetries) {
-            console.log('Max retries exceeded, clearing authentication');
+          if (retryCount >= maxRetries || (error instanceof Error && error.name === 'AbortError')) {
+            console.warn('Maximum retries exceeded or request timed out, logging out');
             localStorage.removeItem('auth_token');
-            sessionStorage.removeItem('auth_token');
-            localStorage.removeItem('auth_timestamp');
             setUser(null);
+            setSessionState('unauthenticated');
+          } else {
+            retryCount++;
+            // Wait before retrying (exponential backoff)
+            const delay = 1000 * Math.pow(2, retryCount);
+            console.log(`Session restoration failed (attempt ${retryCount}/${maxRetries}), retrying in ${delay}ms`);
+            setTimeout(restoreSession, delay);
           }
+        }
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+          sessionCheckInProgress = false;
         }
       }
     };
 
-    // Initial session restore
+    // Call the restore session function immediately
     restoreSession();
 
-    // Set up periodic session verification (every 5 minutes)
-    intervalId = window.setInterval(() => {
-      restoreSession();
-    }, 5 * 60 * 1000);
+    // Set up a periodic session check (every 15 minutes)
+    intervalId = window.setInterval(restoreSession, 15 * 60 * 1000);
+
+    // Listen for storage events to handle login/logout across tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'auth_token') {
+        if (!e.newValue) {
+          // Token was removed in another tab
+          if (mounted) {
+            console.log('Auth token removed in another tab, logging out');
+            setUser(null);
+            setSessionState('unauthenticated');
+          }
+        } else if (e.oldValue !== e.newValue) {
+          // Token changed in another tab
+          console.log('Auth token changed in another tab, restoring session');
+          restoreSession();
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
       mounted = false;
-      if (intervalId) {
-        window.clearInterval(intervalId);
-      }
+      clearInterval(intervalId);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -366,8 +334,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
 
     try {
-      // Log the fact that we're logging out
-      console.log('Logging out user...');
+      // Emit the logged out event before removing the token
+      // This allows other components to clean up their state
+      emitUserLoggedOut();
       
       await fetch(buildApiUrl('auth/logout'), {
         method: 'POST',
@@ -380,23 +349,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear token from all storages
-      console.log('Clearing authentication tokens');
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_timestamp');
-      sessionStorage.removeItem('auth_token');
-      
-      // Clear user state
+      // Clear the token using the utility function
+      removeAuthToken();
       setUser(null);
-      
-      // Clear cookies (as a fallback in case server response doesn't)
-      document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-      
-      // Reload the application to clear all states
-      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
-        console.log('Redirecting to home page after logout');
-        window.location.href = '/';
-      }
+      setIsLoading(false); // Reset loading state regardless of success or failure
     }
   }, []);
 
@@ -452,122 +408,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Create a LoginPrompt component
-  const LoginPrompt = () => {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [loginError, setLoginError] = useState<string | null>(null);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setIsSubmitting(true);
-      setLoginError(null);
-
-      try {
-        await login(email, password);
-        setShowLoginPrompt(false);
-      } catch (err) {
-        setLoginError(err instanceof Error ? err.message : 'Login failed');
-      } finally {
-        setIsSubmitting(false);
-      }
-    };
-
-    return showLoginPrompt ? (
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000
-      }}>
-        <div style={{
-          backgroundColor: 'white',
-          padding: '2rem',
-          borderRadius: '8px',
-          maxWidth: '400px',
-          width: '100%'
-        }}>
-          <h2 style={{ marginTop: 0 }}>Authentication Required</h2>
-          <p>Please log in to continue using the application.</p>
-          
-          {loginError && (
-            <div style={{ color: 'red', marginBottom: '1rem' }}>
-              {loginError}
-            </div>
-          )}
-          
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Email</label>
-              <input 
-                type="email" 
-                value={email} 
-                onChange={(e) => setEmail(e.target.value)} 
-                style={{ width: '100%', padding: '0.5rem' }}
-                required
-              />
-            </div>
-            
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem' }}>Password</label>
-              <input 
-                type="password" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                style={{ width: '100%', padding: '0.5rem' }}
-                required
-              />
-            </div>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <button 
-                type="button" 
-                onClick={() => setShowLoginPrompt(false)}
-                style={{ padding: '0.5rem 1rem' }}
-              >
-                Cancel
-              </button>
-              <button 
-                type="submit" 
-                disabled={isSubmitting}
-                style={{ padding: '0.5rem 1rem', backgroundColor: '#4CAF50', color: 'white', border: 'none' }}
-              >
-                {isSubmitting ? 'Logging in...' : 'Login'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    ) : null;
-  };
+  const isAuthenticated = sessionState === 'authenticated';
 
   const value = {
     user,
     setUser,
     isLoading,
     error,
-    isAuthenticated: !!user,
+    isAuthenticated,
     login,
     signup,
     logout,
     clearError,
     requestPasswordReset,
-    resetPassword,
-    emitAuthError,
-    disableLoginPrompt
+    resetPassword
   };
 
   return (
     <AuthContext.Provider value={value}>
       {children}
-      {showLoginPrompt && !loginPromptDisabled && <LoginPrompt />}
     </AuthContext.Provider>
   );
 }

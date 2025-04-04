@@ -13,6 +13,7 @@ import {
 import { TableVisualization } from './TableVisualization';
 import { DocumentRenderer } from './DocumentRenderer';
 import { VisualizationAdapter } from './VisualizationAdapter';
+import { ThinkingProcess, ThinkingStep } from './ThinkingProcess';
 // Removing unused imports
 // import ReactMarkdown from 'react-markdown';
 // import remarkGfm from 'remark-gfm';
@@ -56,22 +57,6 @@ interface AssistantMessageProps {
   isInGroup?: boolean;
   isMobile?: boolean;
 }
-
-// Component to display thinking process with better animation and styling
-interface ThinkingDisplayProps {
-  content: string;
-}
-
-const ThinkingDisplay: React.FC<ThinkingDisplayProps> = ({ content }) => {
-  return (
-    <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 mb-4">
-      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Thinking Process:</h4>
-      <div className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-        {content || "Processing your request..."}
-      </div>
-    </div>
-  );
-};
 
 // Add these at the file level, outside the component
 const stripJsonCache = new Map<string, string>();
@@ -155,6 +140,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
 }: AssistantMessageProps) => {
   const [isContentReady, setIsContentReady] = useState<boolean>(false);
   const { showNotification } = useNotification();
+  const [streamingContent, setStreamingContent] = useState<string>('');
   
   // Get bubble style classes based on the bubbleStyle prop
   const getBubbleStyles = () => {
@@ -162,7 +148,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
       case 'minimal':
         return `bg-transparent dark:bg-transparent border-none px-1 py-1 shadow-none`;
       case 'classic':
-        return `bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm border border-gray-100 dark:border-gray-700`;
+        return `bg-white dark:bg-gray-800 rounded-lg px-2 py-1.5 shadow-sm border border-gray-100 dark:border-gray-700`;
       case 'modern':
       default:
         return `bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden`;
@@ -470,32 +456,108 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   }
 
   // Check if this is a Qdrant response
-  const isQdrantResponse = 
-    docType.type === DocumentType.QDRANT || 
-    message.metadata?.dataSourceType === 'qdrant' ||
-    message.metadata?.collectionName ||
-    message.metadata?.isQdrantResponse;
+  // const isQdrantResponse = 
+  //   docType.type === DocumentType.QDRANT || 
+  //   message.metadata?.dataSourceType === 'qdrant' ||
+  //   message.metadata?.collectionName ||
+  //   message.metadata?.isQdrantResponse;
   
   // Diagnostics button helper
   const renderDiagnosticsButton = () => {
-    // Only show for Qdrant responses
-    if (!isQdrantResponse) return null;
+    // Always return null to remove the diagnostics button
+    return null;
     
+    // Only show for Qdrant responses
+    // if (!isQdrantResponse) return null;
+    // 
+    // return (
+    //   <div className="mt-3 flex justify-start">
+    //     <button
+    //       onClick={() => {
+    //         // Dispatch a custom event that Thread.tsx can listen for
+    //         const event = new CustomEvent('run-rag-diagnostics', {
+    //           detail: { messageId: message.id }
+    //         });
+    //         document.dispatchEvent(event);
+    //       }}
+    //       className={`px-3 py-1 text-xs font-medium text-${accentColor}-600 bg-${accentColor}-50 rounded-md hover:bg-${accentColor}-100 dark:bg-${accentColor}-900/30 dark:text-${accentColor}-400 dark:hover:bg-${accentColor}-800/40 focus:outline-none focus:ring-1 focus:ring-${accentColor}-500 ${isMobile ? 'text-sm px-4 py-2' : ''}`}
+    //     >
+    //       Run RAG Diagnostics
+    //     </button>
+    //   </div>
+    // );
+  };
+
+  // Add steps for thinking process
+  const thinkingSteps: ThinkingStep[] = [
+    {
+      id: 'understand',
+      content: 'Understanding your question',
+      type: 'analyze',
+      completed: false
+    },
+    {
+      id: 'retrieve',
+      content: 'Retrieving relevant information',
+      type: 'lookup',
+      completed: false
+    },
+    {
+      id: 'analyze',
+      content: 'Analyzing data connections',
+      type: 'reason',
+      completed: false
+    },
+    {
+      id: 'formulate',
+      content: 'Formulating response',
+      type: 'calculate',
+      completed: false
+    },
+    {
+      id: 'visualize',
+      content: 'Preparing visualizations',
+      type: 'insight',
+      completed: false
+    }
+  ];
+
+  // Simulate streaming effect for loaded messages
+  useEffect(() => {
+    if (message.status === 'complete' && message.content && typeof message.content === 'string') {
+      // Immediately set streaming content for already loaded messages
+      setStreamingContent(message.content);
+    }
+  }, [message.status, message.content]);
+
+  // Handle the Message content rendering
+  const renderMessageContent = () => {
+    // For loading state, show thinking process
+    if (isLoading) {
+      return (
+        <ThinkingProcess 
+          isThinking={true}
+          steps={thinkingSteps}
+          displayStyle={isMobile ? 'minimal' : 'standard'}
+          streamingContent={streamingContent}
+        />
+      );
+    }
+
+    // For special document types, use specialized renderers
+    if (docType.type === DocumentType.PDF) {
+      return processPdfResponse();
+    } else if (docType.type === DocumentType.QDRANT) {
+      return processQdrantResponse();
+    } else if (docType.type === DocumentType.EXCEL || docType.type === DocumentType.CSV) {
+      return processTabularData();
+    } else if (docType.type === DocumentType.DOCX) {
+      return processDocumentResponse();
+    }
+
+    // For simple text responses
     return (
-      <div className="mt-3 flex justify-start">
-        <button
-          onClick={() => {
-            // Dispatch a custom event that Thread.tsx can listen for
-            const event = new CustomEvent('run-rag-diagnostics', {
-              detail: { messageId: message.id }
-            });
-            document.dispatchEvent(event);
-          }}
-          className={`px-3 py-1 text-xs font-medium text-${accentColor}-600 bg-${accentColor}-50 rounded-md hover:bg-${accentColor}-100 dark:bg-${accentColor}-900/30 dark:text-${accentColor}-400 dark:hover:bg-${accentColor}-800/40 focus:outline-none focus:ring-1 focus:ring-${accentColor}-500 ${isMobile ? 'text-sm px-4 py-2' : ''}`}
-        >
-          Run RAG Diagnostics
-        </button>
-      </div>
+      <MessageMarkdown content={stripJsonFromContent(extractedContent)} />
     );
   };
 
@@ -562,9 +624,9 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
         flex flex-col
         w-full
         text-sm md:text-base
-        ${isFirstInGroup ? 'pt-2' : 'pt-1'}
-        ${isLastInGroup ? 'pb-2' : 'pb-1'}
-        ${isInGroup ? 'pl-4 border-l-2 border-gray-100 dark:border-gray-800' : ''}
+        ${isFirstInGroup ? 'pt-1' : 'pt-0.5'}
+        ${isLastInGroup ? 'pb-1' : 'pb-0.5'}
+        ${isInGroup ? 'pl-2 border-l-2 border-gray-100 dark:border-gray-800' : ''}
       `}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -573,7 +635,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
       data-message-type="assistant"
       data-content-type={docType.type}
     >
-      <div className={`flex items-start space-x-2 sm:space-x-4 ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
+      <div className={`flex items-start space-x-1.5 ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}`}>
         {showAvatar && messageAlignment === 'left' && (
           <div className="flex-shrink-0 mt-1">
             <Avatar 
@@ -585,10 +647,10 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
           </div>
         )}
         
-        <div className={`flex-1 min-w-0 space-y-0.5 ${isMobile ? 'max-w-[90%]' : 'max-w-[85%]'}`}>
+        <div className={`flex-1 min-w-0 space-y-0.5 ${isMobile ? 'max-w-[95%]' : 'max-w-[95%]'}`}>
           <div className={`
             flex items-center space-x-1 text-xs text-gray-500 dark:text-gray-400
-            ${!showAvatar ? 'pl-10' : ''}
+            ${!showAvatar ? 'pl-6' : ''}
             ${messageAlignment === 'right' ? 'justify-end' : 'justify-start'}
             ${isMobile ? 'text-sm' : ''}
           `}>
@@ -609,76 +671,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
             transition-all duration-200
           `}>
             <div className="relative">
-              {(() => {
-                // For any loading message, show a simple loading indicator
-                if (isLoading) {
-                  return (
-                    <div className="p-4">
-                      <div className="flex items-center space-x-2">
-                        <div className={`animate-pulse h-2 w-2 bg-${accentColor}-500 dark:bg-${accentColor}-400 rounded-full`}></div>
-                        <div className={`animate-pulse h-2 w-2 bg-${accentColor}-500 dark:bg-${accentColor}-400 rounded-full`} style={{ animationDelay: '0.2s' }}></div>
-                        <div className={`animate-pulse h-2 w-2 bg-${accentColor}-500 dark:bg-${accentColor}-400 rounded-full`} style={{ animationDelay: '0.4s' }}></div>
-                        <span className={`text-gray-700 dark:text-gray-300 ml-2 font-medium ${isMobile ? 'text-base' : ''}`}>Thinking...</span>
-                      </div>
-                    </div>
-                  );
-                }
-                
-                // For simple welcome messages or any message that should use simple display
-                if (useSimpleDisplay) {
-                  return (
-                    <div className={`p-4 ${isMobile ? 'text-base' : ''}`}>
-                      <p className="text-gray-800 dark:text-gray-200">{message.content}</p>
-                    </div>
-                  );
-                }
-                
-                // For thinking process
-                if (message.metadata?.thinking && message.metadata.showThinking) {
-                  return <ThinkingDisplay content={message.metadata.thinking as string} />;
-                }
-
-                // For structured responses like PDF
-                if (docType.type === DocumentType.PDF) {
-                  return processPdfResponse();
-                }
-                
-                // For Qdrant vector search results
-                if (docType.type === DocumentType.QDRANT) {
-                  return processQdrantResponse();
-                }
-                
-                // For tabular data (Excel, CSV)
-                if (docType.type === DocumentType.EXCEL || docType.type === DocumentType.CSV) {
-                  return processTabularData();
-                }
-                
-                // For document types like DOCX 
-                if (docType.type === DocumentType.DOCX) {
-                  return processDocumentResponse();
-                }
-                
-                // For messages that need visualization but aren't specific document types
-                if (needsVisualization(message)) {
-                  return <VisualizationAdapter message={message} messageId={message.id} />;
-                }
-                
-                // Special case: Check if this message should suppress direct content display
-                if (message.metadata?.suppressDirectDisplay || 
-                    message.metadata?.suppressDuplicateDisplay) {
-                  console.log('Suppressing direct content display in favor of structured response');
-                  
-                  // Show a placeholder message that structured content is available
-                  return (
-                    <div className={`p-4 bg-${accentColor}-50 dark:bg-${accentColor}-900/10 text-${accentColor}-800 dark:text-${accentColor}-200 rounded-lg text-sm ${isMobile ? 'text-base' : ''}`}>
-                      <p className="font-medium">Analysis is available in the structured view below.</p>
-                    </div>
-                  );
-                }
-                
-                // Default to markdown
-                return <MessageMarkdown content={stripJsonFromContent(extractedContent)} />;
-              })()}
+              {renderMessageContent()}
               
               {/* Add diagnostics button for Qdrant responses */}
               {renderDiagnosticsButton()}
@@ -687,7 +680,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
             {/* Message Actions */}
             <div className={`
               absolute 
-              top-2 right-2
+              top-1.5 right-1.5
               opacity-0 group-hover:opacity-100
               transition-opacity duration-200
               flex items-center space-x-1
@@ -702,12 +695,12 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
                   hover:bg-white dark:hover:bg-gray-800
                   shadow-sm
                   transition-all duration-150
-                  ${isMobile ? 'p-2' : 'p-1'}
+                  ${isMobile ? 'p-1.5' : 'p-0.5'}
                 `}
                 aria-label="Copy content"
                 title="Copy content"
               >
-                <svg className={`${isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className={`${isMobile ? 'h-4 w-4' : 'h-3.5 w-3.5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </button>
@@ -722,13 +715,13 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
                     hover:bg-white dark:hover:bg-gray-800
                     shadow-sm
                     transition-all duration-150
-                    ${isMobile ? 'p-2' : 'p-1'}
+                    ${isMobile ? 'p-1.5' : 'p-0.5'}
                   `}
                   aria-label="Regenerate response"
                   title="Regenerate response"
                   disabled={isRunning}
                 >
-                  <svg className={`${isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className={`${isMobile ? 'h-4 w-4' : 'h-3.5 w-3.5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
                     />
@@ -746,7 +739,8 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
               animate={{ opacity: 1, height: 'auto' }}
               transition={{ duration: 0.2 }}
             >
-              {message.metadata.model && (
+              {/* Removing model information display as requested */}
+              {/* {message.metadata.model && (
                 <div>Model: {message.metadata.model}</div>
               )}
               {message.metadata.tokens && (
@@ -757,7 +751,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
               )}
               {docType.type !== DocumentType.UNKNOWN && (
                 <div>Type: {docType.type}</div>
-              )}
+              )} */}
             </motion.div>
           )}
         </div>
@@ -776,5 +770,3 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     </motion.div>
   );
 };
-
-export default AssistantMessage;

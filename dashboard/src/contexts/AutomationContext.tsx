@@ -1,5 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
-import { buildApiUrl } from '../api-config';
+import { buildApiUrl } from './AuthContext';
 
 export interface Automation {
   id: string;
@@ -25,7 +25,7 @@ class AutomationApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = '/api/automations';
+    this.baseUrl = buildApiUrl('automations');
   }
 
   private getHeaders() {
@@ -37,8 +37,7 @@ class AutomationApiService {
   }
 
   async getItems(organizationId: number): Promise<Automation[]> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}?organization_id=${organizationId}`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}?organization_id=${organizationId}`, {
       headers: this.getHeaders(),
       credentials: 'include'
     });
@@ -51,8 +50,7 @@ class AutomationApiService {
   }
 
   async createItem(automation: Partial<Automation>): Promise<Automation> {
-    const apiUrl = buildApiUrl(this.baseUrl);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(this.baseUrl, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -67,8 +65,7 @@ class AutomationApiService {
   }
 
   async updateItem(id: string, automation: Partial<Automation>): Promise<Automation> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}`, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -83,8 +80,7 @@ class AutomationApiService {
   }
 
   async deleteItem(id: string): Promise<void> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
       credentials: 'include'
@@ -97,8 +93,7 @@ class AutomationApiService {
 
   // Additional automation specific methods
   async toggleStatus(id: string, active: boolean): Promise<Automation> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/status`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}/status`, {
       method: 'PUT',
       headers: this.getHeaders(),
       credentials: 'include',
@@ -113,8 +108,7 @@ class AutomationApiService {
   }
 
   async runNow(id: string): Promise<{ success: boolean; error?: string }> {
-    const apiUrl = buildApiUrl(`${this.baseUrl}/${id}/run`);
-    const response = await fetch(apiUrl, {
+    const response = await fetch(`${this.baseUrl}/${id}/run`, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include'

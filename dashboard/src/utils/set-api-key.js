@@ -10,6 +10,7 @@
 
 // Import the new RagService
 import { RagService } from '../services/rag/RagService';
+import { buildApiUrl } from '../contexts/AuthContext';
 
 /**
  * Local storage key for the OpenAI API key
@@ -34,7 +35,7 @@ export async function fetchApiKeyFromServer() {
   try {
     console.log('Fetching API key from server...');
     
-    const response = await fetch('/api/config/openai-key', {
+    const response = await fetch(buildApiUrl('config/openai-key'), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'
@@ -212,7 +213,7 @@ export async function testServerApiKey() {
   try {
     console.log('Testing server API key...');
     
-    const response = await fetch('/api/config/test-openai-key', {
+    const response = await fetch(buildApiUrl('config/test-openai-key'), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'

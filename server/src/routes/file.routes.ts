@@ -18,12 +18,25 @@ const storage = multer.memoryStorage();
 const fileService = new FileService(db);
 
 // For chunked uploads
-const chunkedUploads = new Map();
+interface ChunkedUploadInfo {
+  filename: string;
+  fileSize: number;
+  fileType: string;
+  processingMethod?: string;
+  userId: string;
+  organizationId: number;
+  requestedOrgId?: number;
+  chunks: Array<{ index: number; path: string }>;
+  tempDir: string;
+  timestamp: number;
+}
+
+const chunkedUploads = new Map<string, ChunkedUploadInfo>();
 
 const upload = multer({
   storage,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB
+    fileSize: 150 * 1024 * 1024 // 150MB (increased from 50MB)
   },
   fileFilter: (req, file, cb) => {
     try {
@@ -52,7 +65,32 @@ function ensureAuthenticated(req: Request): { userId: string; organizationId: nu
   }
 
   const userId = req.user.id;
-  let organizationId: number = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+  
+  // First check if there's an active_organization_id in the request body
+  let organizationId: number;
+  
+  if (req.body.active_organization_id) {
+    // Use the active organization ID from the request body if provided
+    const activeOrgId = parseInt(req.body.active_organization_id, 10);
+    if (!isNaN(activeOrgId)) {
+      logger.info(`Using active_organization_id from request body: ${activeOrgId} (JWT token has: ${req.user.organizationId})`);
+      organizationId = activeOrgId;
+    } else {
+      organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+    }
+  } else if (req.body.organization_id && req.body.organization_id !== req.user.organizationId) {
+    // If no active_organization_id but organization_id is in the body and differs from the token
+    const bodyOrgId = parseInt(req.body.organization_id, 10);
+    if (!isNaN(bodyOrgId)) {
+      logger.info(`Using organization_id from request body: ${bodyOrgId} (JWT token has: ${req.user.organizationId})`);
+      organizationId = bodyOrgId;
+    } else {
+      organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+    }
+  } else {
+    // Fallback to token organizationId
+    organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+  }
 
   if (!userId) {
     throw new UnauthorizedError('Invalid user ID');
@@ -189,6 +227,14 @@ router.post('/initiate-chunked-upload', async (req: Request, res: Response) => {
   console.log('Initiate chunked upload request received');
   console.log('Request body:', req.body);
   
+  // Log if active_organization_id or organization_id is present
+  if (req.body.active_organization_id) {
+    console.log(`active_organization_id found in request: ${req.body.active_organization_id}`);
+  }
+  if (req.body.organization_id) {
+    console.log(`organization_id found in request: ${req.body.organization_id}`);
+  }
+  
   try {
     const { userId, organizationId } = ensureAuthenticated(req);
     console.log('Authenticated user:', { userId, organizationId });
@@ -196,6 +242,7 @@ router.post('/initiate-chunked-upload', async (req: Request, res: Response) => {
     const { filename, fileSize, fileType, processingMethod } = req.body;
     
     logger.info(`Initiating chunked upload: ${filename} (${fileSize} bytes)`);
+    logger.info(`Using organization ID: ${organizationId}`);
     
     if (!filename || !fileSize) {
       return res.status(400).json({ error: 'Filename and fileSize are required' });
@@ -225,6 +272,8 @@ router.post('/initiate-chunked-upload', async (req: Request, res: Response) => {
       processingMethod,
       userId,
       organizationId,
+      // Store information about which organization ID to use for final processing
+      requestedOrgId: organizationId,
       chunks: [],
       tempDir,
       timestamp: Date.now()
@@ -539,6 +588,10 @@ router.post('/complete-chunked-upload', async (req: Request, res: Response) => {
       logger.warn(`Failed to clean up temp directory: ${rmError.message}`);
     }
     
+    // Use the requestedOrgId if available, otherwise fall back to the original organizationId
+    const finalOrgId = upload.requestedOrgId || upload.organizationId;
+    logger.info(`Using organization ID for final processing: ${finalOrgId} (original: ${upload.organizationId})`);
+    
     // Clear from memory
     chunkedUploads.delete(uploadId);
     
@@ -557,7 +610,7 @@ router.post('/complete-chunked-upload', async (req: Request, res: Response) => {
     if (method) {
       try {
         logger.info(`Triggering async processing with method: ${method}`);
-        processUploadedFile(filePath, userId, organizationId.toString(), method);
+        processUploadedFile(filePath, userId, finalOrgId.toString(), method);
       } catch (procError) {
         logger.error(`Error triggering file processing: ${procError.message}`);
         // We don't reject the upload here, just log the error
@@ -600,6 +653,7 @@ setInterval(() => {
 async function processUploadedFile(filePath: string, userId: string, organizationId: string, processingMethod: string): Promise<void> {
   try {
     logger.info(`Processing uploaded file ${filePath} with method ${processingMethod}`);
+    logger.info(`Using organization ID: ${organizationId} for final processing`);
     
     // Get file details
     const stats = fs.statSync(filePath);

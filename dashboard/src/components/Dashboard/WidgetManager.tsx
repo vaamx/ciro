@@ -9,7 +9,8 @@ import {
   Move,
   Trash2,
   Plus,
-  Minimize2
+  Minimize2,
+  RefreshCw
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
@@ -489,14 +490,23 @@ const validateVisualizationConfig = (vizSettings: any, widgetId: string): { isVa
     }
     
     // Check if type is supported
-  const supportedTypes = ['bar', 'line', 'pie', 'area', 'scatter', 'table'];
+    const supportedTypes = ['bar', 'line', 'pie', 'area', 'scatter', 'table', 'map', 'radar', 'heatmap'];
     if (vizSettings.type && !supportedTypes.includes(vizSettings.type)) {
       logDebug(`WidgetManager: Widget ${widgetId} has unsupported visualization type: ${vizSettings.type}`);
       logDebug(`WidgetManager: Supported types are: ${supportedTypes.join(', ')}`);
       return { isValid: false, error: `Unsupported visualization type: ${vizSettings.type}` };
     }
     
-    // Check if required keys exist
+    // For radar charts, we need keys and indexBy instead of xKey/yKey
+    if (vizSettings.type === 'radar') {
+      if (!vizSettings.keys || !Array.isArray(vizSettings.keys) || !vizSettings.indexBy) {
+        logDebug(`WidgetManager: Radar chart ${widgetId} is missing required keys or indexBy property`);
+        return { isValid: false, error: 'Radar chart missing required keys or indexBy property' };
+      }
+      return { isValid: true };
+    }
+    
+    // Check if required keys exist for non-radar charts
     if (!vizSettings.xKey || !vizSettings.yKey) {
       logDebug(`WidgetManager: Widget ${widgetId} is missing required keys (xKey or yKey)`);
       return { isValid: false, error: 'Missing required keys (xKey or yKey)' };
@@ -583,9 +593,15 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
 
   const renderWidget = (widget: Widget) => {
     const isVisualizationWidget = 
-      widget.content === "visualization-widget" ||
+      widget.type === "visualization" ||
       widget.widget_type === "visualization-widget" ||
-      widget.type === "visualization-widget";
+      widget.content === "visualization-widget";
+    
+    // Log visualization settings for debugging
+    if (isVisualizationWidget && widget.settings?.visualization) {
+      logDebug(`WidgetManager: Rendering visualization widget ${widget.id} with type ${widget.widget_type}`);
+      logDebug(`Widget data:`, widget.settings.visualization);
+    }
     
     // Validate visualization settings if needed
     if (isVisualizationWidget && widget.settings?.visualization) {
@@ -674,6 +690,7 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
     const isVisualizationWidget = 
       expandedWidget.content === "visualization-widget" ||
       expandedWidget.widget_type === "visualization-widget" ||
+      expandedWidget.type === "visualization" ||
       expandedWidget.type === "visualization-widget";
     
     return (
@@ -749,10 +766,15 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
                 <div className="widget-empty-placeholder">
                   <div className="text-lg font-medium mb-2">No widgets added yet</div>
                   <p className="text-sm mb-4">Add widgets to your dashboard to visualize your data</p>
-                  <button className="widget-add-button" onClick={onAddWidget}>
-                    <Plus size={16} />
-                    Add Widget
-                  </button>
+                  <div className="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-3 mt-4">
+                    <button 
+                      className="widget-add-button" 
+                      onClick={onAddWidget}
+                    >
+                      <Plus size={16} />
+                      Add Widget
+                    </button>
+                  </div>
                 </div>
               )}
               {provided.placeholder}
@@ -763,6 +785,6 @@ export const WidgetManager: React.FC<WidgetManagerProps> = ({
 
       {/* Expanded Widget Overlay */}
       {expandedWidgetId && renderExpandedWidgetOverlay()}
-                </div>
+    </div>
   );
 }; 

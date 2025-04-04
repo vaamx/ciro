@@ -22,6 +22,7 @@ interface WidgetTemplate {
   name: string;
   description: string;
   icon: React.ReactNode;
+  canonicalType: 'metrics' | 'visualization' | 'table' | 'custom';
 }
 
 interface AddWidgetModalProps {
@@ -36,25 +37,29 @@ const widgetTemplates: WidgetTemplate[] = [
     id: 'bar-chart',
     name: 'Bar Chart',
     description: 'Compare values across categories with vertical bars',
-    icon: <BarChart2 className="w-5 h-5" />
+    icon: <BarChart2 className="w-5 h-5" />,
+    canonicalType: 'visualization'
   },
   {
     id: 'line-chart',
     name: 'Line Chart',
     description: 'Track trends over time with connected data points',
-    icon: <LineChart className="w-5 h-5" />
+    icon: <LineChart className="w-5 h-5" />,
+    canonicalType: 'visualization'
   },
   {
     id: 'pie-chart',
     name: 'Pie Chart',
     description: 'Show proportions of a whole with circular segments',
-    icon: <PieChart className="w-5 h-5" />
+    icon: <PieChart className="w-5 h-5" />,
+    canonicalType: 'visualization'
   },
   {
     id: 'map',
     name: 'Map',
     description: 'Visualize data geographically on an interactive map',
-    icon: <MapPin className="w-5 h-5" />
+    icon: <MapPin className="w-5 h-5" />,
+    canonicalType: 'visualization'
   }
 ];
 
@@ -135,10 +140,19 @@ export const AddWidgetModal: React.FC<AddWidgetModalProps> = ({
 
   const handleSubmit = () => {
     if (validateStep(3) && selectedTemplate && selectedDataSource) {
+      // Find the template to get its canonical type
+      const template = widgetTemplates.find(t => t.id === selectedTemplate);
+      
+      if (!template) {
+        // Fallback if template not found (shouldn't happen)
+        console.error(`Template ${selectedTemplate} not found`);
+        return;
+      }
+      
       const newWidget: Omit<Widget, 'id'> = {
         title: widgetTitle,
-        type: selectedTemplate,
-        widget_type: selectedTemplate,
+        type: template.canonicalType, // Use canonical type for Widget interface compatibility
+        widget_type: selectedTemplate, // Store original template ID for detailed information
         size: widgetSize,
         content: <div className="p-4 animate-pulse">Loading {selectedTemplate} data...</div>,
         position: 0,
@@ -147,6 +161,7 @@ export const AddWidgetModal: React.FC<AddWidgetModalProps> = ({
           showTitle: true,
           expandable: true,
           dataSource: selectedDataSource,
+          visualization: selectedTemplate, // Store visualization type in settings for backward compatibility
           ...widgetConfig
         }
       };

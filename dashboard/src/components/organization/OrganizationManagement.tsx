@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { OrganizationModal } from './OrganizationModal';
 import { Building2, ChevronRight, Plus, Users, Settings as SettingsIcon, Trash2, PencilLine, ArrowLeft } from 'lucide-react';
-import { buildApiUrl } from '../../api-config';
+import { buildApiUrl } from '../../contexts/AuthContext';
 
 export function OrganizationManagement() {
   const { organizations, currentOrganization, loadOrganizations, setCurrentOrganization } = useOrganization();
@@ -11,7 +11,6 @@ export function OrganizationManagement() {
   const [activeTab, setActiveTab] = useState<'general' | 'teams' | 'settings'>('general');
   const [isMobileView, setIsMobileView] = useState(false);
   const [showMobileList, setShowMobileList] = useState(true);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   // Check for mobile view on mount and when window resizes
   useEffect(() => {
@@ -38,20 +37,17 @@ export function OrganizationManagement() {
   }, [currentOrganization, isMobileView]);
 
   const handleDelete = async (orgId: number) => {
-    const confirmDelete = window.confirm("Are you sure you want to delete this organization? This action cannot be undone.");
-    
-    if (!confirmDelete) return;
-    
-    setIsDeleting(true);
-    
+    if (!window.confirm('Are you sure you want to delete this organization? This action cannot be undone.')) {
+      return;
+    }
+
     try {
-      // Use buildApiUrl to get the correct URL for the current environment
-      const apiUrl = buildApiUrl(`/api/organizations/${orgId}`);
-      const response = await fetch(apiUrl, {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(buildApiUrl(`organizations/${orgId}`), {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
         credentials: 'include'
       });
@@ -69,8 +65,6 @@ export function OrganizationManagement() {
     } catch (error) {
       console.error('Error deleting organization:', error);
       // TODO: Show error message to user
-    } finally {
-      setIsDeleting(false);
     }
   };
 

@@ -4,6 +4,7 @@ import http from 'http';
 import { injectable } from 'inversify';
 import WebSocket from 'ws';
 import { SocketService } from './socket.service';
+import { EventManager } from './event-manager';
 
 /**
  * Service for managing WebSocket connections
@@ -62,32 +63,48 @@ export class WebSocketService {
         return;
       }
 
-      // Improved CORS configuration for Socket.io
-      this.io = new SocketIOServer(server, {
-        cors: {
-          origin: process.env.NODE_ENV === 'production' 
-            ? process.env.CORS_ORIGIN || '*'
-            : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', '*'],
-          methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-          credentials: true,
-          allowedHeaders: ['Content-Type', 'Authorization']
-        },
-        transports: ['websocket', 'polling'],
-        allowEIO3: true
-      });
-
-      this.io.on('connection', (socket) => {
-        this.logger.info('New socket connection', { socketId: socket.id });
-
-        socket.on('disconnect', () => {
-          this.logger.info('Socket disconnected', { socketId: socket.id });
+      // Check if Socket.IO is already initialized by SocketService
+      if (this.socketService && this.socketService.isInitialized() && this.socketService.io) {
+        this.logger.info('Using existing Socket.IO instance from SocketService');
+        this.io = this.socketService.io;
+      } else {
+        // Create new Socket.IO instance only if not already created by SocketService
+        this.logger.info('Creating new Socket.IO instance');
+        // Improved CORS configuration for Socket.io
+        this.io = new SocketIOServer(server, {
+          cors: {
+            origin: process.env.NODE_ENV === 'production' 
+              ? process.env.CORS_ORIGIN || '*'
+              : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', '*'],
+            methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+            credentials: true,
+            allowedHeaders: ['Content-Type', 'Authorization']
+          },
+          transports: ['polling', 'websocket'], // Prioritize polling
+          path: '/socket.io/',
+          allowEIO3: true,
+          serveClient: false
         });
-      });
+      }
 
+      // Add connection handlers if we have an IO instance
+      if (this.io) {
+        this.io.on('connection', (socket) => {
+          this.logger.info('New socket connection', { socketId: socket.id });
+
+          socket.on('disconnect', () => {
+            this.logger.info('Socket disconnected', { socketId: socket.id });
+          });
+        });
+      }
+
+      // Initialize standard WebSocket server (separate from Socket.IO)
       this.wss = new WebSocket.Server({ 
         server,
         // Add proper WebSocket server options
-        perMessageDeflate: false
+        perMessageDeflate: false,
+        // Important: use a different path to avoid conflicts with Socket.IO
+        path: '/ws'
       });
       this.logger.info('WebSocket server initialized');
 
@@ -111,10 +128,32 @@ export class WebSocketService {
         });
       });
       
+      // Register with EventManager to listen for data source updates
+      this.setupEventListeners();
+      
       this.isInitialized = true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Error initializing WebSocket server: ${errorMessage}`, error);
+    }
+  }
+
+  /**
+   * Set up event listeners with EventManager
+   */
+  private setupEventListeners(): void {
+    try {
+      const eventManager = EventManager.getInstance();
+      
+      // Listen for data source updates
+      eventManager.on('dataSourceUpdate', (data) => {
+        this.logger.info(`Received dataSourceUpdate event from EventManager: ${data.id} - ${data.status}`);
+        this.broadcastDataSourceUpdate(data.id, data.status, data);
+      });
+      
+      this.logger.info('EventManager listeners registered successfully');
+    } catch (error) {
+      this.logger.error(`Error setting up EventManager listeners: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

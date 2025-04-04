@@ -43,7 +43,7 @@ const chunkController = new ChunkController();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 50 * 1024 * 1024, // Increased to 50MB
+    fileSize: 150 * 1024 * 1024, // Increased to 150MB
   },
 });
 
@@ -51,7 +51,7 @@ const upload = multer({
 const chunkUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 100 * 1024 * 1024, // Increased to 100MB for chunks
+    fileSize: 150 * 1024 * 1024, // Increased to 150MB for chunks
   },
 });
 
@@ -140,7 +140,7 @@ router.post('/', authenticate, (asyncHandler(async (req: any, res: any) => {
     }
     
     const userId = user.id;
-    const organizationId = Number(user.organizationId); // Convert to number if needed
+    const userOrgId = Number(user.organizationId); // From JWT token
     
     // Validate request body
     const dataSource = req.body;
@@ -149,6 +149,10 @@ router.post('/', authenticate, (asyncHandler(async (req: any, res: any) => {
     }
     
     logger.info(`Creating data source with data: ${JSON.stringify(dataSource)}`);
+    
+    // Use the organization_id from the request if provided, otherwise use the one from the JWT token
+    const organizationId = dataSource.organization_id ? Number(dataSource.organization_id) : userOrgId;
+    logger.info(`Using organization ID ${organizationId} for data source creation (JWT token has org ID: ${userOrgId})`);
     
     // Check if this data source already exists
     const existingDataSource = await db('data_sources')

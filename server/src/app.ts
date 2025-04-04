@@ -8,9 +8,8 @@ import compression from 'compression';
 import morgan from 'morgan';
 import { config } from './config';
 import { QdrantService } from './services/qdrant.service';
-import { rateLimiter, speedLimiter, securityHeaders } from './middleware';
+import { rateLimiter, speedLimiter, securityHeaders, requestSizeLimiter } from './middleware';
 import { authenticate } from './middleware/auth';
-import { corsMiddleware } from './middleware/security';
 import dataSourceRoutes, { chunkRouter } from './routes/data-source.routes';
 import path from 'path';
 import { RagService } from './services/rag.service';
@@ -42,6 +41,8 @@ import userRoutes from './routes/user.routes';
 import adminRoutes from './routes/admin.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import { resetPasswordRouter } from './routes/password-reset';
+import { SocketService } from './services/socket.service';
+import { EventManager } from './services/event-manager';
 
 // Initialize logger
 const logger = winston.createLogger({
@@ -72,9 +73,6 @@ const logger = winston.createLogger({
 // Initialize app
 const app = express();
 
-// Configure CORS for cookie support
-app.use(corsMiddleware);
-
 // Configure security headers
 app.use(securityHeaders);
 
@@ -96,20 +94,9 @@ app.use(morgan('combined'));
 
 // Custom CORS middleware
 app.use((req, res, next) => {
-  // Define allowed origins for different environments
-  let allowedOrigins = ['http://localhost:5173']; // Default for development
-  
-  if (process.env.NODE_ENV === 'production') {
-    // Production origins (add both http and https variants)
-    allowedOrigins = [
-      'https://app.ciroai.us',
-      'https://www.ciroai.us',
-      'https://ciroai.us'
-    ];
-  } else if (process.env.CORS_ORIGIN) {
-    // Use environment variable if set (for custom environments)
-    allowedOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
-  }
+  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map(origin => origin.trim());
   
   const origin = req.headers.origin;
   
@@ -118,27 +105,10 @@ app.use((req, res, next) => {
     return next();
   }
   
-  // Check if the origin is allowed or in development mode
-  if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    // For security, don't send CORS headers for unknown origins in production
-    console.warn(`Blocked request from unauthorized origin: ${origin}`);
-    if (process.env.NODE_ENV === 'production') {
-      // In production, log detailed info about blocked requests
-      console.warn('CORS blocked request details:', {
-        origin,
-        path: req.path,
-        method: req.method, 
-        ip: req.ip,
-        userAgent: req.headers['user-agent']
-      });
-    }
-  }
-  
-  // Always set these headers regardless of origin validation
+  // Always set CORS headers for all origins during development
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Credentials');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, Cache-Control, Credentials');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '600');
   
@@ -155,8 +125,11 @@ app.use((req, res, next) => {
 app.use('/api/data-sources/upload', chunkRouter);
 
 // Configure body parser - only applied to routes registered after this point
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb' }));
+
+// Apply request size limiter for non-JSON/form requests
+app.use(requestSizeLimiter);
 
 // Configure cookie parser
 app.use(cookieParser());
@@ -232,10 +205,18 @@ app.use('/api/snowflake', snowflakeRoutes);
 app.use('/api/ext', vectorSearchRoutes);
 app.use('/api/qdrant', vectorSearchRoutes);
 
+// Import and use workspace routes
+import workspaceRoutes from './routes/workspace.routes';
+app.use('/api/workspaces', workspaceRoutes);
+
+// Import and use routes from the index router
+import apiIndexRoutes from './routes/index';
+app.use('/api', apiIndexRoutes);
+
 // Configure multer for file uploads
 const upload = multer({ 
   dest: path.join(process.cwd(), 'server/uploads/temp'),
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+  limits: { fileSize: 150 * 1024 * 1024 } // 150MB limit (increased from 50MB)
 });
 
 // Add Excel processing endpoint
@@ -283,11 +264,19 @@ const publicPath = path.join(process.cwd(), 'server/public');
 logger.info(`Serving static files from ${publicPath}`);
 app.use(express.static(publicPath));
 
-// These unique routes should stay
+// Setup routes
+app.use('/api/chat', authenticate, chatRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/organizations', organizationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/data-sources', dataSourceRoutes);
+app.use('/api/files', fileRoutes);
 app.use('/api/reset-password', resetPasswordRouter);
+app.use('/api/ext', apiRoutes);
+app.use('/api/qdrant', qdrantRoutes);
+app.use('/api/rag', ragRoutes);
+app.use('/api/qdrant', vectorSearchRoutes);
 
 // Add a dedicated Collections endpoint for the frontend
 app.get('/api/collections', authenticate, async (req, res) => {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { PaperAirplaneIcon, ChartBarIcon, StopIcon, ClipboardIcon, ArrowPathIcon } from './icons';
+import { PaperAirplaneIcon, ChartBarIcon, StopIcon, ClipboardIcon } from './icons';
 import { motion } from 'framer-motion';
 
 interface ChatInputProps {
@@ -83,20 +83,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     <div className="relative w-full max-w-5xl mx-auto">
       <form
         onSubmit={handleSubmit}
-        className="relative bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-300 hover:shadow-lg focus-within:border-violet-400 dark:focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-200 dark:focus-within:ring-violet-900/30"
+        className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 hover:shadow-md focus-within:border-violet-400 dark:focus-within:border-violet-500 focus-within:ring-1 focus-within:ring-violet-200 dark:focus-within:ring-violet-900/30"
       >
         {attachment && (
-          <div className="flex items-center px-4 py-2 bg-violet-50 dark:bg-violet-900/20 border-b border-violet-100 dark:border-violet-800/30">
+          <div className="flex items-center px-2 py-1.5 bg-violet-50 dark:bg-violet-900/20 border-b border-violet-100 dark:border-violet-800/30">
             <div className="flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
               <span className="font-medium">{attachment.name}</span>
-              <span className="ml-2 text-gray-500 dark:text-gray-400">({Math.round(attachment.size / 1024)} KB)</span>
+              <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">({Math.round(attachment.size / 1024)} KB)</span>
             </div>
             <button
               type="button"
               onClick={removeAttachment}
-              className="ml-2 text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400"
+              className="ml-1 p-1 rounded-full text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
             </button>
@@ -112,39 +112,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           disabled={disabled || isGenerating}
           autoFocus={autoFocus}
           rows={1}
-          className="w-full resize-none py-3.5 pl-4 pr-24 bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none text-base"
-          style={{ minHeight: '50px', maxHeight: '200px' }}
+          className="w-full resize-none py-2.5 pl-3 pr-20 bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none text-sm md:text-base"
+          style={{ minHeight: '42px', maxHeight: '180px' }}
         />
 
-        <div className="absolute right-2 bottom-2 flex items-center gap-1">
-          {/* Recent prompts button */}
+        <div className="absolute right-1.5 bottom-1.5 flex items-center gap-1">
           {recentPrompts.length > 0 && (
             <div className="relative">
-              <button
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 type="button"
                 onClick={() => setShowPrompts(!showPrompts)}
-                className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                aria-label="Recent prompts"
+                className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                title="Recent prompts"
               >
-                <ArrowPathIcon className="w-4 h-4" />
-              </button>
+                <ClipboardIcon className="h-4.5 w-4.5" />
+              </motion.button>
               
               {showPrompts && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="absolute bottom-full mb-2 right-0 w-64 bg-white dark:bg-gray-800 shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 py-2 z-10"
-                >
-                  <div className="px-3 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                    Recent prompts
-                  </div>
+                <div className="absolute bottom-full right-0 mb-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden z-10">
                   <div className="max-h-60 overflow-y-auto">
                     {recentPrompts.map((prompt, index) => (
                       <button
                         key={index}
                         type="button"
-                        className="block w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors truncate"
                         onClick={() => {
                           setMessage(prompt);
                           setShowPrompts(false);
@@ -152,17 +144,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             textareaRef.current.focus();
                           }
                         }}
+                        className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 truncate"
                       >
-                        {prompt.length > 40 ? `${prompt.substring(0, 40)}...` : prompt}
+                        {prompt}
                       </button>
                     ))}
                   </div>
-                </motion.div>
+                </div>
               )}
             </div>
           )}
 
-          {/* Attachment button */}
           {onAttachmentUpload && (
             <button
               type="button"
@@ -181,7 +173,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,.csv"
           />
 
-          {/* Analytical example button */}
           <button
             type="button"
             className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors duration-200 opacity-80 hover:opacity-100 hover:bg-violet-50 dark:hover:bg-violet-900/20 rounded-md"

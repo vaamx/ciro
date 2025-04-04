@@ -22,7 +22,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   dashboardManager,
 }) => {
   const [isNotificationsPanelOpen, setIsNotificationsPanelOpen] = useState(false);
-  const { isDarkMode, toggleTheme } = useTheme();
+  const { isDarkMode, toggleDarkMode } = useTheme();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -40,6 +40,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    // Log the theme state for debugging
+    console.log('MainLayout isDarkMode:', isDarkMode);
+    console.log('MainLayout document.documentElement.classList:', document.documentElement.classList);
+  }, [isDarkMode]);
+
   const handleHelpClick = () => {
     setShowHelp(true);
   };
@@ -53,7 +59,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   };
 
   return (
-    <div className={`flex h-screen ${isDarkMode ? 'dark' : ''}`}>
+    <div className="flex h-screen">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
         <Sidebar 
@@ -101,7 +107,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           onNotificationsClick={() => setIsNotificationsPanelOpen(true)}
           onHelpClick={handleHelpClick}
           isDarkMode={isDarkMode}
-          onThemeChange={toggleTheme}
+          onThemeChange={toggleDarkMode}
           onMobileMenuClick={toggleMobileSidebar}
           user={user ? {
             name: user.name,

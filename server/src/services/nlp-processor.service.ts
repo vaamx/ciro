@@ -2102,4 +2102,28 @@ export class NlpProcessorService {
       return impactOrder[a.impact] - impactOrder[b.impact];
     }).slice(0, 5); // Limit to 5 questions to avoid overwhelming the user
   }
+
+  /**
+   * Format currency value for display
+   */
+  public formatCurrency(value: number): string {
+    // Remove any spaces in number formatting to prevent "$ 2, 0 0 0 0" errors
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+      minimumFractionDigits: 0
+    }).format(value).replace(/\s+/g, '');
+  }
+
+  /**
+   * Format number for display (without currency symbol)
+   */
+  public formatNumber(value: number): string {
+    // Remove any spaces in number formatting
+    return new Intl.NumberFormat('en-US', {
+      maximumFractionDigits: 0,
+      minimumFractionDigits: 0
+    }).format(value).replace(/\s+/g, '');
+  }
 } 

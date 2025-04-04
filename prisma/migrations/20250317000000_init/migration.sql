@@ -1,0 +1,4 @@
+-- This is an empty migration file
+-- Used as a baseline for an existing database that
+-- has already been set up manually and is now being 
+-- tracked by Prisma Migrate 

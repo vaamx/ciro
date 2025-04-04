@@ -27,6 +27,8 @@ interface Request {
   };
   body: {
     processingMethod?: string;
+    active_organization_id?: string;
+    organization_id?: string;
     [key: string]: any;
   };
   params: {
@@ -56,7 +58,32 @@ class FileController {
     }
 
     const userId = req.user.id;
-    const organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+    
+    // First check if there's an active_organization_id in the request body
+    let organizationId: number;
+    
+    if (req.body.active_organization_id) {
+      // Use the active organization ID from the request body if provided
+      const activeOrgId = parseInt(req.body.active_organization_id, 10);
+      if (!isNaN(activeOrgId)) {
+        this.logger.info(`Using active_organization_id from request body: ${activeOrgId} (JWT token has: ${req.user.organizationId})`);
+        organizationId = activeOrgId;
+      } else {
+        organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+      }
+    } else if (req.body.organization_id && req.body.organization_id !== req.user.organizationId) {
+      // If no active_organization_id but organization_id is in the body and differs from the token
+      const bodyOrgId = parseInt(req.body.organization_id, 10);
+      if (!isNaN(bodyOrgId)) {
+        this.logger.info(`Using organization_id from request body: ${bodyOrgId} (JWT token has: ${req.user.organizationId})`);
+        organizationId = bodyOrgId;
+      } else {
+        organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+      }
+    } else {
+      // Fallback to token organizationId
+      organizationId = typeof req.user.organizationId === 'string' ? parseInt(req.user.organizationId, 10) : req.user.organizationId;
+    }
 
     if (!userId) {
       throw new UnauthorizedError('Invalid user ID');

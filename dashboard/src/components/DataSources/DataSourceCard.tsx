@@ -46,6 +46,17 @@ interface DataSourceCardProps {
   onViewDetails?: (source: DataSource) => void;
 }
 
+// Add interface at the top with other interfaces
+interface IndexingStatus {
+  progress: number;
+  message: string;
+  currentStage?: string;
+  currentTable?: string;
+  processedChunks?: number;
+  totalChunks?: number;
+  lastUpdated: string;
+}
+
 // Create a base component that will be wrapped with React.memo
 const DataSourceCardBase: React.FC<DataSourceCardProps> = ({ 
   source, 
@@ -152,31 +163,69 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
     if (!source.metadata) return null;
     
     try {
-      // Extract indexing_status from metadata
+      // Extract metadata
       const metadata = typeof source.metadata === 'string' 
         ? JSON.parse(source.metadata) 
         : source.metadata;
       
-      // If metadata exists but no indexing_status, create initial status for certain types
-      if (!metadata.indexing_status && ['snowflake', 'database'].includes(source.type)) {
-        return {
+      let status: IndexingStatus | null = null;
+      
+      // Check for direct progress attributes
+      if (metadata.progress !== undefined) {
+        status = {
+          progress: metadata.progress || 0,
+          message: metadata.message || 'Processing data...',
+          currentStage: metadata.stage,
+          processedChunks: metadata.processedChunks,
+          totalChunks: metadata.totalChunks,
+          lastUpdated: metadata.timestamp || new Date().toISOString()
+        };
+      }
+      // Check processing_details
+      else if (metadata.processing_details?.progress !== undefined) {
+        const details = metadata.processing_details;
+        status = {
+          progress: details.progress || 0,
+          message: details.message || 'Processing data...',
+          currentStage: details.stage,
+          processedChunks: details.processedChunks,
+          totalChunks: details.totalChunks,
+          lastUpdated: details.timestamp || new Date().toISOString()
+        };
+      }
+      // Check progress_info
+      else if (metadata.progress_info) {
+        const info = metadata.progress_info;
+        status = {
+          progress: metadata.progress || 0,
+          message: info.message || 'Processing data...',
+          currentStage: info.currentPhase,
+          processedChunks: info.processedChunks,
+          totalChunks: info.totalChunks,
+          lastUpdated: info.startTime || new Date().toISOString()
+        };
+      }
+      // Check for special types
+      else if (['snowflake', 'database'].includes(source.type)) {
+        status = {
           progress: 0,
           message: 'Preparing to index data...',
           currentTable: '',
           lastUpdated: new Date().toISOString()
         };
       }
+      // Legacy indexing_status
+      else if (metadata.indexing_status) {
+        const indexingStatus = metadata.indexing_status;
+        status = {
+          progress: indexingStatus.progress || 0,
+          message: indexingStatus.message || 'Processing data...',
+          currentTable: indexingStatus.current_table,
+          lastUpdated: indexingStatus.last_updated || new Date().toISOString()
+        };
+      }
       
-      const indexingStatus = metadata.indexing_status;
-      
-      if (!indexingStatus) return null;
-      
-      return {
-        progress: indexingStatus.progress || 0,
-        message: indexingStatus.message || 'Processing data...',
-        currentTable: indexingStatus.current_table || '',
-        lastUpdated: indexingStatus.last_updated
-      };
+      return status;
     } catch (e) {
       console.error('Error parsing indexing status:', e);
       return null;
@@ -206,7 +255,7 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
   };
 
   const getDisplayName = () => {
-    if (source.type === 'local-files' || source.type.includes('local-files')) {
+    if (source.type === 'local-files' || source.type.startsWith('local-files-')) {
       // First try to get the original filename from metadata
       if (source.metadata?.originalFilename) {
         const basicFilename = extractBasicFilename(source.metadata.originalFilename as string);
@@ -284,7 +333,41 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
   };
 
   const getSourceIcon = () => {
-    console.log('Getting source icon for:', source.type, 'Metadata:', source.metadata);
+    // Detailed debugging for PDF file issues
+    console.log('=== SOURCE ICON DEBUGGING ===');
+    console.log('Source type:', source.type);
+    console.log('Source name:', source.name);
+    console.log('Source metadata raw:', source.metadata);
+    
+    // Check if metadata is a string and needs parsing
+    const metadataObj = typeof source.metadata === 'string' 
+      ? JSON.parse(source.metadata) 
+      : source.metadata;
+    
+    console.log('Source metadata parsed:', metadataObj);
+    console.log('fileType from metadata:', metadataObj?.fileType);
+    console.log('filename from metadata:', metadataObj?.filename);
+    
+    // File extension check
+    if (metadataObj?.filename) {
+      const ext = metadataObj.filename.split('.').pop()?.toLowerCase();
+      console.log('File extension extracted:', ext);
+    }
+    
+    // Check if source type is local-files
+    console.log('Is local-files type:', source.type === 'local-files' || source.type.startsWith('local-files-'));
+    
+    // Check fileType directly from function
+    const derivedFileType = getFileTypeFromMetadata();
+    console.log('Derived fileType:', derivedFileType);
+    console.log('=== END DEBUGGING ===');
+
+    // Regular icon selection logic continues...
+    
+    // For Excel files, special handling when fileType is directly detected
+    if (derivedFileType === 'excel' || derivedFileType === 'xlsx' || derivedFileType === 'xls') {
+      return <img src={FILE_TYPE_ICONS.excel} alt="Excel file" className="w-8 h-8" />;
+    }
     
     // First check for Excel files regardless of source type
     if (source.metadata?.fileType && 
@@ -317,7 +400,7 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
     
     // Then continue with the existing source.type checks
     // For local files
-    if (source.type === 'local-files') {
+    if (source.type === 'local-files' || source.type.startsWith('local-files-')) {
       // First check the fileType in metadata directly
       if (source.metadata?.fileType) {
         const metadataFileType = source.metadata.fileType.toLowerCase();
@@ -337,7 +420,7 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
         
         // Check for PDF files in metadata
         if (metadataFileType === 'pdf') {
-          console.log('Using PDF icon from metadata fileType');
+          console.log('Using PDF icon from metadata fileType - explicit PDF check');
           return <img src={FILE_TYPE_ICONS.pdf} alt="PDF file" className="w-8 h-8" />;
         }
         
@@ -369,7 +452,7 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
         }
         
         if (filename.endsWith('.pdf')) {
-          console.log('Using PDF icon from filename extension');
+          console.log('Using PDF icon from filename extension - explicit PDF check');
           return <img src={FILE_TYPE_ICONS.pdf} alt="PDF file" className="w-8 h-8" />;
         }
         
@@ -407,40 +490,41 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
       // Fallback icon if no file type is detected
       const defaultIcon = <FileText className="w-8 h-8 text-gray-600" />;
       
-      if (!fileType) {
+      if (!derivedFileType) {
         return defaultIcon;
       }
       
       // Handle Excel files
-      if (fileType === 'xlsx' || fileType === 'xls' || fileType === 'excel') {
+      if (derivedFileType === 'xlsx' || derivedFileType === 'xls' || derivedFileType === 'excel') {
         return <img src={FILE_TYPE_ICONS.excel} alt="Excel file" className="w-8 h-8" />;
       }
       
       // Handle PDF files
-      if (fileType === 'pdf') {
+      if (derivedFileType === 'pdf') {
+        console.log('Using PDF icon from derived fileType - explicit PDF check');
         return <img src={FILE_TYPE_ICONS.pdf} alt="PDF file" className="w-8 h-8" />;
       }
       
       // Handle Word files
-      if (fileType === 'docx' || fileType === 'doc' || fileType === 'word') {
+      if (derivedFileType === 'docx' || derivedFileType === 'doc' || derivedFileType === 'word') {
         return <img src={FILE_TYPE_ICONS.docx} alt="Word file" className="w-8 h-8" />;
       }
       
       // Handle CSV files
-      if (fileType === 'csv') {
+      if (derivedFileType === 'csv') {
         return <img src={FILE_TYPE_ICONS.csv} alt="CSV file" className="w-8 h-8" />;
       }
       
       // Handle JSON files
-      if (fileType === 'json') {
+      if (derivedFileType === 'json') {
         return <img src={FILE_TYPE_ICONS.json} alt="JSON file" className="w-8 h-8" />;
       }
       
       // If we have an icon for this file type, use it
-      if (FILE_TYPE_ICONS[fileType as keyof typeof FILE_TYPE_ICONS]) {
+      if (FILE_TYPE_ICONS[derivedFileType as keyof typeof FILE_TYPE_ICONS]) {
         return <img 
-          src={FILE_TYPE_ICONS[fileType as keyof typeof FILE_TYPE_ICONS]} 
-          alt={`${fileType} file`} 
+          src={FILE_TYPE_ICONS[derivedFileType as keyof typeof FILE_TYPE_ICONS]} 
+          alt={`${derivedFileType} file`} 
           className="w-8 h-8" 
         />;
       }
@@ -571,7 +655,7 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
           {isProcessing && indexingStatus && (
             <div className="mt-3">
               <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[75%]">
                   {indexingStatus.message}
                 </span>
                 <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
@@ -584,9 +668,25 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
                   style={{ width: `${indexingStatus.progress}%` }}
                 ></div>
               </div>
+              
+              {/* Show stage information if available */}
+              {indexingStatus.currentStage && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
+                  Stage: {indexingStatus.currentStage}
+                </p>
+              )}
+              
+              {/* Show current table for database sources */}
               {indexingStatus.currentTable && (
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
                   Table: {indexingStatus.currentTable}
+                </p>
+              )}
+              
+              {/* Show chunk processing progress if available */}
+              {indexingStatus.processedChunks !== undefined && indexingStatus.totalChunks && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Progress: {indexingStatus.processedChunks} / {indexingStatus.totalChunks} chunks
                 </p>
               )}
             </div>

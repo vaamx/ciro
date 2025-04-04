@@ -5,7 +5,6 @@ import { useOrganization } from '../contexts/OrganizationContext';
 import { getAuthToken } from '../utils/authToken';
 import { useAuth } from '../contexts/AuthContext';
 import { logger } from '../utils/logger';
-import { io } from 'socket.io-client';
 
 // Component name for logging
 const COMPONENT_NAME = 'KnowledgeProvider';
@@ -74,8 +73,8 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
   const [retryCount, setRetryCount] = useState(0);
   const [lastRetryTime, setLastRetryTime] = useState(0);
   const [lastLoadTime, setLastLoadTime] = useState(0);
-  const [sourceCache, setSourceCache] = useState<Record<string, KnowledgeDataSource[]>>({});
-  const [itemCache, setItemCache] = useState<Record<string, KnowledgeItem[]>>({});
+  const [sourceCache, _setSourceCache] = useState<Record<string, KnowledgeDataSource[]>>({});
+  const [itemCache, _setItemCache] = useState<Record<string, KnowledgeItem[]>>({});
   const [cacheTimestamp, setCacheTimestamp] = useState<Record<string, number>>({});
   
   // Cache expiration time - 5 minutes
@@ -99,10 +98,17 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
   const updateCache = <T extends any>(
     key: string, 
     data: T, 
-    setter: React.Dispatch<React.SetStateAction<Record<string, T>>>
+    timestamp: number
   ) => {
-    setter(prev => ({ ...prev, [key]: data }));
-    setCacheTimestamp(prev => ({ ...prev, [key]: Date.now() }));
+    // Store data in appropriate cache based on key prefix
+    if (key.startsWith('sources_')) {
+      _setSourceCache(prev => ({ ...prev, [key]: data as KnowledgeDataSource[] }));
+    } else if (key.startsWith('search_')) {
+      _setItemCache(prev => ({ ...prev, [key]: data as KnowledgeItem[] }));
+    }
+    
+    // Update timestamp
+    setCacheTimestamp(prev => ({ ...prev, [key]: timestamp }));
   };
   
   // Function to get from cache
@@ -111,27 +117,27 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
     return cache[key] || null;
   };
   
-  // Function to clear cache for a specific organization
-  const clearCache = useCallback((organizationId: string | number) => {
-    const cacheKey = `sources_${organizationId}`;
-    logger.info(COMPONENT_NAME, `Clearing cache for organization ${organizationId}`);
-    
-    // Remove from cache
-    setSourceCache(prev => {
-      const newCache = { ...prev };
-      delete newCache[cacheKey];
-      return newCache;
-    });
-    
-    // Remove from timestamp cache
-    setCacheTimestamp(prev => {
-      const newTimestamps = { ...prev };
-      delete newTimestamps[cacheKey];
-      return newTimestamps;
-    });
-    
-    logger.info(COMPONENT_NAME, `Cache cleared for organization ${organizationId}`);
-  }, []);
+  // Function to clear cache for a specific organization - unused but kept for future reference
+  // const clearCache = useCallback((organizationId: string | number) => {
+  //   const cacheKey = `sources_${organizationId}`;
+  //   logger.info(COMPONENT_NAME, `Clearing cache for organization ${organizationId}`);
+  //   
+  //   // Remove from cache
+  //   _setSourceCache(prev => {
+  //     const newCache = { ...prev };
+  //     delete newCache[cacheKey];
+  //     return newCache;
+  //   });
+  //   
+  //   // Remove from timestamp cache
+  //   setCacheTimestamp(prev => {
+  //     const newTimestamps = { ...prev };
+  //     delete newTimestamps[cacheKey];
+  //     return newTimestamps;
+  //   });
+  //   
+  //   logger.info(COMPONENT_NAME, `Cache cleared for organization ${organizationId}`);
+  // }, []);
   
   // Fetch data sources from the server
   const fetchDataSources = useCallback(async () => {
@@ -231,7 +237,7 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
       logger.info(COMPONENT_NAME, `Transformed ${knowledgeSources.length} data sources, with ${knowledgeSources.filter(s => s.isActive).length} active sources`);
       
       // Update cache
-      updateCache(cacheKey, knowledgeSources, setSourceCache);
+      updateCache(cacheKey, knowledgeSources, now);
       logger.info(COMPONENT_NAME, `Updated cache for key: ${cacheKey}`);
       
       // Update state
@@ -393,7 +399,7 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
       logger.debug(COMPONENT_NAME, 'Search results:', enhancedItems);
       
       // Update cache
-      updateCache(cacheKey, enhancedItems, setItemCache);
+      updateCache(cacheKey, enhancedItems, Date.now());
       
       return enhancedItems;
     } catch (error) {
@@ -578,117 +584,47 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
   
   // Set up WebSocket connection for real-time updates
   useEffect(() => {
-    // Only set up socket if we have an organization
-    if (!currentOrganization) {
-      logger.info(COMPONENT_NAME, 'Skipping WebSocket setup - no organization selected');
-      return;
+    if (isAuthenticated && currentOrganization?.id) {
+      logger.info(COMPONENT_NAME, 'Setting up knowledge base connection');
+      
+      // Set up polling interval instead
+      const pollingInterval = setInterval(() => {
+        fetchLatestKnowledgeData();
+      }, 15000); // Poll every 15 seconds
+
+      return () => {
+        clearInterval(pollingInterval);
+      };
     }
+  }, [isAuthenticated, currentOrganization?.id]);
 
-    logger.info(COMPONENT_NAME, `Setting up WebSocket connection to ${SOCKET_URL} for organization ${currentOrganization.id}`);
-    
-    let isConnected = false;
-    
-    // Create socket connection
-    const socket = io(SOCKET_URL, {
-      path: '/socket.io',
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 10000, // Increase timeout to 10 seconds
-    });
-
-    // Set up event listeners
-    socket.on('connect', () => {
-      isConnected = true;
-      logger.info(COMPONENT_NAME, 'WebSocket connected for knowledge base updates');
-    });
-
-    socket.on('connect_error', (error) => {
-      logger.error(COMPONENT_NAME, 'WebSocket connection error:', error);
-    });
-
-    socket.on('disconnect', () => {
-      isConnected = false;
-      logger.info(COMPONENT_NAME, 'WebSocket disconnected from knowledge base updates');
-    });
-
-    // Listen for data source updates
-    socket.on('dataSourceUpdate', (data) => {
-      logger.info(COMPONENT_NAME, 'Received data source update via WebSocket:', data);
+  // New function to fetch latest knowledge data via REST API
+  const fetchLatestKnowledgeData = async () => {
+    try {
+      if (!currentOrganization?.id) return;
       
-      // Refresh data sources when a data source is completed or ready
-      if (data && data.status && (data.status === 'completed' || data.status === 'ready')) {
-        logger.info(COMPONENT_NAME, `Data source ${data.id} is now ${data.status}, refreshing knowledge base`);
-        
-        // Clear cache to force a fresh fetch
-        if (currentOrganization) {
-          clearCache(currentOrganization.id);
+      const response = await fetch(`${SOCKET_URL}/api/data-sources?organization_id=${currentOrganization.id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
+          'Content-Type': 'application/json'
         }
-        
-        // Force refresh data sources
-        fetchDataSources().catch(err => {
-          logger.error(COMPONENT_NAME, `Error refreshing data sources after data source ${data.id} update:`, err);
-        });
-      }
-    });
-
-    // Listen for knowledge base updates
-    socket.on('knowledgeBaseUpdated', (data) => {
-      logger.info(COMPONENT_NAME, 'Received knowledge base update via WebSocket:', data);
-      
-      // Refresh data sources when we get a knowledge base update
-      if (data && data.timestamp) {
-        logger.info(COMPONENT_NAME, 'Triggering data source refresh from knowledgeBaseUpdated event');
-        
-        // Clear cache to force a fresh fetch
-        if (currentOrganization) {
-          clearCache(currentOrganization.id);
-        }
-        
-        fetchDataSources().catch(err => {
-          logger.error(COMPONENT_NAME, 'Error refreshing data sources after knowledgeBaseUpdated event:', err);
-        });
-      }
-    });
-
-    // Clean up on unmount
-    return () => {
-      logger.info(COMPONENT_NAME, 'Cleaning up WebSocket connection');
-      // Only disconnect if we're actually connected
-      if (socket && isConnected) {
-        socket.disconnect();
-      } else if (socket) {
-        // If not connected, just remove all listeners without disconnecting
-        socket.removeAllListeners();
-      }
-    };
-  }, [currentOrganization, fetchDataSources, clearCache]);
-  
-  // Listen for custom knowledgeBaseUpdate events
-  useEffect(() => {
-    const handleKnowledgeBaseUpdate = () => {
-      logger.info(COMPONENT_NAME, 'Received knowledgeBaseUpdate event, refreshing data sources');
-      
-      // Clear cache to force a fresh fetch
-      if (currentOrganization) {
-        clearCache(currentOrganization.id);
-      }
-      
-      fetchDataSources().catch(err => {
-        logger.error(COMPONENT_NAME, 'Error refreshing data sources after knowledgeBaseUpdate event:', err);
       });
-    };
-    
-    logger.info(COMPONENT_NAME, 'Setting up event listener for knowledgeBaseUpdate events');
-    window.addEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate);
-    
-    return () => {
-      logger.info(COMPONENT_NAME, 'Removing event listener for knowledgeBaseUpdate events');
-      window.removeEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate);
-    };
-  }, [fetchDataSources, currentOrganization, clearCache]);
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Process the data as a direct data sources update
+        if (data && Array.isArray(data)) {
+          setSources(data);
+          // Also update the cache
+          if (currentOrganization?.id) {
+            updateCache(String(currentOrganization.id), data, Date.now());
+          }
+        }
+      }
+    } catch (error) {
+      logger.error(COMPONENT_NAME, 'Error fetching knowledge data:', error);
+    }
+  };
   
   const value = {
     sources,

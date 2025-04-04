@@ -1,5 +1,4 @@
-import React, { useRef, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useRef } from 'react';
 import { type ChatMessage } from '../types';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
@@ -125,117 +124,34 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
   onCopy,
   onEdit,
   onDelete,
-  showMetadata,
-  showAvatar,
+  showMetadata = false,
+  showAvatar = true,
   messageAlignment = 'left',
-  accentColor = 'violet',
-  isMobile = false,
+  isMobile = false
 }) => {
-  const showGroupMetadata = showMetadata || isLastGroup;
-  const firstMessage = messages[0];
-  const isAssistantGroup = firstMessage.role === 'assistant';
-
-  const groupVariants = {
-    initial: { opacity: 0, y: 20 },
-    animate: { 
-      opacity: 1, 
-      y: 0,
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.1
-      }
-    },
-    exit: { opacity: 0, y: -20 }
-  };
-
-  // Memoize the rendered messages to avoid constant re-renders
-  const renderedMessages = useMemo(() => {
-    return messages.map((message, index) => {
-      const isFirst = index === 0;
-      const isLast = index === messages.length - 1;
-      
-      return (
-        <motion.div
-          key={message.id}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ 
-            duration: 0.4, 
-            ease: [0.23, 1, 0.32, 1], 
-            delay: index * 0.1 
-          }}
-          className="relative"
-        >
+  return (
+    <div className={`message-group ${isLastGroup ? '' : 'mb-1'}`}>
+      {messages.map((message, index) => {
+        const isFirst = index === 0;
+        const isLast = index === messages.length - 1;
+        return (
           <MemoizedMessage
+            key={`${message.id}-${index}`}
             message={message}
             index={index}
             isFirst={isFirst}
             isLast={isLast}
-            showGroupMetadata={!!showGroupMetadata}
-            showAvatar={!!showAvatar}
-            messageAlignment={messageAlignment || 'left'}
+            showGroupMetadata={showMetadata}
+            showAvatar={showAvatar}
+            messageAlignment={messageAlignment}
             onCopy={onCopy}
             onRegenerate={onRegenerate}
             onEdit={onEdit}
             onDelete={onDelete}
             isMobile={isMobile}
           />
-        </motion.div>
-      );
-    });
-  }, [
-    messages, 
-    showGroupMetadata, 
-    showAvatar, 
-    messageAlignment, 
-    onCopy, 
-    onRegenerate, 
-    onEdit, 
-    onDelete,
-    isMobile
-  ]);
-
-  // Apply mobile-friendly adjustments to the component
-  return (
-    <motion.div
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      variants={groupVariants}
-      className={`
-        relative flex flex-col gap-2 py-4
-        ${isAssistantGroup 
-          ? 'bg-gradient-to-r from-gray-50/50 via-gray-50/80 to-gray-50/50 dark:from-gray-900/20 dark:via-gray-900/30 dark:to-gray-900/20' 
-          : ''}
-        transition-all duration-300 ease-out
-        border-b border-gray-100/40 dark:border-gray-800/40
-        group
-        hover:bg-gray-50/80 dark:hover:bg-gray-900/40
-      `}
-    >
-      <div className={`
-        w-full ${isMobile ? 'max-w-full px-2' : 'max-w-4xl px-4 sm:px-6 lg:px-8'} mx-auto
-        flex flex-col ${isMobile ? 'gap-2' : 'gap-3'}
-        ${isAssistantGroup ? 'items-start' : 'items-end'}
-        relative
-      `}>
-        <div className="absolute inset-0 pointer-events-none">
-          {messages.length > 1 && (
-            <div className={`
-              h-full w-0.5 rounded-full
-              ${isAssistantGroup 
-                ? `bg-gradient-to-b from-${accentColor}-500/20 via-${accentColor}-500/10 to-transparent dark:from-${accentColor}-400/30 dark:via-${accentColor}-400/15`
-                : `bg-gradient-to-b from-${accentColor}-500/20 via-${accentColor}-500/10 to-transparent dark:from-${accentColor}-400/30 dark:via-${accentColor}-400/15`
-              }
-              ${isAssistantGroup ? 'ml-8' : 'mr-8'}
-              opacity-0 group-hover:opacity-100 transition-all duration-300
-            `} />
-          )}
-        </div>
-        <div className={`w-full ${isMobile ? 'max-w-full space-y-2' : 'max-w-2xl space-y-3'}`}>
-          {renderedMessages}
-        </div>
-      </div>
-    </motion.div>
+        );
+      })}
+    </div>
   );
 }; 

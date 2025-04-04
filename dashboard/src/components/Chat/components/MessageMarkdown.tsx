@@ -17,6 +17,14 @@ interface MessageMarkdownProps {
   metadata?: MessageMetadata;
 }
 
+// Type definition for component props
+type ReactMarkdownComponentProps = {
+  node?: any;
+  children?: React.ReactNode;
+  className?: string;
+  [key: string]: any;
+};
+
 // Define components for ReactMarkdown
 const markdownComponents = {
   // Code component - using function declaration to avoid TypeScript issues
@@ -28,7 +36,7 @@ const markdownComponents = {
     const isInlineCode = !className;
     
     if (isInlineCode) {
-      return <code className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded text-sm" {...props}>{children}</code>;
+      return <code className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1 py-0.5 rounded text-sm" {...props}>{children}</code>;
     }
     
     // For code blocks, we'll handle them in the parent component
@@ -42,7 +50,7 @@ const markdownComponents = {
   // Table components
   table: function (props: any) {
     return (
-      <div className="my-4 overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+      <div className="my-3 overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-gray-700 dark:text-gray-200" {...props} />
       </div>
     );
@@ -52,7 +60,7 @@ const markdownComponents = {
   th: function (props: any) {
     return (
       <th
-        className="px-4 py-3 text-left text-sm font-medium bg-gray-50 dark:bg-gray-800/90
+        className="px-3 py-2 text-left text-sm font-medium bg-gray-50 dark:bg-gray-800/90
           text-gray-900 dark:text-gray-100 sticky top-0"
         {...props}
       />
@@ -62,7 +70,7 @@ const markdownComponents = {
   td: function (props: any) {
     return (
       <td
-        className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 
+        className="px-3 py-2 text-sm text-gray-700 dark:text-gray-200 
           border-t border-gray-200 dark:border-gray-700"
         {...props}
       />
@@ -71,25 +79,37 @@ const markdownComponents = {
   
   // Enhance headings for better contrast
   h1: function (props: any) {
-    return <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50 mb-4 mt-6" {...props} />;
+    return <h1 className="text-xl font-bold text-gray-900 dark:text-gray-50 mb-3 mt-4" {...props} />;
   },
   
   h2: function (props: any) {
-    return <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-5 pb-2 border-b border-gray-200 dark:border-gray-700" {...props} />;
+    return <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2 mt-4 pb-1 border-b border-gray-200 dark:border-gray-700" {...props} />;
   },
   
   h3: function (props: any) {
-    return <h3 className="text-md font-medium text-gray-800 dark:text-gray-100 mb-2 mt-4" {...props} />;
+    return <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 mb-2 mt-3" {...props} />;
+  },
+  
+  h4: function (props: any) {
+    return <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-1.5 mt-3" {...props} />;
+  },
+  
+  h5: function (props: any) {
+    return <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5 mt-2" {...props} />;
+  },
+  
+  h6: function (props: any) {
+    return <h6 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 mt-2" {...props} />;
   },
   
   // Enhance paragraphs for better readability
   p: function (props: any) {
-    return <p className="text-gray-700 dark:text-gray-200 mb-4 leading-relaxed" {...props} />;
+    return <p className="mb-2 leading-relaxed text-gray-800 dark:text-gray-200" {...props} />;
   },
   
   // Style list items for better readability
   li: function (props: any) {
-    return <li className="text-gray-700 dark:text-gray-200 mb-1 leading-relaxed" {...props} />;
+    return <li className="mb-1" {...props} />;
   },
   
   // Enhance strong text elements
@@ -115,24 +135,24 @@ const markdownComponents = {
   blockquote: function (props: any) {
     return (
       <blockquote 
-        className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic text-gray-700 dark:text-gray-300 my-4"
-        {...props}
+        className="pl-3 py-1 mb-3 mt-2 border-l-2 border-gray-300 dark:border-gray-600 italic text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-r-md" 
+        {...props} 
       />
     );
   },
   
   // Enhance horizontal rule
   hr: function (props: any) {
-    return <hr className="border-t border-gray-200 dark:border-gray-700 my-5 opacity-60" {...props} />;
+    return <hr className="border-gray-200 dark:border-gray-700 my-3" {...props} />;
   },
   
   // Enhance lists
   ul: function (props: any) {
-    return <ul className="list-disc pl-6 mb-4 text-gray-700 dark:text-gray-200 space-y-2" {...props} />;
+    return <ul className="list-disc pl-5 mb-3 mt-2 space-y-1 text-gray-700 dark:text-gray-200" {...props} />;
   },
   
   ol: function (props: any) {
-    return <ol className="list-decimal pl-6 mb-4 text-gray-700 dark:text-gray-200 space-y-2" {...props} />;
+    return <ol className="list-decimal pl-5 mb-3 mt-2 space-y-1 text-gray-700 dark:text-gray-200" {...props} />;
   },
   
   // Add div component for custom containers
@@ -151,142 +171,218 @@ const markdownComponents = {
 };
 
 export const MessageMarkdown: React.FC<MessageMarkdownProps> = ({ content }) => {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  // Extract and process code blocks
+  const [codeBlocks, setCodeBlocks] = useState<Array<{ language: string; value: string }>>([]);
+  // Track which code blocks have been copied for UI feedback
+  const [copiedStates, setCopiedStates] = useState<boolean[]>([]);
   
-  // Process content to handle both markdown and HTML content
-  const processedContent = useMemo(() => {
-    // Safety check for null or undefined content
-    if (!content) {
-      return {
-        isHtml: false,
-        content: ''
-      };
-    }
-    
-    // Check if content contains HTML elements
-    const hasHtmlContent = 
-      content.includes('<div') || 
-      content.includes('<span') || 
-      content.includes('<p') || 
-      content.includes('<h') || 
-      content.includes('<table') || 
-      content.includes('<strong') || 
-      content.includes('<em') || 
-      content.includes('<ul') || 
-      content.includes('<ol') || 
-      content.includes('<li') || 
-      content.includes('<br');
-    
-    // If content has HTML, return it as HTML
-    if (hasHtmlContent) {
-      return {
-        isHtml: true,
-        content
-      };
-    }
-    
-    // Check for data tables that need special formatting for dark mode
-    if (content.includes('Data Table') || content.includes('data table')) {
-      let enhancedContent = content;
+  // Split content to detect and extract code blocks
+  useEffect(() => {
+    try {
+      const extractedBlocks: Array<{ language: string; value: string }> = [];
+      const codeBlockRegex = /```([a-zA-Z0-9_]*)\n([\s\S]*?)```/g;
       
-      // Add styling for data table titles
-      enhancedContent = enhancedContent.replace(
-        /(Data Table|data table)/g, 
-        '<div class="data-table-title font-medium text-gray-900 dark:text-gray-100">$1</div>'
-      );
+      let match;
+      while ((match = codeBlockRegex.exec(content)) !== null) {
+        const language = match[1] || 'text';
+        const code = match[2].trim();
+        extractedBlocks.push({ language, value: code });
+      }
       
-      return {
-        isHtml: true,
-        content: enhancedContent
-      };
+      setCodeBlocks(extractedBlocks);
+      setCopiedStates(new Array(extractedBlocks.length).fill(false));
+    } catch (error) {
+      console.error('Error extracting code blocks:', error);
     }
-    
-    // Return the content as markdown
-    return {
-      isHtml: false,
-      content
-    };
   }, [content]);
   
-  // Handle copy button click for code blocks
+  // Remove code blocks from content for separate rendering
+  const contentWithoutCodeBlocks = useMemo(() => {
+    try {
+      return content.replace(/```[a-zA-Z0-9_]*\n[\s\S]*?```/g, (match, offset) => {
+        // Replace each code block with a placeholder that will be replaced with the actual rendered code block
+        const index = codeBlocks.findIndex(block => content.indexOf(`\`\`\`${block.language}\n${block.value}\`\`\``, offset) === offset);
+        if (index !== -1) {
+          return `\nCODE_BLOCK_${index}\n`;
+        }
+        return match; // Keep original if not found
+      });
+    } catch (error) {
+      console.error('Error removing code blocks:', error);
+      return content;
+    }
+  }, [content, codeBlocks]);
+  
   const handleCopyClick = (index: number, code: string) => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000);
-    });
+    try {
+      navigator.clipboard.writeText(code).then(
+        () => {
+          const newCopiedStates = [...copiedStates];
+          newCopiedStates[index] = true;
+          setCopiedStates(newCopiedStates);
+          
+          // Reset the copied state after 2 seconds
+          setTimeout(() => {
+            const resetCopiedStates = [...copiedStates];
+            resetCopiedStates[index] = false;
+            setCopiedStates(resetCopiedStates);
+          }, 2000);
+        },
+        (err) => {
+          console.error('Could not copy text: ', err);
+        }
+      );
+    } catch (error) {
+      console.error('Error copying code:', error);
+    }
   };
-
-  // Reset copied state when content changes
-  useEffect(() => {
-    setCopiedIndex(null);
-  }, [processedContent.content]);
-
-  // Custom component for code blocks with copy button
+  
   const CodeBlock = ({ language, value, index }: { language: string; value: string; index: number }) => {
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    
     return (
-      <div className="relative group">
-        <button
-          onClick={() => handleCopyClick(index, value)}
-          className="absolute right-2 top-2 p-1.5 rounded bg-gray-700/50 hover:bg-gray-700/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-label="Copy code"
-        >
-          {copiedIndex === index ? <CheckIcon className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-        </button>
-        <SyntaxHighlighter
-          language={language || 'text'}
-          PreTag="div"
-          className="rounded-md p-4 bg-gray-800 text-gray-200 text-sm overflow-auto"
-        >
-          {value}
-        </SyntaxHighlighter>
+      <div className="relative group my-2 text-sm">
+        <div className="absolute -top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+          <button
+            onClick={() => handleCopyClick(index, value)}
+            className="p-1 bg-white dark:bg-gray-800 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm transition-colors"
+            aria-label="Copy code"
+            title="Copy code"
+          >
+            {copiedStates[index] ? (
+              <CheckIcon className="w-4 h-4" />
+            ) : (
+              <Copy className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+        <div className="rounded-md overflow-hidden">
+          <SyntaxHighlighter
+            language={language || 'text'}
+            style={{
+              'hljs': {
+                display: 'block',
+                overflowX: 'auto',
+                padding: '0.8em',
+                color: isDarkMode ? '#c0caf5' : '#383a42',
+                background: isDarkMode ? '#1a1b26' : '#f8f8f8',
+              },
+              'hljs-comment': { color: '#a0a1a7', fontStyle: 'italic' },
+              'hljs-quote': { color: '#a0a1a7', fontStyle: 'italic' },
+              'hljs-doctag': { color: '#a626a4' },
+              'hljs-keyword': { color: '#a626a4' },
+              'hljs-formula': { color: '#a626a4' },
+              'hljs-section': { color: '#e45649' },
+              'hljs-name': { color: '#e45649' },
+              'hljs-selector-tag': { color: '#e45649' },
+              'hljs-deletion': { color: '#e45649' },
+              'hljs-subst': { color: '#e45649' },
+              'hljs-literal': { color: '#0184bb' },
+              'hljs-string': { color: '#50a14f' },
+              'hljs-regexp': { color: '#50a14f' },
+              'hljs-addition': { color: '#50a14f' },
+              'hljs-attribute': { color: '#50a14f' },
+              'hljs-meta-string': { color: '#50a14f' },
+              'hljs-built_in': { color: '#c18401' },
+              'hljs-class .hljs-title': { color: '#c18401' },
+              'hljs-attr': { color: '#986801' },
+              'hljs-variable': { color: '#986801' },
+              'hljs-template-variable': { color: '#986801' },
+              'hljs-type': { color: '#986801' },
+              'hljs-selector-class': { color: '#986801' },
+              'hljs-selector-attr': { color: '#986801' },
+              'hljs-selector-pseudo': { color: '#986801' },
+              'hljs-number': { color: '#986801' },
+              'hljs-symbol': { color: '#4078f2' },
+              'hljs-bullet': { color: '#4078f2' },
+              'hljs-link': { color: '#4078f2', textDecoration: 'underline' },
+              'hljs-meta': { color: '#4078f2' },
+              'hljs-selector-id': { color: '#4078f2' },
+              'hljs-title': { color: '#4078f2' },
+              'hljs-emphasis': { fontStyle: 'italic' },
+              'hljs-strong': { fontWeight: 'bold' },
+            }}
+            customStyle={{
+              borderRadius: '0.375rem',
+              fontSize: '0.85rem',
+              margin: 0
+            }}
+          >
+            {value}
+          </SyntaxHighlighter>
+        </div>
       </div>
     );
   };
-  
-  // Counter for code blocks to track which one was copied
-  let codeBlockIndex = 0;
 
   return (
-    <div className="message-markdown relative">
-      {processedContent.isHtml ? (
+    <div className="message-markdown relative p-2.5">
+      {contentWithoutCodeBlocks.includes('CODE_BLOCK_') ? (
         <div
           className="markdown-html prose prose-sm dark:prose-invert max-w-none 
-                     prose-headings:text-gray-800 dark:prose-headings:text-gray-100 
-                     prose-p:text-gray-700 dark:prose-p:text-gray-200 
-                     text-gray-800 dark:text-gray-200 
-                     prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base 
-                     prose-h2:mt-6 prose-h2:mb-4 prose-h3:mt-4 prose-h3:mb-2"
-          dangerouslySetInnerHTML={{ __html: processedContent.content }}
-        />
+            prose-p:my-2 prose-p:leading-relaxed
+            prose-pre:my-0 prose-pre:p-0 
+            prose-code:text-sm prose-code:font-normal
+            prose-ul:my-2 prose-ul:pl-5 prose-ol:my-2 prose-ol:pl-5
+            prose-li:my-0.5 prose-li:pl-0.5
+            prose-table:my-2 prose-table:border-collapse
+            prose-headings:font-semibold prose-h2:text-lg prose-h3:text-base 
+            prose-h2:mt-4 prose-h2:mb-3 prose-h3:mt-3 prose-h3:mb-2
+            prose-hr:my-4"
+        >
+          {contentWithoutCodeBlocks.split(/CODE_BLOCK_(\d+)/).map((part, i) => {
+            // Every odd index is a code block reference
+            if (i % 2 === 1) {
+              const blockIndex = parseInt(part, 10);
+              const codeBlock = codeBlocks[blockIndex];
+              return codeBlock ? 
+                <CodeBlock 
+                  key={`code-${blockIndex}`} 
+                  language={codeBlock.language} 
+                  value={codeBlock.value} 
+                  index={blockIndex} 
+                /> : null;
+            }
+            // Even indices are regular text
+            return part ? <ReactMarkdown 
+              key={`text-${i}`}
+              components={markdownComponents}
+              remarkPlugins={[remarkGfm]}
+            >
+              {part}
+            </ReactMarkdown> : null;
+          })}
+        </div>
       ) : (
         <ReactMarkdown
           components={{
             ...markdownComponents,
-            // Override the code component to handle code blocks with syntax highlighting
-            code: (props: any) => {
+            code(props: ReactMarkdownComponentProps) {
               const { className, children } = props;
               const match = /language-(\w+)/.exec(className || '');
-              
-              // Check if it's an inline code block (no language class)
-              if (!className) {
-                return <code {...props}>{children}</code>;
-              }
+              const language = match ? match[1] : '';
               
               // For code blocks with language, use our CodeBlock component
-              const currentIndex = codeBlockIndex++;
-              return (
-                <CodeBlock
-                  language={match ? match[1] : ''}
-                  value={String(children).replace(/\n$/, '')}
-                  index={currentIndex}
-                />
-              );
+              if (className && match) {
+                const currentIndex = codeBlocks.findIndex(block => block.language === language);
+                return (
+                  <CodeBlock
+                    language={language}
+                    value={String(children).replace(/\n$/, '')}
+                    index={currentIndex}
+                    {...props}
+                  />
+                );
+              }
+              
+              // For inline code, use the code component from markdownComponents
+              return markdownComponents.code(props);
             }
           }}
           remarkPlugins={[remarkGfm]}
           className="markdown-content"
         >
-          {processedContent.content}
+          {contentWithoutCodeBlocks}
         </ReactMarkdown>
       )}
       
@@ -515,21 +611,24 @@ export const NextStepsSection: React.FC<{steps: string[]}> = ({steps}) => {
   );
 };
 
-export const AnalysisStepsSection: React.FC<{steps: string[]}> = ({steps}) => {
-  if (!steps.length) return null;
+export const AnalysisStepsSection: React.FC = () => {
+  // Always return null to hide the analysis steps section
+  return null;
   
-  return (
-    <details className="mt-4 border rounded-md">
-      <summary className="px-3 py-2 bg-gray-50 cursor-pointer font-medium">
-        Step-by-Step Analysis
-      </summary>
-      <div className="px-4 py-2">
-        <ol className="list-decimal pl-5 space-y-2">
-          {steps.map((step, i) => (
-            <li key={`analysis-step-${i}`} className="text-gray-700">{step}</li>
-          ))}
-        </ol>
-      </div>
-    </details>
-  );
+  // if (!steps.length) return null;
+  // 
+  // return (
+  //   <details className="mt-4 border rounded-md">
+  //     <summary className="px-3 py-2 bg-gray-50 cursor-pointer font-medium">
+  //       Step-by-Step Analysis
+  //     </summary>
+  //     <div className="px-4 py-2">
+  //       <ol className="list-decimal pl-5 space-y-2">
+  //         {steps.map((step, i) => (
+  //           <li key={`analysis-step-${i}`} className="text-gray-700">{step}</li>
+  //         ))}
+  //       </ol>
+  //     </div>
+  //   </details>
+  // );
 }; 

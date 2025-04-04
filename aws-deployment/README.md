@@ -66,17 +66,7 @@ Create the PostgreSQL RDS instance:
 
 This will create a PostgreSQL database in AWS RDS. The credentials will be saved in the `aws-config.env` file.
 
-### 4. Deploy Prisma Migrations
-
-Deploy your database schema using Prisma migrations:
-
-```bash
-./deploy-prisma-migrations.sh
-```
-
-This will apply all your Prisma migrations to the AWS RDS database, ensuring all tables and relationships are properly created before deploying your application.
-
-### 5. Build and Push Docker Images
+### 4. Build and Push Docker Images
 
 Build the Docker images for the backend and frontend, then push them to ECR:
 
@@ -84,7 +74,7 @@ Build the Docker images for the backend and frontend, then push them to ECR:
 ./build-and-push.sh
 ```
 
-### 6. Deploy Services
+### 5. Deploy Services
 
 Set your OpenAI API key in the environment:
 

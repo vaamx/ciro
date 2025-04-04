@@ -55,7 +55,7 @@ echo "Creating DB subnet group..."
 aws rds create-db-subnet-group \
     --db-subnet-group-name "${STACK_NAME}-db-subnet-group" \
     --db-subnet-group-description "${STACK_NAME} DB subnet group" \
-    --subnet-ids '["'"$SUBNET1_ID"'", "'"$SUBNET2_ID"'"]' \
+    --subnet-ids "[$SUBNET1_ID, $SUBNET2_ID]" \
     --region $AWS_REGION
 
 # Generate a random password for the database

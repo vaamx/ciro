@@ -242,7 +242,7 @@ interface ThemeContextType {
   toggleDarkMode: () => void;
 }
 
-export const ThemeContext = React.createContext<ThemeContextType>({
+export const ChartThemeContext = React.createContext<ThemeContextType>({
   colors: COLOR_PALETTES.default,
   chartStyle: CHART_STYLES.default,
   setColors: () => {},
@@ -256,7 +256,7 @@ interface ThemeProviderProps {
   initialDarkMode?: boolean;
 }
 
-export const ThemeProvider: React.FC<ThemeProviderProps> = ({
+export const ChartThemeProvider: React.FC<ThemeProviderProps> = ({
   children,
   initialDarkMode = false
 }) => {
@@ -269,7 +269,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
   };
   
   return (
-    <ThemeContext.Provider
+    <ChartThemeContext.Provider
       value={{
         colors,
         chartStyle,
@@ -280,6 +280,6 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({
       }}
     >
       {children}
-    </ThemeContext.Provider>
+    </ChartThemeContext.Provider>
   );
 }; 
