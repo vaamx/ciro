@@ -76,3 +76,6 @@ tmp/
 # Documentation and guides
 Apache-Kafka-Guide/
 Openai-cookbook/
+
+# Qdrant data
+qdrant_data/
