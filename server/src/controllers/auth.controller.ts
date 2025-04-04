@@ -2,11 +2,10 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt, { SignOptions, Secret } from 'jsonwebtoken';
 import { config } from '../config';
-import { SendGridService } from '../infrastructure/email/sendgrid';
+import { SendGridService } from '../infrastructure/messaging/email';
 import { randomBytes } from 'crypto';
 import { Knex } from 'knex';
-import { db } from '../infrastructure/database';
-import { BadRequestError, UnauthorizedError } from '../utils/errors';
+import { db } from '../config/database';
 import { RequestHandler } from 'express';
 
 export class AuthController {

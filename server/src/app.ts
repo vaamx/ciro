@@ -7,7 +7,7 @@ import chatRoutes from './routes/chat';
 import fileRoutes from './routes/file.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import organizationRoutes from './routes/organizationRoutes';
-import dataSourceRoutes from './routes/data-source.routes';
+import dataSourceRoutes from './routes/dataSource.routes';
 import automationRoutes from './routes/automation.routes';
 import {
   rateLimiter,
@@ -23,6 +23,7 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 import compression from 'compression';
 import { initializeUploadDirectories, UPLOAD_DIR } from './utils/upload';
+import { RequestHandler } from 'express';
 
 const app = express();
 
@@ -58,18 +59,18 @@ app.use(morgan('dev'));
 app.use(cookieParser());
 
 // Security middleware
-app.use(securityHeaders);
-app.use(rateLimiter);
-app.use(speedLimiter);
-app.use(requestSizeLimiter);
+app.use(securityHeaders as unknown as express.RequestHandler);
+app.use(rateLimiter as unknown as express.RequestHandler);
+app.use(speedLimiter as unknown as express.RequestHandler);
+app.use(requestSizeLimiter as unknown as express.RequestHandler);
 
 // Body parsing middleware
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // Security middleware for request body
-app.use(sanitizeInput);
-app.use(sqlInjectionPrevention);
+app.use(sanitizeInput as unknown as express.RequestHandler);
+app.use(sqlInjectionPrevention as unknown as express.RequestHandler);
 
 // Serve static files from the uploads directory
 app.use('/files', (req, res, next) => {
@@ -96,7 +97,7 @@ app.use('/api/data-sources', dataSourceRoutes);
 app.use('/api/automations', automationRoutes);
 
 // Error handling
-app.use(errorHandler);
+app.use(errorHandler as unknown as express.ErrorRequestHandler);
 
 // 404 handler
 app.use((req, res) => {

@@ -1,69 +1,60 @@
+/**
+ * This file is a re-export of the configuration from src/config/knexfile.ts
+ * It exists for backward compatibility and to support tools that expect a knexfile at the root level.
+ * 
+ * The actual configuration is maintained in src/config/knexfile.ts
+ */
 import { Knex } from 'knex';
-import dotenv from 'dotenv';
+import { config } from '../config';
 import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Base knex configuration derived from the centralized config
+const baseConfig: Knex.Config = {
+  client: '***REMOVED***ql',
+  connection: {
+    host: config.database.host,
+    port: config.database.port,
+    user: config.database.user,
+    password: config.database.password,
+    database: config.database.database,
+  },
+  pool: {
+    min: 2,
+    max: 10
+  },
+  migrations: {
+    tableName: 'knex_migrations',
+    directory: path.join(__dirname, '../../migrations'),
+    extension: 'ts',
+  },
+  seeds: {
+    directory: path.join(__dirname, '../../seeds'),
+    extension: 'ts',
+  }
+};
 
-type Environment = 'development' | 'test' | 'production';
-
-const configurations: Record<Environment, Knex.Config> = {
+// Environment-specific configurations
+const configurations = {
   development: {
-    client: '***REMOVED***ql',
-    connection: {
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      database: process.env.DB_NAME || 'ciro_db',
-      user: process.env.DB_USER || '***REMOVED***',
-      password: process.env.DB_PASSWORD || '***REMOVED***',
-    },
-    pool: {
-      min: 2,
-      max: 10
-    },
-    migrations: {
-      tableName: 'knex_migrations',
-      directory: path.join(__dirname, '../../migrations')
-    }
+    ...baseConfig,
+    debug: process.env.DB_DEBUG === 'true'
   },
 
   test: {
-    client: '***REMOVED***ql',
+    ...baseConfig,
     connection: {
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      database: `${process.env.DB_NAME || 'ciro'}_test`,
-      user: process.env.DB_USER || '***REMOVED***',
-      password: process.env.DB_PASSWORD || '***REMOVED***',
-    },
-    pool: {
-      min: 2,
-      max: 10
-    },
-    migrations: {
-      tableName: 'knex_migrations',
-      directory: path.join(__dirname, '../../migrations')
+      ...baseConfig.connection as object,
+      database: `${config.database.database}_test`
     }
   },
 
   production: {
-    client: '***REMOVED***ql',
-    connection: {
-      host: process.env.DB_HOST,
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      ssl: { rejectUnauthorized: false }
-    },
+    ...baseConfig,
     pool: {
-      min: 2,
-      max: 20
+      min: 5,
+      max: 30
     },
-    migrations: {
-      tableName: 'knex_migrations',
-      directory: path.join(__dirname, '../../migrations')
-    }
+    debug: false
   }
 };
 

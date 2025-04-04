@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 
 export const dataSourceController = {

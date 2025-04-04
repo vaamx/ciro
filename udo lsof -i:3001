@@ -1,5 +1,0 @@
-      email       | email_verified | email_verification_token | email_verification_token_expires_at 
-------------------+----------------+--------------------------+-------------------------------------
- test@example.com | t              |                          | 
-(1 row)
-

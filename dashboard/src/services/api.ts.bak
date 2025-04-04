@@ -1,0 +1,481 @@
+import type { ChatMessage, ChatSettings } from '../components/Chat/types';
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  last_message: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+  organization_id: number;
+  dashboard_id: string;
+}
+
+export interface ChatMetadata {
+  model?: string;
+  tokens?: {
+    prompt: number;
+    completion: number;
+    total: number;
+  } | number;
+  suggestions?: string[];
+  analyticalResponse?: any;
+  isMultiStep?: boolean;
+  messageType?: string;
+  contentType?: string;
+  dataStructure?: string;
+  processingType?: string;
+  structuredResponse?: any;
+}
+
+export interface ChatResponse {
+  content: string;
+  metadata?: ChatMetadata;
+}
+
+export interface Widget {
+  id: string;
+  dashboard_id: string;
+  widget_type: string;
+  title: string;
+  size: string;
+  settings: Record<string, any>;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Dashboard {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  team: string;
+  category: string;
+  created_at: string;
+  updated_at: string;
+  widgets: Widget[];
+}
+
+export interface ChatContext {
+  organizationId?: number;
+  dashboardId?: string;
+}
+
+export interface ApiService {
+  getChatSessions: (context?: ChatContext) => Promise<ChatSession[]>;
+  createChatSession: (title?: string, context?: ChatContext) => Promise<ChatSession>;
+  updateChatSession: (sessionId: string, title: string) => Promise<ChatSession>;
+  deleteChatSession: (sessionId: string, context?: ChatContext) => Promise<void>;
+  getChatHistory: (sessionId: string, context?: ChatContext) => Promise<ChatMessage[]>;
+  saveChatHistory: (sessionId: string, messages: ChatMessage[], context?: ChatContext) => Promise<void>;
+  sendMessage: (sessionId: string, message: string, context?: ChatContext, options?: any) => Promise<ChatResponse>;
+  regenerateMessage: (messageId: string) => Promise<{ content: string; metadata?: ChatMetadata }>;
+  cancelGeneration?: () => Promise<void>;
+  generateChatCompletion: (messages: ChatMessage[], options?: ChatSettings) => Promise<Response>;
+  streamChatCompletion: (messages: ChatMessage[], options?: ChatSettings) => Promise<Response>;
+  getDashboards: () => Promise<Dashboard[]>;
+  createDashboard: (dashboard: Omit<Dashboard, 'id' | 'created_at' | 'updated_at'>) => Promise<Dashboard>;
+  updateDashboard: (id: string, dashboard: Partial<Dashboard>) => Promise<Dashboard>;
+  deleteDashboard: (id: string) => Promise<void>;
+  updateDashboardWidgets: (dashboardId: string, widgets: Partial<Widget>[]) => Promise<Widget[]>;
+}
+
+class ApiServiceImpl implements ApiService {
+  private baseUrl: string;
+
+  constructor() {
+    // Use the backend server URL instead of a relative path
+    this.baseUrl = 'http://localhost:3001';
+  }
+
+  private async getAuthHeaders(): Promise<HeadersInit> {
+    const token = localStorage.getItem('auth_token');
+    
+    if (!token) {
+      throw new Error('No authentication token found. Please log in again.');
+    }
+
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/json',
+      'Origin': window.location.origin
+    };
+  }
+
+  private async fetchWithCredentials(url: string, options: RequestInit = {}): Promise<Response> {
+    const defaultOptions: RequestInit = {
+      credentials: 'include',
+      mode: 'cors',
+      headers: await this.getAuthHeaders()
+    };
+
+    const response = await fetch(url, {
+      ...defaultOptions,
+      ...options,
+      headers: {
+        ...defaultOptions.headers,
+        ...options.headers
+      }
+    });
+
+    return response;
+  }
+
+  private async handleResponse<T = any>(response: Response): Promise<T> {
+    // If the response is not a proper Response object, log the error and return an empty result
+    if (!(response instanceof Response)) {
+      console.error('Invalid response object:', response);
+      return {} as T;
+    }
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('API request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorData
+      });
+      throw new Error(errorData.message || errorData.error || `Server error: ${response.status}`);
+    }
+
+    // For 204 No Content responses
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    try {
+      const data = await response.json();
+      
+      // Special handling for chat responses
+      if (data.aiMessage && typeof data.aiMessage.content === 'string') {
+        // Return in ChatResponse format for chat-related endpoints
+        const chatResponse = {
+          content: data.aiMessage.content || '',
+          metadata: {
+            model: data.aiMessage.metadata?.model,
+            tokens: data.usage,
+            suggestions: data.aiMessage.metadata?.suggestions,
+            analyticalResponse: data.aiMessage.metadata?.analyticalResponse,
+            isMultiStep: data.aiMessage.metadata?.isMultiStep,
+            messageType: data.aiMessage.metadata?.messageType,
+            contentType: data.aiMessage.metadata?.contentType,
+            dataStructure: data.aiMessage.metadata?.dataStructure,
+            processingType: data.aiMessage.metadata?.processingType,
+            structuredResponse: data.aiMessage.metadata?.structuredResponse
+          }
+        } as T;
+        return chatResponse;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error parsing response:', error);
+      throw new Error('Failed to parse server response');
+    }
+  }
+
+  async getChatSessions(context?: ChatContext): Promise<ChatSession[]> {
+    const params = new URLSearchParams();
+    if (context?.organizationId) {
+      params.append('organization_id', context.organizationId.toString());
+    }
+    if (context?.dashboardId) {
+      params.append('dashboard_id', context.dashboardId);
+    }
+    
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions?${params.toString()}`);
+      return this.handleResponse<ChatSession[]>(response);
+    } catch (error) {
+      console.error('Error fetching chat sessions:', error);
+      return [];
+    }
+  }
+
+  async createChatSession(title?: string, context?: ChatContext): Promise<ChatSession> {
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        organization_id: context?.organizationId,
+        dashboard_id: context?.dashboardId,
+      })
+    });
+    return response.json();
+  }
+
+  async updateChatSession(sessionId: string, title: string): Promise<ChatSession> {
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title })
+    });
+    return response.json();
+  }
+
+  async deleteChatSession(sessionId: string, context?: ChatContext): Promise<void> {
+    const params = new URLSearchParams();
+    if (context?.organizationId) {
+      params.append('organization_id', context.organizationId.toString());
+    }
+    if (context?.dashboardId) {
+      params.append('dashboard_id', context.dashboardId);
+    }
+
+    await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}?${params.toString()}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async getChatHistory(sessionId: string, context?: ChatContext): Promise<ChatMessage[]> {
+    if (!sessionId) {
+      console.error('Session ID is required for getChatHistory');
+      return [];
+    }
+
+    const params = new URLSearchParams();
+    if (context?.organizationId) {
+      params.append('organization_id', context.organizationId.toString());
+    }
+    if (context?.dashboardId) {
+      params.append('dashboard_id', context.dashboardId);
+    }
+
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}/messages?${params.toString()}`);
+      
+      // Check if response is OK before trying to parse JSON
+      if (!response.ok) {
+        console.error(`Failed to get chat history: ${response.status} ${response.statusText}`);
+        return [];
+      }
+      
+      const data = await response.json();
+      
+      if (!Array.isArray(data)) {
+        console.error('Expected array but got:', typeof data);
+        return [];
+      }
+
+      // Process any analytical responses in the messages
+      return data.map(message => {
+        // Check if the message has an analyticalResponse in its metadata
+        if (message.metadata?.analyticalResponse) {
+          // No need to parse here - we'll handle parsing in the AssistantMessage component
+          // This ensures we don't lose any data structure
+          return message;
+        }
+        return message;
+      });
+    } catch (error) {
+      console.error('Error fetching chat history:', error);
+      // Return empty array instead of throwing to prevent cascading errors
+      return [];
+    }
+  }
+
+  async saveChatHistory(sessionId: string, messages: ChatMessage[], context?: ChatContext): Promise<void> {
+    const params = new URLSearchParams();
+    if (context?.organizationId) {
+      params.append('organization_id', context.organizationId.toString());
+    }
+    if (context?.dashboardId) {
+      params.append('dashboard_id', context.dashboardId);
+    }
+
+    await this.fetchWithCredentials(`${this.baseUrl}/api/chat/sessions/${sessionId}/history?${params.toString()}`, {
+      method: 'PUT',
+      body: JSON.stringify({ messages })
+    });
+  }
+
+  async sendMessage(sessionId: string, message: string, context?: ChatContext, options?: any): Promise<ChatResponse> {
+    // More thorough validation with detailed logging
+    if (!sessionId) {
+      console.error('Missing sessionId in sendMessage call');
+      throw new Error('Content and sessionId are required');
+    }
+    
+    if (!message) {
+      console.error('Missing message content in sendMessage call');
+      throw new Error('Content and sessionId are required');
+    }
+    
+    // Log the exact inputs to help diagnose the issue
+    console.log('sendMessage called with:', {
+      sessionId,
+      messageType: typeof message,
+      messageLength: typeof message === 'string' ? message.length : 'N/A',
+      messagePreview: typeof message === 'string' 
+        ? (message.length > 50 ? message.substring(0, 50) + '...' : message) 
+        : (typeof message === 'object' ? JSON.stringify(message).substring(0, 50) + '...' : String(message)),
+      hasContext: !!context,
+      hasOptions: !!options
+    });
+    
+    const params = new URLSearchParams();
+    if (context?.organizationId) {
+      params.append('organization_id', context.organizationId.toString());
+    }
+    if (context?.dashboardId) {
+      params.append('dashboard_id', context.dashboardId);
+    }
+
+    try {
+      // Get selected data sources from localStorage
+      const selectedDataSources = localStorage.getItem('selectedDataSources');
+      let data_sources = [];
+      
+      try {
+        data_sources = selectedDataSources ? JSON.parse(selectedDataSources) : [];
+      } catch (parseError) {
+        console.error('Error parsing selectedDataSources:', parseError);
+        // Continue with empty data_sources rather than failing
+      }
+      
+      // Ensure message is properly formatted
+      const messageContent = typeof message === 'string' 
+        ? message 
+        : JSON.stringify(message);
+      
+      // Prepare request payload including previous queries if provided
+      const payload: any = {
+        message: messageContent,
+        data_sources,
+        context: {
+          organization_id: context?.organizationId,
+          dashboard_id: context?.dashboardId
+        }
+      };
+      
+      // Add options if provided
+      if (options) {
+        if (options.previousQueries) {
+          payload.previousQueries = options.previousQueries;
+        }
+        // Add other options as needed
+      }
+      
+      // Log the request for debugging
+      console.log('Sending API request with payload:', payload);
+      
+      const response = await this.fetchWithCredentials(
+        `${this.baseUrl}/api/chat/sessions/${sessionId}/messages?${params.toString()}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Handle the AI response
+      if (!data.aiMessage?.content) {
+        console.error('Invalid response format:', data);
+        throw new Error('Invalid response format: missing content');
+      }
+      
+      return {
+        content: data.aiMessage.content,
+        metadata: {
+          model: data.aiMessage.metadata?.model,
+          tokens: data.usage,
+          suggestions: data.aiMessage.metadata?.suggestions,
+          analyticalResponse: data.aiMessage.metadata?.analyticalResponse,
+          isMultiStep: data.aiMessage.metadata?.isMultiStep,
+          messageType: data.aiMessage.metadata?.messageType,
+          contentType: data.aiMessage.metadata?.contentType,
+          dataStructure: data.aiMessage.metadata?.dataStructure,
+          processingType: data.aiMessage.metadata?.processingType,
+          structuredResponse: data.aiMessage.metadata?.structuredResponse
+        }
+      };
+    } catch (error) {
+      console.error('Error sending message:', error);
+      throw error;
+    }
+  }
+
+  async regenerateMessage(messageId: string): Promise<{ content: string; metadata?: ChatMetadata }> {
+    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/message/${messageId}/regenerate`);
+
+    if (!response.ok) {
+      throw new Error('Failed to regenerate message');
+    }
+
+    return response.json();
+  }
+
+  async cancelGeneration(): Promise<void> {
+    // Implementation
+  }
+
+  async generateChatCompletion(messages: ChatMessage[], options?: ChatSettings): Promise<Response> {
+    try {
+      const defaultOptions: ChatSettings = {
+        model: 'gpt-4',
+        temperature: 0.7,
+        contextLength: 4096,
+        streaming: false
+      };
+
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/completion`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          messages,
+          ...defaultOptions,
+          ...options
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to generate chat completion: ${response.statusText}`);
+      }
+
+      return response;
+    } catch (error) {
+      console.error('Error generating chat completion:', error);
+      throw error;
+    }
+  }
+
+  async streamChatCompletion(messages: ChatMessage[], options?: ChatSettings): Promise<Response> {
+    try {
+      const defaultOptions: ChatSettings = {
+        model: 'gpt-4',
+        temperature: 0.7,
+        contextLength: 4096,
+        streaming: true
+      };
+
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/completion/stream`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          messages,
+          ...defaultOptions,
+          ...options
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to stream chat completion: ${response.statusText}`);
+      }
+
+      return response;
+    } catch (error) {
+      console.error('Error streaming chat completion:', error);
+      throw error;
+    }
+  }
+
+  async getDashboards(): Promise<Dashboard[]> {
+    const response = await this.fetchWithCredentials(`

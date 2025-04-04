@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../infrastructure/db';
+import { db } from '../config/database';
 import sharp from 'sharp';
 import fs from 'fs/promises';
 import path from 'path';

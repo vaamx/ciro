@@ -1,0 +1,35 @@
+module.exports = {
+  extends: [
+    'stylelint-config-standard',
+    'stylelint-config-tailwindcss'
+  ],
+  plugins: [
+    'stylelint-order'
+  ],
+  rules: {
+    'at-rule-no-unknown': [
+      true,
+      {
+        ignoreAtRules: [
+          'tailwind',
+          'apply',
+          'variants',
+          'responsive',
+          'screen',
+          'layer',
+          'import'
+        ]
+      }
+    ],
+    'declaration-block-trailing-semicolon': null,
+    'no-descending-specificity': null,
+    'import-notation': null,
+    'selector-class-pattern': null,
+    'keyframes-name-pattern': null,
+    'function-no-unknown': null,
+    'property-no-vendor-prefix': null,
+    'value-no-vendor-prefix': null,
+    'at-rule-empty-line-before': null,
+    'order/properties-alphabetical': true
+  }
+}; 

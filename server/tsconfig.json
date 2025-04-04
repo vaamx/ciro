@@ -15,12 +15,20 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "noEmitOnError": true,
     "moduleResolution": "node",
     "typeRoots": [
       "./node_modules/@types",
       "./src/types"
+    ],
+    "types": [
+      "node",
+      "express"
     ]
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist"]
+  "include": [
+    "src/**/*",
+    "src/types/**/*.d.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
 } 

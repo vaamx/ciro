@@ -36,6 +36,7 @@ interface Config {
   openai: OpenAIConfig;
   jwt: JWTConfig;
   cors: CorsConfig;
+  uploadsDir: string;
 }
 
 export const config: Config = {
@@ -69,5 +70,6 @@ export const config: Config = {
     ],
     exposedHeaders: ['set-cookie'],
     maxAge: 600
-  }
+  },
+  uploadsDir: process.env.UPLOADS_DIR || 'uploads'
 }; 

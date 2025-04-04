@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction, RequestHandler } from '../types';
 import multer from 'multer';
 import { FileController } from '../controllers/FileController';
 import { FileService } from '../services/FileService';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { rateLimiter } from '../middleware/security';
 import { BadRequestError, UnauthorizedError } from '../utils/errors';
@@ -45,7 +45,7 @@ function ensureAuthenticated(req: Request): { userId: string; organizationId: nu
   }
 
   const userId = req.user.id;
-  const organizationId = parseInt(req.user.organizationId, 10);
+  const organizationId = parseInt(req.user.organizationId || '0', 10);
 
   if (!userId) {
     throw new UnauthorizedError('Invalid user ID');
@@ -59,11 +59,11 @@ function ensureAuthenticated(req: Request): { userId: string; organizationId: nu
 }
 
 // File routes
-router.post('/upload', upload.single('file'), fileController.uploadFile);
-router.get('/', fileController.getAllFiles);
+router.post('/upload', upload.single('file'), fileController.uploadFile as unknown as RequestHandler);
+router.get('/', fileController.getAllFiles as unknown as RequestHandler);
 
 // Handle file metadata storage
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', (async (req: Request, res: Response) => {
   try {
     const { userId, organizationId } = ensureAuthenticated(req);
     const { metadata, content } = req.body;
@@ -83,9 +83,9 @@ router.post('/', async (req: Request, res: Response) => {
     console.error('Error storing file metadata:', error);
     res.status(500).json({ error: 'Failed to store file metadata' });
   }
-});
+}) as unknown as RequestHandler);
 
-router.get('/search', rateLimiter, async (req: Request, res: Response) => {
+router.get('/search', rateLimiter, (async (req: Request, res: Response) => {
   try {
     const { organizationId } = ensureAuthenticated(req);
     const query = req.query.q as string;
@@ -101,9 +101,9 @@ router.get('/search', rateLimiter, async (req: Request, res: Response) => {
     console.error('File search error:', error);
     res.status(500).json({ error: 'Failed to search files' });
   }
-});
+}) as unknown as RequestHandler);
 
-router.get('/:id/content', async (req: Request, res: Response) => {
+router.get('/:id/content', (async (req: Request, res: Response) => {
   try {
     const { organizationId } = ensureAuthenticated(req);
     const fileId = parseInt(req.params.id, 10);
@@ -119,9 +119,9 @@ router.get('/:id/content', async (req: Request, res: Response) => {
     console.error('File content retrieval error:', error);
     res.status(404).json({ error: 'File content not found' });
   }
-});
+}) as unknown as RequestHandler);
 
-router.get('/:id', fileController.getFileById);
-router.delete('/:id', fileController.deleteFile);
+router.get('/:id', fileController.getFileById as unknown as RequestHandler);
+router.delete('/:id', fileController.deleteFile as unknown as RequestHandler);
 
 export default router; 

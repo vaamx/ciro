@@ -1,12 +1,11 @@
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import { authenticate } from '../middleware/auth';
 import { dataSourceController } from '../controllers/dataSourceController';
-import { RequestHandler } from 'express';
 
 const router = Router();
 
 // Apply authentication middleware to all routes
-router.use(authenticate);
+router.use(authenticate as unknown as RequestHandler);
 
 // Routes
 router.get('/', dataSourceController.getDataSources as RequestHandler);

@@ -1,7 +1,7 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction, RequestHandler } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { HubSpotService } from '../infrastructure/datasource/providers/HubSpotService';
-import { db } from '../infrastructure/database';
+import { HubSpotService } from '../infrastructure/datasources/providers/HubSpotService';
+import { db } from '../config/database';
 
 declare module 'express' {
   interface Request {
@@ -17,10 +17,10 @@ declare module 'express' {
 export const oauthRouter = express.Router();
 
 // Use authentication middleware
-oauthRouter.use(authenticate);
+oauthRouter.use(authenticate as unknown as RequestHandler);
 
 // Handle OAuth token exchange
-oauthRouter.post('/token', (req: Request, res: Response, next: NextFunction) => {
+oauthRouter.post('/token', ((req: Request, res: Response, next: NextFunction) => {
   const authReq = req as AuthRequest;
   const { code, provider } = authReq.body;
   console.log('Token exchange request received:', authReq.body);
@@ -56,7 +56,7 @@ oauthRouter.post('/token', (req: Request, res: Response, next: NextFunction) => 
       next(error);
     }
   })().catch(next);
-});
+}) as RequestHandler);
 
 // Middleware to verify session
 export const verifySession = async (req: AuthRequest, res: Response, next: NextFunction) => {

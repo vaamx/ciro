@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 import { BadRequestError } from '../utils/errors';
 
 export class AutomationController {

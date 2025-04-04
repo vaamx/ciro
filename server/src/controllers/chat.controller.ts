@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { Knex } from 'knex';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 import { BadRequestError } from '../utils/errors';
 import { AuthRequest } from '../middleware/auth';
 import { config } from '../config';

@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 
 const router = Router();
 const authController = new AuthController(db);
@@ -14,7 +14,7 @@ router.post('/request-password-reset', authController.requestPasswordReset);
 router.post('/reset-password', authController.resetPassword);
 
 // Protected routes (require authentication)
-router.use(authenticate);
+router.use(authenticate as unknown as RequestHandler);
 router.get('/me', authController.getCurrentUser);
 router.post('/logout', authController.logout);
 router.post('/change-password', authController.changePassword);

@@ -1,17 +1,21 @@
 import { Pool } from 'pg';
 import * as fs from 'fs';
 import * as path from 'path';
-import dotenv from 'dotenv';
+import knex, { Knex } from 'knex';
+import { config } from '../../config';
+import knexConfig from '../../config/knexfile';
 
-dotenv.config();
+// Knex database connection
+export const db: Knex = knex(knexConfig as any);
 
 // PostgreSQL connection for chat history and structured data
+// Use the centralized configuration from config/index.ts
 export const pool = new Pool({
-  user: process.env.DB_USER || '***REMOVED***',
-  password: process.env.DB_PASSWORD || '***REMOVED***',
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'ciro_db'
+  user: config.database.user,
+  password: config.database.password,
+  host: config.database.host,
+  port: config.database.port,
+  database: config.database.database
 });
 
 // Test database connection

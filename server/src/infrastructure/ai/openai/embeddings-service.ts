@@ -35,12 +35,19 @@ export class EmbeddingsService extends BaseOpenAIService {
 
     return this.executeWithRetry(
       async () => {
-        const response = await this.client.embeddings.create({
+        // Create base parameters
+        const params: any = {
           model: finalOptions.model,
           input: texts,
-          dimensions: finalOptions.dimensions,
           encoding_format: finalOptions.encoding_format,
-        });
+        };
+        
+        // Conditionally add dimensions
+        if (finalOptions.dimensions) {
+          params.dimensions = finalOptions.dimensions;
+        }
+        
+        const response = await this.client.embeddings.create(params);
 
         // Return single embedding if input was a string, array of embeddings if input was array
         return Array.isArray(input) 

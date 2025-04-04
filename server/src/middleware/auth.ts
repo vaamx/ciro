@@ -1,9 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, User } from '../types';
 import jwt from 'jsonwebtoken';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 import { config } from '../config';
 import { UnauthorizedError } from '../utils/errors';
-import { User } from '../types/express';
 
 // Extend Express Request type to include user
 declare global {

@@ -1,8 +1,8 @@
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import { organizationController } from '../controllers/organizationController';
 import { authenticate } from '../middleware/auth';
 import multer from 'multer';
-import { asyncHandler } from '../utils/asyncHandler';
+import { asyncHandler } from '../utils/async-handler';
 
 const router = Router();
 
@@ -24,18 +24,18 @@ const upload = multer({
 });
 
 // Apply authentication middleware to all routes
-router.use(authenticate);
+router.use(authenticate as unknown as RequestHandler);
 
 // Organization routes
-router.get('/', asyncHandler(organizationController.getOrganizations));
-router.post('/', upload.single('logo'), asyncHandler(organizationController.createOrganization));
-router.put('/:id', upload.single('logo'), asyncHandler(organizationController.updateOrganization));
-router.delete('/:id', asyncHandler(organizationController.deleteOrganization));
+router.get('/', asyncHandler(organizationController.getOrganizations) as unknown as RequestHandler);
+router.post('/', upload.single('logo'), asyncHandler(organizationController.createOrganization) as unknown as RequestHandler);
+router.put('/:id', upload.single('logo'), asyncHandler(organizationController.updateOrganization) as unknown as RequestHandler);
+router.delete('/:id', asyncHandler(organizationController.deleteOrganization) as unknown as RequestHandler);
 
 // Team routes
-router.get('/:organizationId/teams', asyncHandler(organizationController.getOrganizationTeams));
+router.get('/:organizationId/teams', asyncHandler(organizationController.getOrganizationTeams) as unknown as RequestHandler);
 
 // Category routes
-router.get('/:organizationId/categories', asyncHandler(organizationController.getOrganizationCategories));
+router.get('/:organizationId/categories', asyncHandler(organizationController.getOrganizationCategories) as unknown as RequestHandler);
 
 export default router; 

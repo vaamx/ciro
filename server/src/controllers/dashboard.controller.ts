@@ -1,6 +1,6 @@
-import { Request, Response } from 'express';
+import { Request, Response, RequestHandler } from 'express';
 import { Knex } from 'knex';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { BadRequestError } from '../utils/errors';
 
@@ -209,7 +209,7 @@ export class DashboardController {
     }
   }
 
-  async getDashboards(req: Request, res: Response) {
+  public getDashboards: RequestHandler = async (req, res) => {
     try {
       const { organization_id } = req.query;
       const userId = req.user?.id;
@@ -303,12 +303,15 @@ export class DashboardController {
       console.log('Found dashboards:', processedDashboards.length);
       res.json(processedDashboards);
     } catch (error) {
+      if (error instanceof BadRequestError) {
+        return res.status(400).json({ error: error.message });
+      }
       console.error('Error fetching dashboards:', error);
-      res.status(500).json({ error: 'Failed to fetch dashboards' });
+      return res.status(500).json({ error: 'Failed to fetch dashboards' });
     }
-  }
+  };
 
-  async createDashboard(req: Request, res: Response) {
+  public createDashboard: RequestHandler = async (req, res) => {
     try {
       const { name, description, team, category, organization_id } = req.body;
       const userId = req.user?.id;
@@ -370,7 +373,7 @@ export class DashboardController {
       console.error('Error creating dashboard:', error);
       res.status(500).json({ error: 'Failed to create dashboard' });
     }
-  }
+  };
 
   private async getDashboardWithDetails(dashboardId: number) {
     const dashboard = await this.db('dashboards')
@@ -402,7 +405,7 @@ export class DashboardController {
     };
   }
 
-  async updateDashboard(req: Request, res: Response) {
+  public updateDashboard: RequestHandler = async (req, res) => {
     try {
       const userId = req.user?.id;
       const dashboardId = req.params.id;
@@ -491,9 +494,9 @@ export class DashboardController {
       });
       res.status(500).json({ message: 'Failed to update dashboard', details: error instanceof Error ? error.message : 'Unknown error' });
     }
-  }
+  };
 
-  async deleteDashboard(req: Request, res: Response) {
+  public deleteDashboard: RequestHandler = async (req, res) => {
     try {
       const userId = req.user?.id;
       
@@ -535,9 +538,9 @@ export class DashboardController {
       });
       res.status(500).json({ message: 'Failed to delete dashboard', details: error instanceof Error ? error.message : 'Unknown error' });
     }
-  }
+  };
 
-  async updateDashboardWidgets(req: Request, res: Response) {
+  public updateDashboardWidgets: RequestHandler = async (req, res) => {
     try {
       const userId = req.user?.id;
       
@@ -639,9 +642,9 @@ export class DashboardController {
       });
       res.status(500).json({ message: 'Failed to update dashboard widgets', details: error instanceof Error ? error.message : 'Unknown error' });
     }
-  }
+  };
 
-  async updateDashboardMetrics(req: Request, res: Response) {
+  public updateDashboardMetrics: RequestHandler = async (req, res) => {
     try {
       const userId = req.user?.id;
       
@@ -732,5 +735,5 @@ export class DashboardController {
       console.error('Error updating dashboard metrics:', error);
       res.status(500).json({ message: 'Failed to update dashboard metrics' });
     }
-  }
+  };
 } 

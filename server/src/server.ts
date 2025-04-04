@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 // Load environment variables before any other imports
 dotenv.config();
 
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { oauthRouter } from './routes/oauth';
@@ -33,7 +33,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(cookieParser());
-app.use(refreshSession);
+app.use(refreshSession as unknown as RequestHandler);
 
 // Static file serving
 app.use('/files', express.static(path.join(__dirname, '../uploads')));

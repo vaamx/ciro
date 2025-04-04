@@ -40,15 +40,24 @@ export class ChatService extends BaseOpenAIService {
 
     return this.executeWithRetry(
       async () => {
-        const completion = await this.client.chat.completions.create({
+        // Create base parameters
+        const params: any = {
           model: finalOptions.model,
           messages,
           temperature: finalOptions.temperature,
           max_tokens: finalOptions.maxTokens,
-          tools: finalOptions.tools,
-          response_format: finalOptions.responseFormat,
-        });
-
+        };
+        
+        // Conditionally add tools and response_format
+        if (finalOptions.tools) {
+          params.tools = finalOptions.tools;
+        }
+        
+        if (finalOptions.responseFormat) {
+          params.response_format = finalOptions.responseFormat;
+        }
+        
+        const completion = await this.client.chat.completions.create(params);
         return completion.choices[0].message;
       },
       'completions',
@@ -79,16 +88,25 @@ export class ChatService extends BaseOpenAIService {
 
     return this.executeWithRetry(
       async () => {
-        const stream = await this.client.chat.completions.create({
+        // Create base parameters
+        const params: any = {
           model: finalOptions.model,
           messages,
           temperature: finalOptions.temperature,
           max_tokens: finalOptions.maxTokens,
-          tools: finalOptions.tools,
-          response_format: finalOptions.responseFormat,
           stream: true,
-        });
-
+        };
+        
+        // Conditionally add tools and response_format
+        if (finalOptions.tools) {
+          params.tools = finalOptions.tools;
+        }
+        
+        if (finalOptions.responseFormat) {
+          params.response_format = finalOptions.responseFormat;
+        }
+        
+        const stream = await this.client.chat.completions.create(params);
         return stream;
       },
       'completions',

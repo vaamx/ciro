@@ -1,10 +1,12 @@
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { config } from '../config';
+import * as fs from 'fs';
+import type { FilePurpose } from 'openai/resources';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
-  apiKey: config.openai.apiKey,
+  apiKey: config.openai.apiKey || '',
   organization: config.openai.orgId,
 });
 
@@ -43,6 +45,98 @@ export class OpenAIService {
     return OpenAIService.instance;
   }
 
+  /**
+   * Generate embeddings for a text query or queries
+   * @param query Text or array of texts to generate embeddings for
+   * @param options Optional parameters
+   * @returns Array of embeddings
+   */
+  async createEmbeddings(query: string | string[], options?: { skipCache?: boolean }): Promise<number[][]> {
+    try {
+      const input = Array.isArray(query) ? query : [query];
+      
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-ada-002',
+        input,
+      });
+      
+      return response.data.map(item => item.embedding);
+    } catch (error) {
+      console.error('Error generating embeddings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Upload a file to OpenAI
+   * @param filePath Path to the file to upload
+   * @param purpose Purpose of the file (e.g., 'fine-tune')
+   * @returns Response from the OpenAI API
+   */
+  async uploadFile(filePath: string, purpose: FilePurpose): Promise<any> {
+    try {
+      const file = await (openai as any).files.create({
+        file: fs.createReadStream(filePath),
+        purpose
+      });
+      return file;
+    } catch (error) {
+      console.error('Error uploading file to OpenAI:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a fine-tuning job
+   * @param params Parameters for the fine-tuning job
+   * @returns Response from the OpenAI API
+   */
+  async createFineTuningJob(params: any): Promise<any> {
+    try {
+      const fineTune = await (openai as any).fineTuning.jobs.create({
+        training_file: params.training_file,
+        model: params.model,
+        suffix: params.suffix,
+        hyperparameters: params.hyperparameters,
+        ...(params.method && { method: params.method })
+      });
+      return fineTune;
+    } catch (error) {
+      console.error('Error creating fine-tuning job:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the status of a fine-tuning job
+   * @param jobId ID of the fine-tuning job
+   * @returns Response from the OpenAI API
+   */
+  async getFineTuningJob(jobId: string): Promise<any> {
+    try {
+      const job = await (openai as any).fineTuning.jobs.retrieve(jobId);
+      return job;
+    } catch (error) {
+      console.error(`Error retrieving fine-tuning job ${jobId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a fine-tuning job
+   * @param jobId ID of the fine-tuning job to cancel
+   * @returns Response from the OpenAI API
+   */
+  async cancelFineTuningJob(jobId: string): Promise<any> {
+    try {
+      const job = await (openai as any).fineTuning.jobs.cancel(jobId);
+      return job;
+    } catch (error) {
+      console.error(`Error cancelling fine-tuning job ${jobId}:`, error);
+      throw error;
+    }
+  }
+
   async generateChatCompletion(
     messages: ChatMessage[],
     options: ChatOptions = {}
@@ -68,7 +162,6 @@ export class OpenAIService {
         model,
         messages: openAiMessages,
         temperature,
-        stream,
       });
 
       if (stream) {
@@ -82,8 +175,8 @@ export class OpenAIService {
         });
       }
 
-      // For non-stream responses, we know it's a ChatCompletion
-      const nonStreamCompletion = completion as OpenAI.Chat.ChatCompletion;
+      // For non-stream responses, avoid using namespace
+      const nonStreamCompletion = completion as any;
       const response = nonStreamCompletion.choices[0]?.message?.content || '';
       
       return new Response(JSON.stringify({

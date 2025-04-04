@@ -2,7 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
-import { db } from '../infrastructure/database';
+import { db } from '../config/database';
 
 interface User {
   id: number;

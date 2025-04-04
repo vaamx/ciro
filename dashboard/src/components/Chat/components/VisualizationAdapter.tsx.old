@@ -1,0 +1,1967 @@
+import React, { useState, useEffect } from 'react';
+import { ChatMessage } from '../types';
+import { EnhancedStepByStepVisualization, AnalyticalStep } from './EnhancedStepByStepVisualization';
+import { MessageMarkdown } from './MessageMarkdown';
+
+interface VisualizationAdapterProps {
+  message: ChatMessage;
+  messageId: string;
+}
+
+/**
+ * Visualization Adapter Component - Simplified Version
+ * 
+ * Provides a unified interface for visualization components.
+ * Handles any RAG response and extracts structured data for visualization.
+ */
+export const VisualizationAdapter: React.FC<VisualizationAdapterProps> = ({ 
+  message 
+}) => {
+  const [steps, setSteps] = useState<AnalyticalStep[]>([]);
+  const [summary, setSummary] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [visualizationData, setVisualizationData] = useState<any>(null);
+  const [dataSourceType, setDataSourceType] = useState<string>('qdrant');
+  
+  // Function to extract structured data from text content
+  const extractStructuredData = (content: string): any[] => {
+    console.log('Extracting structured data from content');
+    
+    // Initialize a container for ALL extracted data
+    let allExtractedData: any[] = [];
+    
+    // Check for specific data formats that indicate customer demographics data
+    if (content.toLowerCase().includes('demographics') || 
+        content.toLowerCase().includes('customer data') ||
+        content.toLowerCase().includes('customer profile') ||
+        content.toLowerCase().includes('customer segment')) {
+      
+      // Try to extract demographic tables with more aggressive pattern matching
+      const demographicPatterns = [
+        /Customer Demographics\s*[\r\n]+([^#]*?)(?=\n\s*#|$)/is,
+        /Customer Segments\s*[\r\n]+([^#]*?)(?=\n\s*#|$)/is,
+        /Demographics\s*\n([\s\S]*?)(?=\n\s*#|$)/i,
+        /Data Preview\s*\n([\s\S]*?)(?=\n\s*#|$)/i,
+        /Age Groups?\s*\n([\s\S]*?)(?=\n\s*#|$)/i,
+        /Customer Distribution\s*\n([\s\S]*?)(?=\n\s*#|$)/i,
+        /Market Segments?\s*\n([\s\S]*?)(?=\n\s*#|$)/i,
+        /Population Breakdown\s*\n([\s\S]*?)(?=\n\s*#|$)/i
+      ];
+      
+      for (const pattern of demographicPatterns) {
+        const matches = Array.from(content.matchAll(new RegExp(pattern, 'g')));
+        for (const match of matches) {
+          if (match && match[1]) {
+            const demographicContent = match[1].trim();
+            // Extract tables from this specific section
+            const extractedTables = extractTablesFromMarkdown(demographicContent);
+            if (extractedTables.length > 0) {
+              console.log('Found demographic data table:', extractedTables.length, 'rows');
+              allExtractedData = [...allExtractedData, ...extractedTables];
+            }
+          }
+        }
+      }
+    }
+    
+    // Try to find tables in markdown format - more aggressive pattern matching
+    const tableData = extractTablesFromMarkdown(content);
+    if (tableData.length > 0) {
+      console.log('Found table data:', tableData.length, 'rows');
+      // Only add if not duplicate with already found data
+      if (allExtractedData.length === 0 || !arraysContainSameData(allExtractedData, tableData)) {
+        allExtractedData = [...allExtractedData, ...tableData];
+      }
+    }
+    
+    // Try to extract JSON data
+    const jsonData = extractJsonFromContent(content);
+    if (jsonData && Array.isArray(jsonData) && jsonData.length > 0) {
+      console.log('Found JSON data:', jsonData.length, 'items');
+      // Only add if not duplicate with already found data
+      if (allExtractedData.length === 0 || !arraysContainSameData(allExtractedData, jsonData)) {
+        allExtractedData = [...allExtractedData, ...jsonData];
+      }
+    }
+    
+    // Try to extract key-value pairs
+    const keyValuePairs = extractKeyValuePairs(content);
+    if (keyValuePairs.length > 0) {
+      console.log('Found key-value pairs:', keyValuePairs.length, 'items');
+      // Only add if not duplicate with already found data
+      if (allExtractedData.length === 0 || !arraysContainSameData(allExtractedData, keyValuePairs)) {
+        allExtractedData = [...allExtractedData, ...keyValuePairs];
+      }
+    }
+    
+    // Try to extract data from a consolidated data table section with enhanced patterns
+    const consolidatedPatterns = [
+      /#### Consolidated Data Table\s*([\s\S]*?)(?=###|$)/i,
+      /### Data Table\s*([\s\S]*?)(?=###|$)/i,
+      /Data Table[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Results[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Preview[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Summary[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Analytics[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Findings[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Insights[\s\n]*([\s\S]*?)(?=###|$)/i,
+      /Analysis[\s\n]*([\s\S]*?)(?=###|$)/i
+    ];
+    
+    for (const pattern of consolidatedPatterns) {
+      const matches = Array.from(content.matchAll(new RegExp(pattern, 'g')));
+      for (const match of matches) {
+        if (match && match[1]) {
+          const tableContent = match[1].trim();
+          const extractedTable = extractTablesFromMarkdown(tableContent);
+          if (extractedTable.length > 0) {
+            console.log('Found consolidated data table:', extractedTable.length, 'rows');
+            // Only add if not duplicate with already found data
+            if (allExtractedData.length === 0 || !arraysContainSameData(allExtractedData, extractedTable)) {
+              allExtractedData = [...allExtractedData, ...extractedTable];
+            }
+          }
+        }
+      }
+    }
+    
+    // Try to extract any tabular data from the content with enhanced detection
+    const potentialTableData = extractPotentialTabularData(content);
+    if (potentialTableData.length > 0) {
+      console.log('Found potential tabular data:', potentialTableData.length, 'rows');
+      // Only add if not duplicate with already found data
+      if (allExtractedData.length === 0 || !arraysContainSameData(allExtractedData, potentialTableData)) {
+        allExtractedData = [...allExtractedData, ...potentialTableData];
+      }
+    }
+    
+    // Last resort - try to create structured data from unstructured content by looking for patterns
+    const fallbackData = extractFallbackData(content);
+    if (fallbackData.length > 0) {
+      console.log('Created fallback structured data:', fallbackData.length, 'items');
+      // Only add if not duplicate with already found data
+      if (allExtractedData.length === 0 || !arraysContainSameData(allExtractedData, fallbackData)) {
+        allExtractedData = [...allExtractedData, ...fallbackData];
+      }
+    }
+    
+    // If we still don't have data, try scanning line by line for potential data points
+    if (allExtractedData.length === 0) {
+      console.log('Attempting aggressive line-by-line data extraction');
+      const lineByLineData = extractDataLineByLine(content);
+      if (lineByLineData.length > 0) {
+        console.log('Extracted data from line-by-line analysis:', lineByLineData.length, 'items');
+        allExtractedData = [...allExtractedData, ...lineByLineData];
+      }
+    }
+    
+    console.log(`Total structured data found: ${allExtractedData.length} items`);
+    return allExtractedData;
+  };
+  
+  // Helper function to detect if two arrays contain essentially the same data
+  const arraysContainSameData = (array1: any[], array2: any[]): boolean => {
+    if (array1.length === 0 || array2.length === 0) return false;
+    if (array1.length !== array2.length) return false;
+    
+    // For simplicity, just compare the first items in both arrays
+    const firstItem1 = array1[0];
+    const firstItem2 = array2[0];
+    
+    // If they're both objects, compare their keys
+    if (typeof firstItem1 === 'object' && typeof firstItem2 === 'object') {
+      const keys1 = Object.keys(firstItem1).sort();
+      const keys2 = Object.keys(firstItem2).sort();
+      
+      if (keys1.length !== keys2.length) return false;
+      
+      return keys1.every((key, index) => key === keys2[index]);
+    }
+    
+    return false;
+  };
+  
+  // New helper function to extract fallback data if no structured data is found
+  const extractFallbackData = (content: string): any[] => {
+    // Look for any patterns that could be data points
+    const results: Record<string, any>[] = [];
+    
+    // Check for lines with percentage values that might indicate demographic data
+    const percentageLines = content.match(/([^\n:]+):\s*(\d+%)/g);
+    if (percentageLines && percentageLines.length > 0) {
+      const demographicData: Record<string, string | number> = {};
+      
+      percentageLines.forEach(line => {
+        const match = line.match(/([^\n:]+):\s*(\d+%)/);
+        if (match) {
+          const category = match[1].trim();
+          const percentage = match[2].trim();
+          demographicData[category] = percentage;
+        }
+      });
+      
+      if (Object.keys(demographicData).length > 0) {
+        // Convert to array of objects for consistent format
+        Object.entries(demographicData).forEach(([category, percentage]) => {
+          results.push({
+            Category: category,
+            Percentage: percentage
+          });
+        });
+      }
+    }
+    
+    // Look for any structured info in lists
+    const listMatches = content.match(/[-*]\s+([^:]+):\s*(.*)/g);
+    if (listMatches && listMatches.length > 0) {
+      const listData: Record<string, string | number> = {};
+      
+      listMatches.forEach(line => {
+        const match = line.match(/[-*]\s+([^:]+):\s*(.*)/);
+        if (match) {
+          const key = match[1].trim();
+          const value = match[2].trim();
+          listData[key] = value;
+        }
+      });
+      
+      if (Object.keys(listData).length > 0 && results.length === 0) {
+        // Only use this if we haven't found percentage data
+        results.push(listData);
+      }
+    }
+    
+    return results;
+  };
+  
+  // New function to extract data by scanning line by line
+  const extractDataLineByLine = (content: string): any[] => {
+    const lines = content.split('\n').filter(line => line.trim().length > 0);
+    const results: Record<string, any>[] = [];
+    
+    // Temporary storage for data being collected
+    let currentCategory = '';
+    let tempData: Record<string, any> = {};
+    
+    // Regular expressions for specific patterns
+    const categoryHeaderRegex = /^#+\s+(.+)$/;
+    const bulletPointDataRegex = /^[-*•]\s+(.+?)(?::|\s-\s|\s–\s)(.+)$/;
+    const keyValueRegex = /^(.+?)(?::|\s-\s|\s–\s)(.+)$/;
+    const percentageRegex = /(\d+(?:\.\d+)?)\s*%/;
+    const numericalValueRegex = /\b\d+(?:[,.]\d+)?\b/;
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip lines that are too short or likely to be headers
+      if (line.length < 3 || line.startsWith('#')) {
+        // If it's a header, it might indicate a new category
+        const headerMatch = line.match(categoryHeaderRegex);
+        if (headerMatch) {
+          // Save previous category data if we have any
+          if (Object.keys(tempData).length > 0) {
+            results.push({...tempData, Category: currentCategory});
+            tempData = {};
+          }
+          currentCategory = headerMatch[1].trim();
+        }
+        continue;
+      }
+      
+      // Try to identify bullet point data
+      const bulletMatch = line.match(bulletPointDataRegex);
+      if (bulletMatch) {
+        const key = bulletMatch[1].trim();
+        const value = bulletMatch[2].trim();
+        
+        // Process the value - convert to number if possible
+        let processedValue: string | number = value;
+        if (percentageRegex.test(value)) {
+          const percentMatch = value.match(percentageRegex);
+          if (percentMatch) {
+            processedValue = parseFloat(percentMatch[1]);
+          }
+        } else if (numericalValueRegex.test(value) && !isNaN(parseFloat(value))) {
+          processedValue = parseFloat(value);
+        }
+        
+        tempData[key] = processedValue;
+        continue;
+      }
+      
+      // Try to identify key-value pairs
+      const kvMatch = line.match(keyValueRegex);
+      if (kvMatch) {
+        const key = kvMatch[1].trim();
+        const value = kvMatch[2].trim();
+        
+        // Process the value - convert to number if possible
+        let processedValue: string | number = value;
+        if (percentageRegex.test(value)) {
+          const percentMatch = value.match(percentageRegex);
+          if (percentMatch) {
+            processedValue = parseFloat(percentMatch[1]);
+          }
+        } else if (numericalValueRegex.test(value) && !isNaN(parseFloat(value))) {
+          processedValue = parseFloat(value);
+        }
+        
+        tempData[key] = processedValue;
+      }
+    }
+    
+    // Add any remaining data
+    if (Object.keys(tempData).length > 0) {
+      results.push({...tempData, Category: currentCategory});
+    }
+    
+    return results;
+  };
+  
+  // Function to extract tables from markdown
+  const extractTablesFromMarkdown = (content: string): any[] => {
+    console.log('Attempting to extract tables from markdown content');
+    
+    // Storage for all tables found in the content
+    const allExtractedTables: any[] = [];
+    
+    // First, try to find any Data Table sections with enhanced pattern matching
+    const dataTablePatterns = [
+      /Data Table\s*\n([\s\S]*?)(?=\n\s*#|$)/i,
+      /Table\s*\d*\s*[\n:]+([\s\S]*?)(?=\n\s*#|$)/i,
+      /Results.*\n\s*\|.*\|([\s\S]*?)(?=\n\s*#|$)/i,
+      /Summary.*\n\s*\|.*\|([\s\S]*?)(?=\n\s*#|$)/i,
+      /Breakdown.*\n\s*\|.*\|([\s\S]*?)(?=\n\s*#|$)/i,
+      /Distribution.*\n\s*\|.*\|([\s\S]*?)(?=\n\s*#|$)/i,
+      /Analysis.*\n\s*\|.*\|([\s\S]*?)(?=\n\s*#|$)/i,
+      /Data.*\n\s*\|.*\|([\s\S]*?)(?=\n\s*#|$)/i
+    ];
+    
+    for (const pattern of dataTablePatterns) {
+      const matches = Array.from(content.matchAll(new RegExp(pattern, 'g')));
+      for (const match of matches) {
+        if (match && match[1]) {
+          console.log('Found Data Table section');
+          const tableContent = match[1].trim();
+          // Process this table content specifically
+          const processedData = processTableContent(tableContent);
+          if (processedData.length > 0) {
+            console.log(`Extracted ${processedData.length} rows from data table section`);
+            allExtractedTables.push(...processedData);
+          }
+        }
+      }
+    }
+    
+    // Look for tables with the standard format - more robust regex
+    const tableRegex = /\|(.+)\|\s*\n\|(?:[-:\s|]+)\|\s*\n((?:\|.+\|\s*\n)+)/g;
+    
+    let match;
+    while ((match = tableRegex.exec(content)) !== null) {
+      try {
+        console.log('Found standard markdown table');
+        // Extract headers and rows
+        const headerRow = match[1].trim();
+        const dataRows = match[2].trim();
+        
+        // Parse headers
+        const headers = headerRow
+          .split('|')
+          .map(h => h.trim())
+          .filter(h => h.length > 0);
+        
+        // Parse data rows
+        const rows = dataRows
+          .split('\n')
+          .filter(row => row.trim().length > 0)
+          .map(row => {
+            const columns = row
+              .split('|')
+              .map(col => col.trim())
+              .filter(col => col.length > 0);
+            
+            if (columns.length > 0) {
+              const rowObj: Record<string, any> = {};
+              // Use all available columns, even if there are more or fewer than headers
+              columns.forEach((col, index) => {
+                const header = index < headers.length ? headers[index] : `Column${index + 1}`;
+                rowObj[header] = !isNaN(Number(col)) && col.trim() !== '' ? Number(col) : col;
+              });
+              return rowObj;
+            }
+            return null;
+          })
+          .filter(row => row !== null);
+        
+        if (rows.length > 0) {
+          console.log(`Extracted ${rows.length} rows from standard markdown table`);
+          allExtractedTables.push(...rows);
+        }
+      } catch (err) {
+        console.error('Error extracting table from markdown:', err);
+      }
+    }
+    
+    // If no tables were found with the standard format, try a more lenient approach
+    if (allExtractedTables.length === 0) {
+      console.log('No standard tables found, trying alternative formats');
+      
+      // Look for any content that resembles a table structure with enhanced patterns
+      const alternativeTableRegex = /(\|.*\|[\r\n\s]*)+/g;
+      let altMatch;
+      
+      while ((altMatch = alternativeTableRegex.exec(content)) !== null) {
+        try {
+          console.log('Found alternative table format');
+          const tableContent = altMatch[0];
+          const extractedRows = processTableContent(tableContent);
+          if (extractedRows.length > 0) {
+            console.log(`Extracted ${extractedRows.length} rows from alternative table format`);
+            allExtractedTables.push(...extractedRows);
+          }
+        } catch (err) {
+          console.error('Error extracting alternative table format:', err);
+        }
+      }
+    }
+    
+    // Even if we found tables, also try to find any tabular data in the content with additional formats
+    // This ensures we don't miss any tables in the content
+    
+    // Extract any data that looks like it's in a list format with potential values
+    const listPattern = /((?:[\s]*[-*]\s+[^:\n]+:[^\n]+\n)+)/g;
+    let listMatch;
+    
+    while ((listMatch = listPattern.exec(content)) !== null) {
+      try {
+        const listContent = listMatch[0];
+        const lines = listContent.split('\n').filter(line => line.trim().length > 0);
+        
+        if (lines.length > 1) {
+          // Extract key-value pairs from list
+          const dataObj: Record<string, any> = {};
+          lines.forEach(line => {
+            const kvMatch = line.match(/[-*]\s+([^:]+):\s*(.*)/);
+            if (kvMatch) {
+              const key = kvMatch[1].trim();
+              const value = kvMatch[2].trim();
+              // Try to convert numeric values
+              dataObj[key] = !isNaN(Number(value)) && value.trim() !== '' ? Number(value) : value;
+            }
+          });
+          
+          if (Object.keys(dataObj).length > 0) {
+            allExtractedTables.push(dataObj);
+          }
+        }
+      } catch (err) {
+        console.error('Error extracting list format:', err);
+      }
+    }
+    
+    // Look for sections that might contain tables but haven't been detected yet
+    const sections = content.split(/(?:###|##)\s+/);
+    
+    for (const section of sections) {
+      // Only process sections we haven't already analyzed
+      if (section.includes('|') && section.includes('\n') && !tableRegex.test(section)) {
+        const extractedRows = processTableContent(section);
+        if (extractedRows.length > 0) {
+          console.log(`Extracted ${extractedRows.length} rows from section`);
+          // Only add these rows if they appear to be unique data we haven't already captured
+          if (!tableDataAlreadyExtracted(allExtractedTables, extractedRows)) {
+            allExtractedTables.push(...extractedRows);
+          }
+        }
+      }
+    }
+    
+    // Also detect CSV-style data (comma or tab separated values)
+    const csvPattern = /((?:[^,\n]+,){2,}[^,\n]+\n)+/g;
+    let csvMatch;
+    
+    while ((csvMatch = csvPattern.exec(content)) !== null) {
+      try {
+        const csvContent = csvMatch[0];
+        const lines = csvContent.split('\n').filter(line => line.trim().length > 0);
+        
+        if (lines.length > 1) {
+          // Assume first line is header
+          const headers = lines[0].split(',').map(h => h.trim());
+          
+          // Process data rows
+          const rows = lines.slice(1).map(line => {
+            const values = line.split(',').map(val => val.trim());
+            const rowObj: Record<string, any> = {};
+            
+            values.forEach((val, index) => {
+              const header = index < headers.length ? headers[index] : `Column${index + 1}`;
+              rowObj[header] = !isNaN(Number(val)) && val.trim() !== '' ? Number(val) : val;
+            });
+            
+            return rowObj;
+          });
+          
+          if (rows.length > 0) {
+            console.log(`Extracted ${rows.length} rows from CSV format`);
+            // Only add if we haven't already extracted this data
+            if (!tableDataAlreadyExtracted(allExtractedTables, rows)) {
+              allExtractedTables.push(...rows);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error extracting CSV format:', err);
+      }
+    }
+    
+    return allExtractedTables;
+  };
+  
+  // Helper function to check if table data has already been extracted
+  const tableDataAlreadyExtracted = (existingData: any[], newData: any[]): boolean => {
+    if (existingData.length === 0 || newData.length === 0) return false;
+    
+    // For simplicity, just compare a sample of the data
+    const sampleExisting = existingData[0];
+    const sampleNew = newData[0];
+    
+    // If they're both objects, compare their keys and a subset of values
+    if (typeof sampleExisting === 'object' && typeof sampleNew === 'object') {
+      const existingKeys = Object.keys(sampleExisting).sort();
+      const newKeys = Object.keys(sampleNew).sort();
+      
+      // If key count is very different, they're probably different data
+      if (Math.abs(existingKeys.length - newKeys.length) > 1) return false;
+      
+      // Check if at least 75% of keys match
+      const matchingKeys = existingKeys.filter(key => newKeys.includes(key));
+      if (matchingKeys.length / Math.max(existingKeys.length, newKeys.length) < 0.75) return false;
+      
+      // If keys are similar, check a sample of values
+      for (const key of matchingKeys.slice(0, 3)) {
+        if (sampleExisting[key] !== sampleNew[key]) return false;
+      }
+      
+      // If all checks pass, the data is likely the same
+      return true;
+    }
+    
+    return false;
+  };
+  
+  // Helper function to process table content
+  const processTableContent = (content: string): any[] => {
+    const lines = content.split('\n').filter(line => line.trim().length > 0);
+    
+    // Find header line (usually the first line with pipe characters)
+    const headerLineIndex = lines.findIndex(line => line.includes('|'));
+    if (headerLineIndex === -1) return [];
+    
+    const headerLine = lines[headerLineIndex];
+    const headers = headerLine
+      .split('|')
+      .map(h => h.trim())
+      .filter(h => h.length > 0);
+    
+    if (headers.length === 0) return [];
+    
+    // Normalize headers - replace empty or duplicate headers
+    const normalizedHeaders = headers.map((header, index) => {
+      // If header is empty, create a generic column name
+      if (header.length === 0) {
+        return `Column${index + 1}`;
+      }
+      
+      // Check if this header is a duplicate
+      const isDuplicate = headers.indexOf(header) !== index;
+      if (isDuplicate) {
+        return `${header}_${index + 1}`;
+      }
+      
+      return header;
+    });
+    
+    // Skip the separator line if it exists
+    let dataStartIndex = headerLineIndex + 1;
+    if (dataStartIndex < lines.length && 
+        (lines[dataStartIndex].includes('-') && lines[dataStartIndex].includes('|')) ||
+        (lines[dataStartIndex].includes(':') && lines[dataStartIndex].includes('|'))) {
+      dataStartIndex++;
+    }
+    
+    // Process data rows
+    const rows: Record<string, any>[] = [];
+    for (let i = dataStartIndex; i < lines.length; i++) {
+      const line = lines[i];
+      // Skip lines that don't look like data rows
+      if (!line.includes('|')) continue;
+      // Skip lines that appear to be header separators
+      if (line.includes('-') && !line.match(/[a-zA-Z0-9]/)) continue;
+      
+      const columns = line
+        .split('|')
+        .map(col => col.trim())
+        .filter((col, idx) => {
+          // Keep at least one column even if empty, but filter out excess empty columns
+          return col.length > 0 || idx < normalizedHeaders.length;
+        });
+      
+      if (columns.length > 0) {
+        const rowObj: Record<string, any> = {};
+        columns.forEach((col, index) => {
+          const header = index < normalizedHeaders.length ? normalizedHeaders[index] : `Column${index + 1}`;
+          
+          // Try to detect and convert numerical values and percentages
+          if (col.trim() === '') {
+            rowObj[header] = null;
+          } else if (!isNaN(Number(col)) && col.trim() !== '') {
+            rowObj[header] = Number(col);
+          } else if (col.endsWith('%') && !isNaN(Number(col.slice(0, -1)))) {
+            // Convert percentage string to number
+            rowObj[header] = Number(col.slice(0, -1));
+          } else {
+            rowObj[header] = col;
+          }
+        });
+        
+        // Only add rows that have at least one non-empty value
+        const hasValues = Object.values(rowObj).some(val => val !== null && val !== '');
+        if (hasValues) {
+          rows.push(rowObj);
+        }
+      }
+    }
+    
+    // If we have rows but they all have only one column, try to split by another delimiter
+    if (rows.length > 0 && normalizedHeaders.length === 1) {
+      // Try to detect if we need to split the data differently
+      const sampleValue = rows[0][normalizedHeaders[0]];
+      if (typeof sampleValue === 'string' && 
+          (sampleValue.includes(':') || sampleValue.includes('\t') || sampleValue.includes(','))
+      ) {
+        // This might be a different table format, not pipe-delimited
+        return processAlternativeTableFormat(content);
+      }
+    }
+    
+    return rows;
+  };
+  
+  // Helper function to process alternative table formats (tab, comma, or colon separated)
+  const processAlternativeTableFormat = (content: string): any[] => {
+    const lines = content.split('\n').filter(line => line.trim().length > 0);
+    if (lines.length < 2) return []; // Need at least header and one data row
+    
+    // Detect delimiter
+    const firstLine = lines[0];
+    let delimiter: string;
+    
+    if (firstLine.includes('\t')) {
+      delimiter = '\t';
+    } else if (firstLine.includes(',')) {
+      delimiter = ',';
+    } else if (firstLine.includes(':')) {
+      delimiter = ':';
+    } else {
+      // Try to detect by counting spaces
+      const spaceGroups = firstLine.match(/\s{2,}/g);
+      if (spaceGroups && spaceGroups.length > 1) {
+        delimiter = '\\s{2,}';
+      } else {
+        return []; // No delimiter detected
+      }
+    }
+    
+    // Parse headers
+    let headers: string[];
+    if (delimiter === '\\s{2,}') {
+      // Split by multiple spaces
+      headers = firstLine.split(new RegExp(delimiter)).map(h => h.trim());
+    } else {
+      headers = firstLine.split(delimiter).map(h => h.trim());
+    }
+    
+    // Normalize headers
+    const normalizedHeaders = headers.map((header, index) => {
+      if (header.length === 0) return `Column${index + 1}`;
+      return header;
+    });
+    
+    // Process data rows
+    const rows: Record<string, any>[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      let columns: string[];
+      if (delimiter === '\\s{2,}') {
+        columns = lines[i].split(new RegExp(delimiter)).map(col => col.trim());
+      } else {
+        columns = lines[i].split(delimiter).map(col => col.trim());
+      }
+      
+      const rowObj: Record<string, any> = {};
+      columns.forEach((col, index) => {
+        const header = index < normalizedHeaders.length ? normalizedHeaders[index] : `Column${index + 1}`;
+        
+        // Try to convert values
+        if (col.trim() === '') {
+          rowObj[header] = null;
+        } else if (!isNaN(Number(col)) && col.trim() !== '') {
+          rowObj[header] = Number(col);
+        } else if (col.endsWith('%') && !isNaN(Number(col.slice(0, -1)))) {
+          // Convert percentage string to number
+          rowObj[header] = Number(col.slice(0, -1));
+        } else {
+          rowObj[header] = col;
+        }
+      });
+      
+      const hasValues = Object.values(rowObj).some(val => val !== null && val !== '');
+      if (hasValues) {
+        rows.push(rowObj);
+      }
+    }
+    
+    return rows;
+  };
+  
+  // Function to extract key-value pairs from text
+  const extractKeyValuePairs = (content: string): any[] => {
+    const lines = content.split('\n');
+    const result: Record<string, string>[] = [];
+    
+    // Look for patterns like "Key: Value" or "Key - Value"
+    const kvPairs: Record<string, string> = {};
+    
+    for (const line of lines) {
+      const kvMatch = line.match(/([^:]+):\s*(.+)/) || line.match(/([^-]+)\s-\s(.+)/);
+      if (kvMatch) {
+        const key = kvMatch[1].trim();
+        const value = kvMatch[2].trim();
+        kvPairs[key] = value;
+      }
+    }
+    
+    if (Object.keys(kvPairs).length > 0) {
+      result.push(kvPairs);
+    }
+    
+    return result;
+  };
+  
+  // Function to extract JSON from content
+  const extractJsonFromContent = (content: string): any[] | null => {
+    // Look for code blocks with JSON data
+    const jsonMatches = content.match(/```(?:json)?\n([\s\S]*?)\n```/g);
+    if (jsonMatches && jsonMatches.length > 0) {
+      // Try each JSON block
+      for (const match of jsonMatches) {
+        try {
+          const jsonContent = match.replace(/```(?:json)?\s*|\s*```/g, '').trim();
+          const jsonData = JSON.parse(jsonContent);
+          if (Array.isArray(jsonData)) {
+            return jsonData;
+          } else if (typeof jsonData === 'object' && jsonData !== null) {
+            return [jsonData];
+          }
+        } catch (err) {
+          console.error('Error parsing JSON data in block:', err);
+          // Continue to next match
+        }
+      }
+    }
+    
+    // Try to find JSON without code blocks
+    try {
+      // Look for anything that might be JSON
+      const jsonPattern = /(\{[\s\S]*?\}|\[[\s\S]*?\])/g;
+      const potentialJsonMatches = content.match(jsonPattern);
+      
+      if (potentialJsonMatches) {
+        for (const match of potentialJsonMatches) {
+          try {
+            const jsonData = JSON.parse(match);
+            if (Array.isArray(jsonData) && jsonData.length > 0) {
+              return jsonData;
+            } else if (typeof jsonData === 'object' && jsonData !== null) {
+              return [jsonData];
+            }
+          } catch (err) {
+            // Not valid JSON, continue to next match
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error finding JSON without code blocks:', err);
+    }
+    
+    return null;
+  };
+  
+  // Function to extract potential tabular data from content
+  const extractPotentialTabularData = (content: string): any[] => {
+    // Look for sections that might contain tabular data
+    const sections = content.split(/(?:###|##)\s+/);
+    
+    for (const section of sections) {
+      // Skip very short sections
+      if (section.length < 50) continue;
+      
+      // Look for lines that might be rows of data
+      const lines = section.split('\n').filter(line => line.trim().length > 0);
+      
+      // Check if we have enough lines to form a table (at least 3 - header, separator, and one data row)
+      if (lines.length >= 3) {
+        // Try to identify potential header line
+        const headerCandidates = lines.slice(0, 3).filter(line => 
+          line.includes('|') || 
+          line.split(/\s{2,}/).length > 3 ||
+          line.includes('\t')
+        );
+        
+        if (headerCandidates.length > 0) {
+          const headerLine = headerCandidates[0];
+          let headers: string[] = [];
+          let delimiter: string | RegExp = '';
+          
+          // Determine the delimiter
+          if (headerLine.includes('|')) {
+            delimiter = '|';
+            headers = headerLine.split('|').map(h => h.trim()).filter(h => h.length > 0);
+          } else if (headerLine.includes('\t')) {
+            delimiter = '\t';
+            headers = headerLine.split('\t').map(h => h.trim()).filter(h => h.length > 0);
+          } else {
+            delimiter = /\s{2,}/;
+            headers = headerLine.split(delimiter).map(h => h.trim()).filter(h => h.length > 0);
+          }
+          
+          // If we found headers, try to extract data rows
+          if (headers.length > 1) {
+            const startIndex = lines.indexOf(headerLine) + 1;
+            // Skip separator line if it exists
+            const dataStartIndex = lines[startIndex]?.includes('-') ? startIndex + 1 : startIndex;
+            
+            const rows = lines.slice(dataStartIndex)
+              .filter(line => {
+                if (typeof delimiter === 'string') {
+                  return line.includes(delimiter);
+                } else {
+                  return line.split(delimiter).length > 1;
+                }
+              })
+              .map(line => {
+                let columns: string[] = [];
+                if (typeof delimiter === 'string') {
+                  columns = line.split(delimiter).map(col => col.trim()).filter(col => col.length > 0);
+                } else {
+                  columns = line.split(delimiter).map(col => col.trim()).filter(col => col.length > 0);
+                }
+                
+                if (columns.length > 0) {
+                  const rowObj: Record<string, any> = {};
+                  columns.forEach((col, index) => {
+                    const header = index < headers.length ? headers[index] : `Column${index + 1}`;
+                    rowObj[header] = !isNaN(Number(col)) && col.trim() !== '' ? Number(col) : col;
+                  });
+                  return rowObj;
+                }
+                return null;
+              })
+              .filter(row => row !== null);
+            
+            if (rows.length > 0) {
+              return rows as any[];
+            }
+          }
+        }
+      }
+    }
+    
+    return [];
+  };
+  
+  // Function to create visualization data with the appropriate structure
+  const createVisualizationData = ({ data, requestedType = '' }: { data: any[], requestedType?: string }): any => {
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log('No data provided for visualization');
+      return null;
+    }
+    
+    console.log(`Creating visualization data with type: ${requestedType || 'auto'}`);
+    
+    // Safety check: make sure data is an array of objects
+    if (typeof data[0] !== 'object') {
+      console.log('Data is not in expected format, converting to objects');
+      data = data.map(item => ({ value: item }));
+    }
+    
+    const firstItem = data[0];
+    const keys = Object.keys(firstItem);
+    
+    console.log('Available keys for visualization:', keys.join(', '));
+    
+    // Replace the investor-specific check with a more generic approach
+    // Detect if this is demographic data
+    const isDemographicData = 
+      data.some(item => 
+        Object.keys(item).some(key => 
+          key === 'Age' || key === 'age' || 
+          key === 'Gender' || key === 'gender' || 
+          key === 'Income' || key === 'income' ||
+          key === 'Location' || key === 'location' ||
+          key === 'Region' || key === 'region' ||
+          key === 'Demographic' || key === 'demographic' ||
+          key === 'Category' || key === 'category' ||
+          key === 'Segment' || key === 'segment'
+        )
+      ) ||
+      keys.some(key => 
+        key.toLowerCase().includes('demographic') || 
+        key.toLowerCase().includes('age') || 
+        key.toLowerCase().includes('gender') || 
+        key.toLowerCase().includes('income') ||
+        key.toLowerCase().includes('population') ||
+        key.toLowerCase().includes('percentage') ||
+        key.toLowerCase().includes('segment') ||
+        key.toLowerCase().includes('category') ||
+        key.toLowerCase().includes('type') ||
+        key.toLowerCase().includes('group') || 
+        key.toLowerCase().includes('vertical') || 
+        key.toLowerCase().includes('industry') ||
+        key.toLowerCase().includes('sector') ||
+        key.toLowerCase().includes('field') ||
+        key.toLowerCase().includes('area')
+      );
+    
+    // Check if data contains comma-separated lists in any field - often indicates categorical demographics
+    const hasCategoricalLists = data.some(item => {
+      return Object.values(item).some(val => 
+        typeof val === 'string' && 
+        val.includes(',') && 
+        val.split(',').length > 1
+      );
+    });
+    
+    // If we have comma-separated lists, extract and visualize them
+    if (isDemographicData && hasCategoricalLists) {
+      // Find columns with comma-separated values
+      const categoricalColumns = keys.filter(key => {
+        return data.some(item => 
+          typeof item[key] === 'string' && 
+          item[key].includes(',') && 
+          item[key].split(',').length > 1
+        );
+      });
+      
+      if (categoricalColumns.length > 0) {
+        console.log('Found columns with comma-separated values:', categoricalColumns);
+        
+        // Find columns that appear to be demographic categories
+        const demographicColumns = categoricalColumns.filter(col => 
+          col.toLowerCase().includes('category') ||
+          col.toLowerCase().includes('type') ||
+          col.toLowerCase().includes('vertical') ||
+          col.toLowerCase().includes('industry') ||
+          col.toLowerCase().includes('sector') ||
+          col.toLowerCase().includes('field')
+        );
+        
+        const mainColumn = demographicColumns.length > 0 ? demographicColumns[0] : categoricalColumns[0];
+        console.log(`Using ${mainColumn} for demographic visualization`);
+        
+        // Extract and count values from the comma-separated lists
+        const valueMap: Record<string, number> = {};
+        
+        data.forEach(item => {
+          if (typeof item[mainColumn] === 'string' && item[mainColumn].includes(',')) {
+            const values = item[mainColumn].split(',').map(v => v.trim());
+            values.forEach(value => {
+              if (value && value !== 'etc.' && value !== 'etc' && value.length > 0) {
+                valueMap[value] = (valueMap[value] || 0) + 1;
+              }
+            });
+          } else if (item[mainColumn]) {
+            // Handle single values
+            const value = String(item[mainColumn]).trim();
+            valueMap[value] = (valueMap[value] || 0) + 1;
+          }
+        });
+        
+        // Create data for visualization
+        const frequencyData = Object.entries(valueMap)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, 10); // Limit to top 10 for readability
+        
+        if (frequencyData.length > 0) {
+          console.log(`Created frequency data for ${mainColumn} with ${frequencyData.length} categories`);
+          
+          // Return pie chart visualization
+          return {
+            type: 'pie',
+            data: frequencyData,
+            xKey: 'name',
+            yKey: 'value',
+            title: `Distribution by ${mainColumn.replace(/([A-Z])/g, ' $1').trim()}`,
+            options: {
+              useDirectColorAssignment: true,
+              useMultipleColors: true,
+              forceChartType: 'pie',
+              isPieChart: true,
+              legend: { enabled: true }
+            },
+            preserveType: true
+          };
+        }
+      }
+    }
+    
+    // For demographic data, prefer pie or bar charts unless explicitly requested otherwise
+    if (isDemographicData && !requestedType) {
+      console.log('Detected demographic data, using pie chart as default');
+      requestedType = 'pie';
+    }
+    
+    // For table type, just return the data with the table type
+    if (requestedType === 'table') {
+      console.log('Creating table visualization with', data.length, 'rows');
+      return {
+        type: 'table',
+        data: data,
+        options: {
+          useDirectColorAssignment: true,
+          useMultipleColors: true
+        },
+        preserveType: true
+      };
+    }
+    
+    // Try to identify the best columns for visualization
+    const { categoryKey, numericKey } = identifyKeyColumns(data, keys, requestedType);
+    
+    console.log(`Using category key: ${categoryKey}, numeric key: ${numericKey}`);
+    
+    // Convert string percentages to numbers if needed
+    if (numericKey && data.length > 0 && typeof data[0][numericKey] === 'string') {
+      data = convertStringValues(data, numericKey);
+    }
+    
+    // If this is demographic data and we have categorical fields with comma-separated values
+    // (like "AI, FinTech, Digital Health"), extract and count frequencies
+    if (isDemographicData) {
+      const categoricalKeys = findCategoricalColumnsWithLists(data);
+      if (categoricalKeys.length > 0) {
+        console.log('Found comma-separated categorical values, extracting frequency data');
+        
+        // First priority: look for domain-typed lists that represent primary demographics
+        for (const key of categoricalKeys) {
+          if (isPrimaryDemographicField(key)) {
+            console.log(`Found primary demographic field: ${key}`);
+            const frequencyData = extractFrequencyData(data, key);
+            if (frequencyData.length > 0) {
+              return createFrequencyVisualization(frequencyData, requestedType || 'pie', key);
+            }
+          }
+        }
+        
+        // Second priority: if we have a demographic query but no particular field identified,
+        // use the first categorical field found
+        const frequencyData = extractFrequencyData(data, categoricalKeys[0]);
+        if (frequencyData.length > 0) {
+          return createFrequencyVisualization(frequencyData, requestedType || 'pie', categoricalKeys[0]);
+        }
+      }
+    }
+    
+    // Determine the best visualization type if not specified
+    let visualizationType = requestedType;
+    if (!visualizationType || visualizationType === '') {
+      visualizationType = inferVisualizationType(data, isDemographicData);
+    }
+    
+    console.log(`Final visualization type: ${visualizationType}`);
+    
+    // Set appropriate data structure based on visualization type
+    let formattedData = data;
+    let chartOptions: Record<string, any> = {
+      useDirectColorAssignment: true,
+      useMultipleColors: true
+    };
+    
+    // Special handling for pie charts to ensure proper data format
+    if (visualizationType === 'pie') {
+      chartOptions = {
+        ...chartOptions,
+        forceChartType: 'pie', 
+        isPieChart: true,
+        legend: { enabled: true }
+      };
+      
+      // Ensure data has name and value fields for pie chart
+      if (!keys.includes('name') && !keys.includes('value')) {
+        formattedData = data.map(item => ({
+          name: item[categoryKey],
+          value: typeof item[numericKey] === 'string' ? parseFloat(item[numericKey]) : item[numericKey],
+          ...item // preserve original data
+        }));
+      }
+    }
+    
+    // Auto-generate a meaningful title based on the data
+    const title = generateVisualizationTitle(categoryKey, numericKey, visualizationType, isDemographicData);
+    
+    // Create visualization data
+    const visualizationData = {
+      type: visualizationType,
+      data: formattedData,
+      xKey: categoryKey,
+      yKey: numericKey,
+      title: title,
+      options: chartOptions,
+      preserveType: true  // Always preserve chart type
+    };
+    
+    return visualizationData;
+  };
+  
+  // Helper function to detect if data is demographic in nature
+  const detectDemographicData = (data: any[], keys: string[], requestedType: string): boolean => {
+    // Check if request type explicitly mentions demographics
+    if (requestedType.toLowerCase().includes('demographic') || 
+        requestedType.toLowerCase().includes('breakdown') ||
+        requestedType.toLowerCase().includes('analyze') ||
+        requestedType.toLowerCase().includes('distribution')) {
+      return true;
+    }
+    
+    // Check for common demographic keys
+    const demographicKeywords = [
+      'age', 'gender', 'income', 'location', 'region', 'demographic', 
+      'category', 'segment', 'population', 'ethnicity', 'education',
+      'occupation', 'marital', 'household', 'religion', 'language',
+      'generation', 'group', 'distribution', 'focus', 'sector', 'industry',
+      'vertical', 'type', 'classification', 'segment', 'specialty', 'domain',
+      'area', 'expertise', 'interest'
+    ];
+    
+    // Check if any keys match demographic keywords
+    const hasDemographicKeys = keys.some(key => 
+      demographicKeywords.some(keyword => key.toLowerCase().includes(keyword))
+    );
+    
+    // Check if any values seem to be categorical breakdowns
+    const hasCategoricalValues = data.some(item => {
+      const values = Object.values(item);
+      // Check for percentage values or frequency counts
+      return values.some(val => 
+        (typeof val === 'string' && val.includes('%')) ||
+        (typeof val === 'number' && val > 0 && val <= 100)
+      );
+    });
+    
+    // Look for comma-separated lists in values that might indicate categories
+    const hasCommaSeparatedValues = data.some(item => {
+      return Object.values(item).some(val => 
+        typeof val === 'string' && val.includes(',') && val.split(',').length > 1
+      );
+    });
+    
+    // Look for table structures with text categories and numeric values
+    const hasTableStructure = keys.length >= 2 && 
+      data.some(item => {
+        const values = Object.values(item);
+        const hasStringValue = values.some(val => typeof val === 'string' && val.length > 0);
+        const hasNumericValue = values.some(val => typeof val === 'number' || 
+                                                (typeof val === 'string' && !isNaN(parseFloat(val))));
+        return hasStringValue && hasNumericValue;
+      });
+    
+    return hasDemographicKeys || hasCategoricalValues || hasCommaSeparatedValues || hasTableStructure;
+  };
+  
+  // Function to identify the best column keys for visualization
+  const identifyKeyColumns = (data: any[], keys: string[], requestedType: string): { categoryKey: string, numericKey: string } => {
+    let categoryKey = '';
+    let numericKey = '';
+    
+    // For category key, look for demographic identifiers
+    const categoryKeywords = [
+      'category', 'segment', 'type', 'group', 'demographic', 'gender', 
+      'region', 'age', 'vertical', 'sector', 'industry', 'classification'
+    ];
+    
+    for (const keyword of categoryKeywords) {
+      const matchingKey = keys.find(key => key.toLowerCase().includes(keyword));
+      if (matchingKey) {
+        categoryKey = matchingKey;
+        break;
+      }
+    }
+    
+    // For numeric key, look for percentage or count identifiers
+    const numericKeywords = [
+      'percentage', 'count', 'value', 'population', 'size', 'number', 
+      'frequency', 'amount', 'total', 'sum', 'quantity'
+    ];
+    
+    for (const keyword of numericKeywords) {
+      const matchingKey = keys.find(key => key.toLowerCase().includes(keyword));
+      if (matchingKey) {
+        numericKey = matchingKey;
+        break;
+      }
+    }
+    
+    // If we couldn't find specific columns, use heuristics
+    if (!categoryKey) {
+      // Find a text column for x-axis, preferably the first column
+      categoryKey = keys.find(key => 
+        typeof data[0][key] === 'string' && 
+        !key.toLowerCase().includes('email') && 
+        !key.toLowerCase().includes('id') && 
+        !key.toLowerCase().includes('url')
+      ) || keys[0] || 'category';
+    }
+    
+    if (!numericKey) {
+      // Find a numeric column for y-axis, or use the second column
+      numericKey = keys.find(key => 
+        typeof data[0][key] === 'number' || 
+        (!isNaN(parseFloat(data[0][key])) && typeof data[0][key] !== 'boolean') ||
+        (typeof data[0][key] === 'string' && data[0][key].includes('%'))
+      ) || (keys.length > 1 ? keys[1] : keys[0]) || 'value';
+    }
+    
+    return { categoryKey, numericKey };
+  };
+  
+  // Function to convert string values to numbers
+  const convertStringValues = (data: any[], numericKey: string): any[] => {
+    const percentRegex = /(\d+(\.\d+)?)%/;
+    const numericRegex = /(\d+(\.\d+)?)/;
+    
+    return data.map(item => {
+      const value = item[numericKey];
+      if (typeof value === 'string') {
+        // Try to extract percentage
+        const percentMatch = value.match(percentRegex);
+        if (percentMatch) {
+          return {
+            ...item,
+            [numericKey]: parseFloat(percentMatch[1])
+          };
+        }
+        
+        // Try to extract any numeric value
+        const numericMatch = value.match(numericRegex);
+        if (numericMatch) {
+          return {
+            ...item,
+            [numericKey]: parseFloat(numericMatch[1])
+          };
+        }
+      }
+      return item;
+    });
+  };
+  
+  // Function to find columns with comma-separated values
+  const findCategoricalColumnsWithLists = (data: any[]): string[] => {
+    if (!data || data.length === 0) return [];
+    
+    const keys = Object.keys(data[0]);
+    return keys.filter(key => {
+      // Check if there are comma-separated values
+      return data.some(item => 
+        typeof item[key] === 'string' && 
+        item[key].includes(',') && 
+        item[key].split(',').length > 1
+      );
+    });
+  };
+  
+  // Function to extract frequency data from comma-separated values
+  const extractFrequencyData = (data: any[], categoricalKey: string): any[] => {
+    // Count frequency of each value
+    const frequencyMap: Record<string, number> = {};
+    
+    data.forEach(item => {
+      const value = item[categoricalKey];
+      if (typeof value === 'string' && value.includes(',')) {
+        // Split the comma-separated values and count each one
+        const categories = value.split(',')
+          .map(v => v.trim())
+          .filter(v => v && v !== 'etc.' && v !== 'etc' && v !== '-');
+        
+        categories.forEach(category => {
+          frequencyMap[category] = (frequencyMap[category] || 0) + 1;
+        });
+      } else if (value) {
+        // Single value
+        frequencyMap[value] = (frequencyMap[value] || 0) + 1;
+      }
+    });
+    
+    // Convert to array format for visualization
+    return Object.entries(frequencyMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      // Limit to top 15 categories for readability if there are too many
+      .slice(0, 15);
+  };
+  
+  // Function to create visualization for frequency data
+  const createFrequencyVisualization = (data: any[], chartType: string, sourceColumn: string): any => {
+    // Default to pie chart for frequency data unless explicitly requested
+    const finalChartType = chartType === 'bar' ? 'bar' : 'pie';
+    
+    const chartOptions: Record<string, any> = {
+      useDirectColorAssignment: true,
+      useMultipleColors: true,
+      forceChartType: finalChartType
+    };
+    
+    // Add pie chart specific options if needed
+    if (finalChartType === 'pie') {
+      chartOptions.isPieChart = true;
+      chartOptions.legend = { enabled: true };
+    }
+    
+    // Create a meaningful title based on the source column
+    let title = 'Distribution by Category';
+    if (sourceColumn) {
+      title = `Distribution by ${sourceColumn.replace(/([A-Z])/g, ' $1').trim()}`;
+    }
+    
+    return {
+      type: finalChartType,
+      data: data,
+      xKey: 'name',
+      yKey: 'value',
+      title: title,
+      options: chartOptions,
+      preserveType: true
+    };
+  };
+  
+  // Function to generate a meaningful title for the visualization
+  const generateVisualizationTitle = (
+    categoryKey: string, 
+    numericKey: string, 
+    visualizationType: string,
+    isDemographic: boolean
+  ): string => {
+    // Format keys for readability
+    const formatKey = (key: string) => {
+      // Convert camelCase to spaces
+      return key.replace(/([A-Z])/g, ' $1')
+        // Remove underscores and replace with spaces
+        .replace(/_/g, ' ')
+        // Capitalize first letter
+        .replace(/^\w/, c => c.toUpperCase())
+        .trim();
+    };
+    
+    const category = formatKey(categoryKey);
+    const numeric = formatKey(numericKey);
+    
+    // Create appropriate title based on visualization type
+    if (isDemographic) {
+      if (visualizationType === 'pie') {
+        return `${category} Distribution`;
+      } else if (visualizationType === 'bar') {
+        return `${category} Breakdown`;
+      }
+    }
+    
+    if (visualizationType === 'pie') {
+      return `Distribution by ${category}`;
+    } else if (visualizationType === 'bar') {
+      return `${category} vs ${numeric}`;
+    } else if (visualizationType === 'line') {
+      return `${numeric} Trends by ${category}`;
+    } else if (visualizationType === 'scatter') {
+      return `${category} to ${numeric} Relationship`;
+    }
+    
+    // Default
+    return `${category} vs ${numeric}`;
+  };
+  
+  // Process the message content immediately when component mounts or message changes
+  useEffect(() => {
+    if (!message || !message.content) {
+      setIsLoading(false);
+      return;
+    }
+    
+    // Log that we're processing the response
+    console.log(`Processing ${message.metadata?.type || 'unknown'} response with VisualizationAdapter`);
+    
+    // Set data source type based on message type
+    if (message.metadata?.type) {
+      setDataSourceType(message.metadata.type.toString());
+    }
+    
+    // Reset state to prevent outdated visualizations from showing
+    setVisualizationData(null);
+    
+    // Initial check for message status to prevent thinking templates
+    if (message.status === 'loading' || message.status === 'thinking') {
+      // While loading, don't process content - this prevents mock templates
+      setIsLoading(true);
+      return;
+    }
+    
+    // Process the message content immediately
+    const processMessageContent = async () => {
+      try {
+        // Extract content from message
+        const content = typeof message.content === 'string' 
+          ? message.content 
+          : JSON.stringify(message.content);
+        
+        // Skip processing if content is empty or indicates thinking
+        if (!content || content.trim() === 'Thinking...' || content.includes('is thinking')) {
+          console.log('Skipping processing for thinking/loading state');
+          setIsLoading(false);
+          return;
+        }
+        
+        // Set data source type from message metadata if available
+        if (message.metadata?.dataSourceType) {
+          setDataSourceType(message.metadata.dataSourceType.toString());
+        }
+        
+        // Get the original user query if available
+        const userQuery = message.metadata?.userQuery as string || '';
+        
+        // Check for investor demographics requests
+        const isInvestorDemographicsRequest = 
+          userQuery.toLowerCase().includes('investor') && userQuery.toLowerCase().includes('demographic') ||
+          userQuery.toLowerCase().includes('analyze each investor') ||
+          userQuery.toLowerCase().includes('investor analysis') ||
+          userQuery.toLowerCase().includes('fund') && userQuery.toLowerCase().includes('demographic');
+        
+        // Check for primary demographics specifically
+        const isPrimaryDemographicsRequest = 
+          userQuery.toLowerCase().includes('primary demographic') || 
+          userQuery.toLowerCase().includes('main demographic');
+        
+        // First, check if the content specifically mentions visualization
+        let requestedVisualizationType = '';
+        const visualizationTypePatterns = [
+          /create a (bar|pie|line|table|scatter|area|donut) (chart|graph|visualization)/i,
+          /show me a (bar|pie|line|table|scatter|area|donut) (chart|graph|visualization)/i,
+          /visualize.*as a (bar|pie|line|table|scatter|area|donut) (chart|graph|visualization)/i,
+          /visualization type: ([a-z]+)/i,
+          /display (this|the data|the results) as a (bar|pie|line|table|scatter|area|donut)/i,
+          /use a (bar|pie|line|table|scatter|area|donut) (chart|graph|visualization)/i
+        ];
+        
+        // If it's an investor demographics request, set the appropriate visualization type
+        if (isInvestorDemographicsRequest) {
+          if (isPrimaryDemographicsRequest) {
+            requestedVisualizationType = 'primary demographic pie';
+          } else {
+            requestedVisualizationType = 'demographic';
+          }
+          console.log(`Detected investor demographics request: ${requestedVisualizationType}`);
+        } else {
+          // Otherwise look for explicit visualization type requests
+          for (const pattern of visualizationTypePatterns) {
+            const match = content.match(pattern);
+            if (match) {
+              requestedVisualizationType = match[1].toLowerCase();
+              console.log(`Detected requested visualization type: ${requestedVisualizationType}`);
+              break;
+            }
+          }
+        }
+        
+        // Extract steps from content
+        let extractedSteps: AnalyticalStep[] = [];
+        let extractedSummary = '';
+        
+        // Check if content contains structured data
+        if (content.includes('```json') || content.includes('"steps":') || content.includes('"visualization":')) {
+          try {
+            // Try to extract JSON from markdown code blocks
+            const jsonMatches = content.match(/```(?:json)?\s*([\s\S]*?)```/g);
+            if (jsonMatches && jsonMatches.length > 0) {
+              // Process each JSON block
+              for (const match of jsonMatches) {
+                const jsonContent = match.replace(/```(?:json)?\s*|\s*```/g, '').trim();
+                try {
+                  const parsed = JSON.parse(jsonContent);
+                  if (parsed.steps && Array.isArray(parsed.steps)) {
+                    extractedSteps = parsed.steps;
+                    console.log(`Extracted ${parsed.steps.length} structured steps from JSON`);
+                    
+                    // If there's also a summary, extract it
+                    if (parsed.summary) {
+                      extractedSummary = parsed.summary;
+                    }
+                    break;
+                  }
+                } catch (e) {
+                  // Continue to next match if this one fails
+                  console.warn('Failed to parse JSON block:', e);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Error extracting JSON from content:', e);
+          }
+        }
+        
+        // If no structured steps were found, create a simple step structure
+        if (extractedSteps.length === 0) {
+          // Extract summary from content
+          extractedSummary = content;
+          
+          // Create a basic step structure
+          extractedSteps = [
+            {
+              id: 'info-1',
+              type: 'info',
+              description: 'Results',
+              order: 1,
+              content: content
+            }
+          ];
+          
+          // Extract structured data from the content
+          const extractedData = extractStructuredData(content);
+          
+          // If we extracted data, add data steps
+          if (extractedData && extractedData.length > 0) {
+            console.log('Extracted structured data:', extractedData.length, 'items');
+            
+            // Create a data step
+            extractedSteps.push({
+              id: 'data-1',
+              type: 'data',
+              description: 'Extracted Data',
+              order: 2,
+              data: extractedData,
+              visualization: {
+                // Use requested visualization type if available
+                type: requestedVisualizationType || 'table',
+                config: {
+                  data: extractedData
+                }
+              }
+            });
+          }
+        }
+        
+        // Set the extracted steps and summary
+        setSteps(extractedSteps);
+        setSummary(extractedSummary);
+        
+        // Create visualization data if available
+        let foundVisualization = false;
+        
+        // First, look for steps with visualization data
+        if (extractedSteps.some(step => step.data || (step.visualization && step.visualization.config && step.visualization.config.data))) {
+          // Find the first step with visualization data
+          const visualizationStep = extractedSteps.find(step => 
+            step.visualization && 
+            step.visualization.config && 
+            step.visualization.config.data &&
+            Array.isArray(step.visualization.config.data) &&
+            step.visualization.config.data.length > 0
+          );
+          
+          if (visualizationStep && visualizationStep.visualization) {
+            // Create visualization data from step
+            const vizData = createVisualizationData({
+              data: visualizationStep.visualization.config.data || [],
+              requestedType: requestedVisualizationType || visualizationStep.visualization.type
+            });
+            
+            if (vizData) {
+              console.log('Created visualization data from step visualization');
+              setVisualizationData(vizData);
+              foundVisualization = true;
+            }
+          } else {
+            // Find the first step with data
+            const dataStep = extractedSteps.find(step => 
+              step.data && 
+              Array.isArray(step.data) && 
+              step.data.length > 0
+            );
+            
+            if (dataStep && dataStep.data) {
+              // Create visualization data from step data
+              const vizData = createVisualizationData({
+                data: dataStep.data,
+                requestedType: requestedVisualizationType || inferVisualizationType(dataStep.data)
+              });
+              
+              if (vizData) {
+                console.log('Created visualization data from step data');
+                setVisualizationData(vizData);
+                foundVisualization = true;
+              }
+            }
+          }
+        }
+        
+        // If no visualization data was found in steps, try to extract it directly
+        if (!foundVisualization) {
+          const extractedData = extractStructuredData(content);
+          if (extractedData && extractedData.length > 0) {
+            const vizData = createVisualizationData({
+              data: extractedData,
+              requestedType: requestedVisualizationType || inferVisualizationType(extractedData)
+            });
+            
+            if (vizData) {
+              console.log('Created visualization data directly from content');
+              setVisualizationData(vizData);
+              foundVisualization = true;
+            }
+          }
+        }
+        
+        // Set loading to false when processing is complete
+        setIsLoading(false);
+      } catch (e) {
+        console.error('Error processing message content:', e);
+        setError('Failed to process visualization data');
+        setIsLoading(false);
+      }
+    };
+    
+    processMessageContent();
+  }, [message]);
+  
+  // Helper function to infer the best visualization type based on the data
+  const inferVisualizationType = (data: any[], isDemographicData: boolean = false): string => {
+    if (!data || data.length === 0) return 'table';
+    
+    const firstItem = data[0];
+    const keys = Object.keys(firstItem);
+    
+    // For demographic data, pie chart is often best
+    if (isDemographicData) {
+      // If there are many categories (>8), a bar chart might be better
+      const categoricalColumn = keys.find(key => typeof firstItem[key] === 'string');
+      if (categoricalColumn) {
+        const uniqueValues = new Set(data.map(item => item[categoricalColumn]));
+        return uniqueValues.size > 8 ? 'bar' : 'pie';
+      }
+      return 'pie';
+    }
+    
+    // Check for time series data
+    const hasTimeData = keys.some(key => 
+      key.toLowerCase().includes('date') || 
+      key.toLowerCase().includes('time') || 
+      key.toLowerCase().includes('year') ||
+      key.toLowerCase().includes('month') ||
+      key.toLowerCase().includes('period')
+    );
+    
+    if (hasTimeData) {
+      return 'line';
+    }
+    
+    // Check if we have many categories (more than 12)
+    const categoricalColumns = keys.filter(key => 
+      typeof firstItem[key] === 'string' && 
+      !key.toLowerCase().includes('id') && 
+      !key.toLowerCase().includes('email')
+    );
+    
+    if (categoricalColumns.length > 0) {
+      const sampleColumn = categoricalColumns[0];
+      const uniqueValues = new Set(data.map(item => item[sampleColumn]));
+      
+      if (uniqueValues.size > 12) {
+        return 'table'; // Too many categories for a chart
+      }
+    }
+    
+    // Default to bar chart for most data
+    return 'bar';
+  };
+  
+  // Helper function to detect demographic chart request in the message content or user query
+  const detectPieChartRequest = (content: string): boolean => {
+    if (!content) return false;
+    
+    const lowerContent = content.toLowerCase();
+    
+    // Check for explicit pie chart requests
+    const explicitPieRequest = 
+      lowerContent.includes('pie chart') || 
+      lowerContent.includes('piechart') || 
+      lowerContent.includes('pie graph') || 
+      lowerContent.includes('circular chart') ||
+      lowerContent.includes('circular graph');
+    
+    // Check for demographic requests, which are often best visualized as pie charts
+    const demographicRequest = 
+      lowerContent.includes('demographic') ||
+      (lowerContent.match(/\b(distribution|breakdown|analysis|analyze)\b/) !== null) ||
+      (lowerContent.includes('by') && 
+       (lowerContent.includes('type') || 
+        lowerContent.includes('category') || 
+        lowerContent.includes('segment') || 
+        lowerContent.includes('field') || 
+        lowerContent.includes('vertical')
+       )
+      );
+    
+    return explicitPieRequest || demographicRequest;
+  };
+  
+  // CRITICAL FORCE: Check if this is a demographic request immediately on component mount
+  useEffect(() => {
+    // Don't run if we don't have a message
+    if (!message) return;
+    
+    // Look for demographic request in the original user query
+    const userQuery = message.metadata?.userQuery as string || '';
+    
+    if (detectPieChartRequest(userQuery) || userQuery.toLowerCase().includes('demographic')) {
+      // If we have visualization data already, modify it to force pie chart
+      if (visualizationData) {
+        // Determine title based on query content
+        let title = visualizationData.title;
+        
+        if (userQuery.toLowerCase().includes('demographic')) {
+          title = 'Demographic Distribution Analysis';
+        }
+        
+        const forcedPieData = {
+          ...visualizationData,
+          type: 'pie',
+          title: title,
+          preserveType: true,
+          options: {
+            ...(visualizationData.options || {}),
+            forceChartType: 'pie',
+            isPieChart: true,
+            legend: { enabled: true }
+          }
+        };
+        
+        setVisualizationData(forcedPieData);
+      }
+    }
+  }, [message.metadata?.userQuery, visualizationData]);
+  
+  // Render loading state for message in loading status
+  const renderLoadingState = () => {
+    return (
+      <div className="p-4">
+        <div className="flex items-center space-x-2">
+          <div className="animate-pulse h-2 w-2 bg-gray-400 dark:bg-gray-600 rounded-full"></div>
+          <div className="animate-pulse h-2 w-2 bg-gray-400 dark:bg-gray-600 rounded-full" style={{ animationDelay: '0.2s' }}></div>
+          <div className="animate-pulse h-2 w-2 bg-gray-400 dark:bg-gray-600 rounded-full" style={{ animationDelay: '0.4s' }}></div>
+          <span className="text-gray-500 dark:text-gray-400 ml-2">Thinking...</span>
+        </div>
+      </div>
+    );
+  };
+  
+  // Render loading state for component loading
+  const renderComponentLoading = () => {
+    return (
+      <div className="p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4"></div>
+        <div className="space-y-2">
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  };
+  
+  // Render error state
+  const renderErrorState = () => {
+    return (
+      <div className="p-4 bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200 rounded-lg">
+        <p className="font-medium">Error rendering visualization</p>
+        <p className="text-sm">{error}</p>
+        <div className="mt-4">
+          <MessageMarkdown content={typeof message.content === 'string' ? message.content : JSON.stringify(message.content)} />
+        </div>
+      </div>
+    );
+  };
+  
+  // Determine what to render
+  if (message.status === 'loading') {
+    return renderLoadingState();
+  }
+  
+  if (isLoading) {
+    return renderComponentLoading();
+  }
+  
+  if (error) {
+    return renderErrorState();
+  }
+  
+  // Extract insights from steps
+  const allInsights = steps
+    .filter(step => step.insights && step.insights.length > 0)
+    .flatMap(step => step.insights || []);
+  
+  // Render the enhanced visualization
+  return (
+    <EnhancedStepByStepVisualization
+      steps={steps}
+      autoPlay={false}
+      dataSourceType={dataSourceType}
+      insights={allInsights}
+      summary={summary}
+      visualizationData={visualizationData}
+    />
+  );
+};
+
+// Add this helper function to check if a field is a primary demographic indicator
+const isPrimaryDemographicField = (fieldName: string): boolean => {
+  const primaryDemographicTerms = [
+    'focus', 'vertical', 'category', 'type', 'segment', 
+    'specialty', 'domain', 'area', 'sector', 'field', 
+    'industry', 'expertise', 'interest', 'group'
+  ];
+  
+  const lowercaseField = fieldName.toLowerCase();
+  return primaryDemographicTerms.some(term => lowercaseField.includes(term));
+};
+
+// Function to analyze structured demographic tables and extract the most meaningful visualization
+const analyzeStructuredDemographicTable = (data: any[], keys: string[], requestedType: string): any | null => {
+  console.log('Analyzing structured demographic table');
+  
+  // Step 1: Identify categorical columns with lists and text columns
+  const listColumns = findCategoricalColumnsWithLists(data);
+  const textColumns = keys.filter(key => 
+    key !== 'id' && 
+    !key.toLowerCase().includes('url') && 
+    typeof data[0][key] === 'string' && 
+    !listColumns.includes(key)
+  );
+  
+  // Step 2: Try to find a primary column for grouping (could be a 'name', 'type', etc.)
+  const primaryGroupingColumn = findPrimaryGroupingColumn(data, keys);
+  
+  // Step 3: Check if we have a specific demographic focus in the request
+  const focusTerms = extractFocusTermsFromRequest(requestedType);
+  
+  // If we have focus terms and list columns, prioritize visualizing those
+  if (focusTerms.length > 0 && listColumns.length > 0) {
+    // Find any list column that matches our focus
+    for (const column of listColumns) {
+      if (focusTerms.some(term => column.toLowerCase().includes(term))) {
+        console.log(`Found matching column for focus term: ${column}`);
+        const frequencyData = extractFrequencyData(data, column);
+        if (frequencyData.length > 0) {
+          return createFrequencyVisualization(frequencyData, 'pie', column);
+        }
+      }
+    }
+  }
+  
+  // If no specific focus match but we have a primary demographic column (like "Focus Verticals"), use it
+  if (listColumns.length > 0) {
+    for (const column of listColumns) {
+      if (isPrimaryDemographicField(column)) {
+        console.log(`Using primary demographic field: ${column}`);
+        const frequencyData = extractFrequencyData(data, column);
+        if (frequencyData.length > 0) {
+          return createFrequencyVisualization(frequencyData, 'pie', column);
+        }
+      }
+    }
+  }
+  
+  // If we have a primary grouping column and any categorical data, create a distribution
+  if (primaryGroupingColumn && textColumns.length > 0) {
+    const distributionData = createDistributionFromColumn(data, primaryGroupingColumn);
+    if (distributionData && distributionData.length > 0) {
+      console.log(`Creating distribution from primary column: ${primaryGroupingColumn}`);
+      return {
+        type: 'bar',
+        data: distributionData,
+        xKey: 'name',
+        yKey: 'value',
+        title: `Distribution by ${primaryGroupingColumn.replace(/([A-Z])/g, ' $1').trim()}`,
+        options: {
+          useDirectColorAssignment: true,
+          useMultipleColors: true
+        },
+        preserveType: true
+      };
+    }
+  }
+  
+  return null;
+};
+
+// Helper function to find the primary column for grouping
+const findPrimaryGroupingColumn = (data: any[], keys: string[]): string | null => {
+  // First, look for columns that might contain entity names
+  const namePattern = /(name|title|label|entity|type|category|group|id)/i;
+  const nameColumn = keys.find(key => namePattern.test(key));
+  if (nameColumn) return nameColumn;
+  
+  // Then look for columns with short text (likely categories)
+  const textColumns = keys.filter(key => typeof data[0][key] === 'string');
+  const shortTextColumn = textColumns.find(key => {
+    // Check average length of values
+    const avgLength = data.reduce((sum, item) => sum + (item[key]?.length || 0), 0) / data.length;
+    return avgLength > 0 && avgLength < 30; // Short text, likely a category
+  });
+  
+  if (shortTextColumn) return shortTextColumn;
+  
+  // Default to first column if nothing else found
+  return keys[0];
+};
+
+// Helper function to extract terms from a demographic request
+const extractFocusTermsFromRequest = (request: string): string[] => {
+  if (!request) return [];
+  
+  // Common focus terms that might appear in queries
+  const focusTerms = [
+    'focus', 'vertical', 'industry', 'sector', 'type', 'category', 
+    'specialty', 'domain', 'expertise', 'field', 'area',
+    'geographic', 'location', 'region', 'country', 'stage',
+    'size', 'age', 'gender', 'income', 'education'
+  ];
+  
+  // Extract terms present in the request
+  return focusTerms.filter(term => request.toLowerCase().includes(term));
+};
+
+// Helper function to create distribution data from a column
+const createDistributionFromColumn = (data: any[], column: string): any[] => {
+  // Create frequency map
+  const frequencyMap: Record<string, number> = {};
+  
+  data.forEach(item => {
+    const value = item[column];
+    if (value) {
+      frequencyMap[value] = (frequencyMap[value] || 0) + 1;
+    }
+  });
+  
+  // Convert to array format
+  return Object.entries(frequencyMap)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 12); // Limit to reasonable number of categories
+}; 
