@@ -52,6 +52,7 @@ SERVER_DIR="${WORKSPACE_DIR}/server"
 SKIP_BUILD=false
 SKIP_PUSH=false
 SKIP_DEPLOY=false
+SKIP_MIGRATIONS=false
 
 for arg in "$@"; do
   case $arg in
@@ -67,16 +68,21 @@ for arg in "$@"; do
       SKIP_DEPLOY=true
       shift
       ;;
+    --skip-migrations)
+      SKIP_MIGRATIONS=true
+      shift
+      ;;
     --help)
       echo -e "${BOLD}CIRO Backend Deployment Script${NC}"
       echo ""
       echo "Usage: ./deploy-backend.sh [options]"
       echo ""
       echo "Options:"
-      echo "  --skip-build    Skip Docker build step"
-      echo "  --skip-push     Skip Docker push to ECR step"
-      echo "  --skip-deploy   Skip ECS service update step"
-      echo "  --help          Display this help message"
+      echo "  --skip-build       Skip Docker build step"
+      echo "  --skip-push        Skip Docker push to ECR step"
+      echo "  --skip-deploy      Skip ECS service update step"
+      echo "  --skip-migrations  Skip database migrations step"
+      echo "  --help             Display this help message"
       echo ""
       exit 0
       ;;
@@ -226,12 +232,45 @@ EOF
   
   echo -e "   • New task definition: ${BOLD}$NEW_TASK_DEF_ARN${NC}"
   
+  # Check for existing tasks
+  echo -e "   • Checking for existing tasks..."
+  RUNNING_TASKS=$(aws ecs list-tasks \
+    --cluster $ECS_CLUSTER_NAME \
+    --service-name $BACKEND_SERVICE_NAME \
+    --desired-status RUNNING \
+    --region $AWS_REGION \
+    --query 'taskArns[]' \
+    --output text)
+  
+  # Set deployment configuration based on existing tasks
+  if [ -z "$RUNNING_TASKS" ]; then
+    echo -e "   • No running tasks found. Starting fresh deployment..."
+    DEPLOYMENT_CONFIG="maximumPercent=200,minimumHealthyPercent=100"
+  else
+    # Count number of running tasks
+    TASK_COUNT=$(echo $RUNNING_TASKS | wc -w)
+    echo -e "   • Found ${TASK_COUNT} running task(s)"
+    
+    # Use more conservative deployment for multiple tasks
+    if [ "$TASK_COUNT" -gt 1 ]; then
+      echo -e "   • Using rolling deployment strategy for multiple tasks..."
+      DEPLOYMENT_CONFIG="maximumPercent=150,minimumHealthyPercent=100"
+    else
+      echo -e "   • Using safe deployment strategy for single task..."
+      # Use safer values to ensure new task starts before old one is terminated
+      DEPLOYMENT_CONFIG="maximumPercent=200,minimumHealthyPercent=100"
+    fi
+  fi
+  
   # Update the service with the new task definition
   echo -e "   • Updating service with new task definition..."
+  echo -e "   • Deployment configuration: ${DEPLOYMENT_CONFIG}"
+  
   aws ecs update-service \
     --cluster $ECS_CLUSTER_NAME \
     --service $BACKEND_SERVICE_NAME \
     --task-definition $NEW_TASK_DEF_ARN \
+    --deployment-configuration $DEPLOYMENT_CONFIG \
     --force-new-deployment \
     --region $AWS_REGION
   
@@ -246,14 +285,63 @@ else
   echo -e "\n${YELLOW}!${NC} Skipping ECS service update step as requested"
 fi
 
+# Step 4: Run Migrations
+if [ "$SKIP_MIGRATIONS" = false ]; then
+  echo -e "\n${BOLD}Step 4:${NC} Running database migrations..."
+  
+  # Check if the deployment was successful and we have a running task
+  echo -e "   • Looking for running ECS tasks..."
+  TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER_NAME --service-name $BACKEND_SERVICE_NAME --desired-status RUNNING --query 'taskArns[0]' --output text)
+  
+  if [ "$TASK_ARN" == "None" ] || [ -z "$TASK_ARN" ]; then
+    echo -e "${RED}Error:${NC} No running tasks found. Cannot run migrations."
+    echo -e "Please check ECS console for task status and run migrations manually using:"
+    echo -e "./deploy-migrations-ssm.sh"
+    exit 1
+  fi
+  
+  # Get the task details to find the container
+  TASK_ID=$(echo $TASK_ARN | cut -d'/' -f3)
+  echo -e "   • Found running task: ${BOLD}$TASK_ID${NC}"
+  
+  # Create database URL for migrations
+  DATABASE_URL="***REMOVED***ql://${RDS_USERNAME}:${RDS_PASSWORD}@${RDS_ENDPOINT}:5432/${RDS_DB_NAME}?schema=public"
+  
+  # Build the migration command
+  echo -e "   • Preparing to run migrations..."
+  MIGRATION_CMD="cd /app && DATABASE_URL=\"${DATABASE_URL}\" NODE_ENV=\"production\" node dist/infrastructure/database/run-migrations.js"
+  
+  # Run the migration command in the container
+  echo -e "   • Executing migrations inside the container..."
+  aws ecs execute-command \
+    --cluster $ECS_CLUSTER_NAME \
+    --task $TASK_ARN \
+    --container backend \
+    --command "/bin/bash -c '$MIGRATION_CMD'" \
+    --region $AWS_REGION > /tmp/migration-output.log 2>&1 || {
+      echo -e "${RED}Error:${NC} Migration failed. See /tmp/migration-output.log for details."
+      exit 1
+    }
+  
+  echo -e "${GREEN}✓${NC} Database migrations completed successfully"
+else
+  echo -e "\n${YELLOW}!${NC} Skipping database migrations as requested"
+fi
+
 # ============================================================
 # DEPLOYMENT SUMMARY
 # ============================================================
 
 echo -e "\n${BOLD}=== Deployment Complete ===${NC}\n"
 echo -e "${GREEN}✓${NC} Backend deployed successfully to ECS"
+
+if [ "$SKIP_MIGRATIONS" = false ]; then
+  echo -e "${GREEN}✓${NC} Database migrations applied successfully"
+fi
+
 echo -e "\n${BOLD}Verification Steps:${NC}"
 echo -e "1. Check service status in AWS ECS console"
 echo -e "2. Verify API endpoints at ${BOLD}https://api.ciroai.us${NC}"
+echo -e "3. Check database schema for expected changes"
 echo -e "\n${BOLD}Use the verification script:${NC}"
 echo -e "./verify-deployment.sh --backend\n" 

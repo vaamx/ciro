@@ -27,12 +27,14 @@ display_help() {
   echo "Usage: ./deploy-full.sh [options]"
   echo ""
   echo "Options:"
-  echo "  --frontend-only    Deploy only the frontend"
-  echo "  --backend-only     Deploy only the backend"
-  echo "  --skip-verify      Skip the verification step"
-  echo "  --help             Display this help message"
+  echo "  --frontend-only     Deploy only the frontend"
+  echo "  --backend-only      Deploy only the backend"
+  echo "  --skip-migrations   Skip database migrations (when deploying backend)"
+  echo "  --skip-verify       Skip the verification step"
+  echo "  --help              Display this help message"
   echo ""
-  echo "If no options are provided, both frontend and backend will be deployed."
+  echo "If no options are provided, both frontend and backend will be deployed,"
+  echo "including database migrations."
 }
 
 # ============================================================
@@ -42,6 +44,7 @@ display_help() {
 DEPLOY_FRONTEND=true
 DEPLOY_BACKEND=true
 SKIP_VERIFY=false
+SKIP_MIGRATIONS=false
 
 for arg in "$@"; do
   case $arg in
@@ -53,6 +56,10 @@ for arg in "$@"; do
     --backend-only)
       DEPLOY_FRONTEND=false
       DEPLOY_BACKEND=true
+      shift
+      ;;
+    --skip-migrations)
+      SKIP_MIGRATIONS=true
       shift
       ;;
     --skip-verify)
@@ -81,6 +88,12 @@ elif [ "$DEPLOY_BACKEND" = true ]; then
   echo -e "• Deploying: ${BOLD}Backend only${NC}"
 fi
 
+if [ "$SKIP_MIGRATIONS" = true ]; then
+  echo -e "• Database Migrations: ${YELLOW}Skipped${NC}"
+else
+  echo -e "• Database Migrations: ${GREEN}Included${NC} (as part of backend deployment)"
+fi
+
 if [ "$SKIP_VERIFY" = true ]; then
   echo -e "• Verification: ${YELLOW}Skipped${NC}"
 else
@@ -102,7 +115,14 @@ chmod +x deploy-frontend.sh deploy-backend.sh
 # Deploy backend
 if [ "$DEPLOY_BACKEND" = true ]; then
   echo -e "\n${BOLD}${BLUE}=== Deploying Backend ===${NC}"
-  ./deploy-backend.sh
+  
+  # Add migrations flag if needed
+  BACKEND_ARGS=""
+  if [ "$SKIP_MIGRATIONS" = true ]; then
+    BACKEND_ARGS="--skip-migrations"
+  fi
+  
+  ./deploy-backend.sh $BACKEND_ARGS
   BACKEND_RESULT=$?
   
   if [ $BACKEND_RESULT -ne 0 ]; then
@@ -266,4 +286,15 @@ fi
 echo -e "\n${GREEN}${BOLD}=== CIRO Deployment Completed Successfully ===${NC}\n"
 echo -e "Frontend URL: ${BOLD}https://app.ciroai.us${NC}"
 echo -e "Backend API: ${BOLD}https://api.ciroai.us${NC}"
+
+# Show migration status
+if [ "$DEPLOY_BACKEND" = true ]; then
+  if [ "$SKIP_MIGRATIONS" = true ]; then
+    echo -e "Database Migrations: ${YELLOW}Skipped${NC}"
+    echo -e "You may need to run migrations manually with: ${BOLD}./deploy-migrations-ssm.sh${NC}"
+  else
+    echo -e "Database Migrations: ${GREEN}Applied${NC}"
+  fi
+fi
+
 echo -e "\nThank you for using the CIRO Deployment Pipeline!\n" 
