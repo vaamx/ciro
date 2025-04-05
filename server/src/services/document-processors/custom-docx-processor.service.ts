@@ -1,22 +1,19 @@
-import { Injectable } from '@nestjs/common';
-import { BaseDocumentProcessor, ProcessingResult } from './base-document-processor';
-import { ConfigService } from '../config.service';
-import { ChunkingService } from '../chunking.service';
-import { QdrantService } from '../qdrant.service';
-import { OpenAIService } from '../openai.service';
-import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as mammoth from 'mammoth';
-import * as cheerio from 'cheerio';
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '../../services/core/config.service';
+import { ChunkingService } from '../../services/rag/chunking.service';
+import { OpenAIService } from '../../services/ai/openai.service';
 import { createServiceLogger } from '../../utils/logger-factory';
+import { BaseDocumentProcessor, ProcessingResult } from './base-document-processor';
+import mammoth from 'mammoth';
+import * as cheerio from 'cheerio';
+import { v4 as uuidv4 } from 'uuid';
 
 // Add the MAX_TOKENS_PER_CHUNK constant at the top of the file
 const MAX_TOKENS_PER_CHUNK = 4000; // Maximum tokens per chunk for OpenAI models
 
-/**
- * Interface for DOCX processing options
- */
+// Define the DocxProcessingOptions interface for better type checking
 interface DocxProcessingOptions {
     isTestUpload?: boolean;
     skipDatabaseCheck?: boolean;
@@ -47,8 +44,7 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
 
     constructor(
         protected readonly configService: ConfigService,
-        protected readonly chunkingService: ChunkingService,
-        protected readonly qdrantService: QdrantService,
+        protected readonly chunkingService: ChunkingService
     ) {
         super('CustomDocxProcessorService');
         this.openAIService = OpenAIService.getInstance();
@@ -444,37 +440,40 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
         dataSourceId: string,
         isTestUpload: boolean,
     ): Promise<any> {
-        this.logger.info(`Processing ${elements.length} extracted elements`);
-        
-        // Create chunks from the elements
-        const chunks = await this.createChunks(elements, dataSourceId);
-        this.logger.info(`Created ${chunks.length} chunks from ${elements.length} elements`);
-        
-        // Generate embeddings and store them in Qdrant
-        // We'll generate a file ID to use consistently for this processing run
-        const fileId = uuidv4();
-        this.logger.info(`Using file ID for vector storage: ${fileId}`);
+        this.logger.info(`Processing ${elements.length} extracted elements from DOCX file`);
         
         try {
-            // Pass fileId as the third parameter instead of isTestUpload
-            await this.generateEmbeddingsAndStoreVectors(
-            chunks,
-            dataSourceId,
-                fileId
-        );
-        
-        return {
-            chunks,
-                vectorsUpserted: chunks.length, // Use chunks.length since we know all chunks were processed
+            // Generate a unique identifier for this file
+            const fileId = uuidv4();
+            
+            // Format the collection name to be consistent: datasource_UUID
+            // This ensures we're using the file UUID, not the numeric ID
+            const collectionName = this.normalizeCollectionName(dataSourceId);
+            
+            // Create chunks from the extracted elements
+            const chunks = await this.createChunks(elements, dataSourceId);
+            this.logger.info(`Created ${chunks.length} chunks from extracted elements`);
+            
+            // Extract document info from elements
+            const docInfo = this.extractDocumentInfo(elements);
+            
+            // Skip embedding generation for test uploads
+            if (!isTestUpload) {
+                // Process the chunks to generate embeddings and store vectors
+                await this.generateEmbeddingsAndStoreVectors(chunks, dataSourceId, fileId, docInfo);
+            } else {
+                this.logger.info(`Skipping vector storage for test upload`);
+            }
+            
+            // Return processed data
+            return {
+                chunks,
+                vectorsUpserted: chunks.length
             };
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Error in vector processing: ${errorMessage}`);
-            return {
-                chunks,
-                vectorsUpserted: 0,
-                error: errorMessage
-            };
+            this.logger.error(`Error processing extracted elements: ${errorMessage}`);
+            throw error;
         }
     }
 
@@ -699,9 +698,11 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
         fileId: string,
         docInfo?: DocumentInfo
     ): Promise<void> {
+        // Get the collection name
+        const collectionName = this.normalizeCollectionName(dataSourceId);
+        
         try {
-            // Enhanced logging for debugging
-            this.logger.info(`Starting embedding generation for ${chunks.length} chunks from file ${fileId} for data source ${dataSourceId}`);
+            this.logger.info(`Generating embeddings for ${chunks.length} chunks from data source ${dataSourceId}, file ${fileId}`);
             
             if (!chunks || chunks.length === 0) {
                 this.logger.warn(`No chunks to process for data source ${dataSourceId}`);
@@ -783,25 +784,13 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
                 processableChunks.push(...newChunks);
             }
             
-            // Create a Qdrant collection with the proper naming convention
-            const qdrantService = QdrantService.getInstance();
-            // Format the collection name to be consistent: datasource_UUID
-            // This ensures we're using the file UUID, not the numeric ID
-            let collectionName = `datasource_${dataSourceId}`;
-            
-            // Check if dataSourceId is numeric and fileId is a UUID - if so, use the fileId instead
-            if (/^\d+$/.test(dataSourceId) && fileId && fileId.includes('-')) {
-                this.logger.info(`Data source ID ${dataSourceId} appears to be numeric; using file ID ${fileId} for collection name instead`);
-                collectionName = `datasource_${fileId}`;
-            }
-            
             this.logger.info(`Using collection name for vector storage: ${collectionName}`);
             
             // Make sure the collection exists
-            if (!(await qdrantService.collectionExists(collectionName))) {
+            if (!(await this.qdrantService.collectionExists(collectionName))) {
                 this.logger.info(`Creating Qdrant collection: ${collectionName}`);
                 try {
-                    const collectionCreated = await qdrantService.createCollection(collectionName, {
+                    const collectionCreated = await this.qdrantService.createCollection(collectionName, {
                         vectors: {
                             size: 1536, // OpenAI embedding dimension
                             distance: 'Cosine'
@@ -873,7 +862,7 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
                     );
                     
                     // Each item in the embeddings array is an array of arrays, so we need to extract the first embedding from each
-                    const flattenedEmbeddings = embeddings.map(e => e[0]);
+                    const flattenedEmbeddings = embeddings.map((e: number[][]) => e[0]);
                     
                     if (!flattenedEmbeddings || flattenedEmbeddings.length === 0) {
                         this.logger.error('OpenAI returned no embeddings');
@@ -887,12 +876,12 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
                     }
                     
                     // Prepare points for Qdrant - only for chunks that got embeddings
-                    const points = flattenedEmbeddings.map((embedding, index) => {
+                    const points = flattenedEmbeddings.map((embedding: number[], index: number) => {
                         const chunk = batchWithContent[index];
                         return {
                             id: uuidv4(), // Generate a unique ID for each vector
                             vector: embedding,
-                                                payload: {
+                            payload: {
                                 text: chunk.content,
                                 metadata: {
                                     ...chunk.metadata,
@@ -912,16 +901,16 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
                     this.logger.info(`Storing ${points.length} vectors in Qdrant collection: ${collectionName}`);
                     
                     // Upsert the vectors to Qdrant
-                    const result = await qdrantService.upsertVectors(collectionName, points);
+                    const result = await this.qdrantService.upsertVectors(collectionName, points);
                     
                     this.logger.info(`Qdrant upsert result: ${JSON.stringify(result)}`);
                     
                     // Verify vectors were stored by doing a simple count check
                     try {
-                        const collectionInfo = await qdrantService.getCollectionInfo(collectionName);
-                        this.logger.info(`Collection ${collectionName} now has ${collectionInfo?.points_count || 'unknown'} points`);
+                        const collectionInfo = await this.qdrantService.getCollectionInfo(collectionName);
+                        this.logger.info(`Collection ${collectionName} now has ${collectionInfo || 'unknown'} points`);
                         
-                        if (!collectionInfo || !collectionInfo.points_count) {
+                        if (!collectionInfo) {
                             this.logger.warn(`Collection info missing or points count unavailable for ${collectionName}`);
                         }
                     } catch (verifyError: unknown) {
@@ -945,5 +934,40 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
             }
             throw new Error(`Failed to generate embeddings: ${errorMessage}`);
         }
+    }
+
+    /**
+     * Extract document information from the parsed elements
+     * @param elements Array of parsed document elements
+     * @returns DocumentInfo object
+     */
+    private extractDocumentInfo(elements: any[]): DocumentInfo {
+        const docInfo: DocumentInfo = {};
+        
+        // Look for title in the first few elements
+        for (let i = 0; i < Math.min(5, elements.length); i++) {
+            const element = elements[i];
+            if (element.type === 'heading' && element.level === 1) {
+                docInfo.title = element.text;
+                break;
+            }
+        }
+        
+        // Look for metadata in elements
+        for (const element of elements) {
+            if (element.metadata) {
+                if (element.metadata.author && !docInfo.author) {
+                    docInfo.author = element.metadata.author;
+                }
+                if (element.metadata.created && !docInfo.created) {
+                    docInfo.created = element.metadata.created;
+                }
+                if (element.metadata.modified && !docInfo.modified) {
+                    docInfo.modified = element.metadata.modified;
+                }
+            }
+        }
+        
+        return docInfo;
     }
 } 

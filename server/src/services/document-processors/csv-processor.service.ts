@@ -1,17 +1,16 @@
-import { injectable } from 'inversify';
-import { BaseDocumentProcessor, ProcessingResult, DataSourceStatus } from './base-document-processor';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ConfigService } from '../config.service';
-import { ChunkingService } from '../chunking.service';
-import { QdrantService } from '../qdrant.service';
-import { db } from '../../config/database';
 import { parse } from 'csv-parse/sync';
-import { v4 as uuidv4 } from 'uuid';
-import { WebSocketService } from '../websocket.service';
-import { OpenAIService } from '../openai.service';
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '../../services/core/config.service';
+import { ChunkingService } from '../../services/rag/chunking.service';
+import { QdrantAdapter } from '../data-processing/document-processors/qdrant-adapter';
+import { OpenAIService } from '../../services/ai/openai.service';
+import { BaseDocumentProcessor, ProcessingResult, DataSourceStatus } from './base-document-processor';
 import { createServiceLogger } from '../../utils/logger-factory';
-import OpenAI from 'openai';
+import { db } from '../../config/database';
+import { v4 as uuidv4 } from 'uuid';
+import { SocketService } from '../../services/util/socket.service';
 
 // Define ParseConfig type interface to match csv-parse options
 interface ParseConfig {
@@ -23,24 +22,23 @@ interface ParseConfig {
 }
 
 /**
- * Processor for CSV files
+ * CSV Processor Service
+ * Processes CSV files for ingestion into the vector database
  */
-@injectable()
+@Injectable()
 export class CsvProcessorService extends BaseDocumentProcessor {
-  public processorName = 'CSV Processor';
-  protected logger = createServiceLogger('CsvProcessorService');
+  protected readonly logger = createServiceLogger('CsvProcessorService');
+  private readonly openAIService: OpenAIService;
   private batchSize = 50; // Default batch size for processing
-  private openaiService: OpenAIService;
 
   constructor(
     protected readonly configService: ConfigService,
     protected readonly chunkingService: ChunkingService,
-    protected readonly qdrantService: QdrantService,
-    private readonly websocketService: WebSocketService
+    protected readonly websocketService?: SocketService
   ) {
     super('CsvProcessorService');
-    this.openaiService = OpenAIService.getInstance();
-    this.logger.info('CSV Processor Service initialized');
+    this.openAIService = OpenAIService.getInstance();
+    this.logger.info('CsvProcessorService initialized');
   }
 
   /**
@@ -413,15 +411,7 @@ export class CsvProcessorService extends BaseDocumentProcessor {
           this.logger.info(`Updated data source ${dataSource.id} status to 'processing'`);
           
           // Notify clients via WebSocket
-          this.websocketService.broadcastDataSourceUpdate(
-            dataSource.id,
-            'processing',
-            {
-              id: dataSource.id,
-              action: 'dataSource.updated',
-              status: 'processing'
-            }
-          );
+          this.broadcastUpdateWrapper(dataSource.id, 'processing', { step: 'starting' });
         } catch (updateError) {
           this.logger.error(`Error updating data source status: ${updateError instanceof Error ? updateError.message : String(updateError)}`);
           // Continue processing even if status update fails
@@ -551,7 +541,7 @@ export class CsvProcessorService extends BaseDocumentProcessor {
             // Upload vectors to Qdrant
             this.logger.info(`Uploading ${pointsToUpload.length} vectors to Qdrant collection ${collectionName}`);
             
-            await this.qdrantService.upsertVectors(collectionName, pointsToUpload);
+            await this.storeVectors(collectionName, pointsToUpload);
             this.logger.info(`Successfully uploaded ${pointsToUpload.length} vectors to Qdrant`);
             
             totalProcessed += pointsToUpload.length;
@@ -576,15 +566,11 @@ export class CsvProcessorService extends BaseDocumentProcessor {
                   });
                 
                 // Notify clients via WebSocket
-                this.websocketService.broadcastDataSourceUpdate(
-                  resolvedDataSourceId,
-                  'processing',
-                  {
-                    action: 'dataSource.progress',
-                    id: resolvedDataSourceId,
-                    progress
-                  }
-                );
+                this.broadcastUpdateWrapper(resolvedDataSourceId, 'processing', {
+                  action: 'dataSource.progress',
+                  id: resolvedDataSourceId,
+                  progress
+                });
               } catch (progressError) {
                 this.logger.error(`Error updating progress: ${progressError instanceof Error ? progressError.message : String(progressError)}`);
                 // Continue even if progress update fails
@@ -634,16 +620,12 @@ export class CsvProcessorService extends BaseDocumentProcessor {
               });
             
             // Notify clients via WebSocket
-            this.websocketService.broadcastDataSourceUpdate(
-              resolvedDataSourceId,
-              'connected',
-              {
-                action: 'dataSource.updated',
-                id: resolvedDataSourceId,
-                status: 'connected',
-                records: processedRecords.length
-              }
-            );
+            this.broadcastUpdateWrapper(resolvedDataSourceId, 'connected', {
+              action: 'dataSource.updated',
+              id: resolvedDataSourceId,
+              status: 'connected',
+              records: processedRecords.length
+            });
           } catch (finalUpdateError) {
             this.logger.error(`Error updating final metrics: ${finalUpdateError instanceof Error ? finalUpdateError.message : String(finalUpdateError)}`);
             // Continue even if final update fails
@@ -682,18 +664,12 @@ export class CsvProcessorService extends BaseDocumentProcessor {
               });
             
             // Notify clients via WebSocket
-            if (dataSource) {
-              this.websocketService.broadcastDataSourceUpdate(
-                resolvedDataSourceId,
-                'error',
-                {
-                  action: 'dataSource.updated',
-                  id: resolvedDataSourceId,
-                  status: 'error',
-                  error: csvError instanceof Error ? csvError.message : String(csvError)
-                }
-              );
-            }
+            this.broadcastUpdateWrapper(resolvedDataSourceId, 'error', {
+              action: 'dataSource.updated',
+              id: resolvedDataSourceId,
+              status: 'error',
+              error: csvError instanceof Error ? csvError.message : String(csvError)
+            });
           } catch (errorUpdateError) {
             this.logger.error(`Error updating data source with error status: ${errorUpdateError instanceof Error ? errorUpdateError.message : String(errorUpdateError)}`);
           }
@@ -725,12 +701,82 @@ export class CsvProcessorService extends BaseDocumentProcessor {
       
       // Use the OpenAI service for embeddings
       // Always skip cache for CSV data to ensure fresh embeddings
-      const embeddings = await this.openaiService.createEmbeddings([text], { skipCache: true });
+      const embeddings = await this.openAIService.createEmbeddings([text], { skipCache: true });
       this.logger.debug(`Generated embedding with ${embeddings[0].length} dimensions`);
       return embeddings[0];
     } catch (error) {
       this.logger.error(`Error creating embedding: ${error instanceof Error ? error.message : String(error)}`);
       throw new Error(`Failed to create embedding: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async ensureQdrantCollection(collectionName: string): Promise<boolean> {
+    try {
+      // Check if collection exists
+      const collectionExists = await this.qdrantService.collectionExists(collectionName);
+      
+      if (collectionExists) {
+        this.logger.info(`Collection ${collectionName} already exists`);
+        return true;
+      }
+      
+      // Create collection if it doesn't exist
+      this.logger.info(`Creating collection ${collectionName}`);
+      const result = await this.qdrantService.createCollection(collectionName, {
+        vectors: {
+          size: 1536, // OpenAI embeddings are 1536-dimensional
+          distance: 'Cosine'
+        }
+      });
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`Error ensuring collection exists: ${error}`);
+      return false;
+    }
+  }
+
+  // Add a sendWebsocketUpdate helper method to safely use the websocket service
+  private sendWebsocketUpdate(dataSourceId: string, status: string, metadata: any = {}) {
+    if (this.websocketService) {
+      try {
+        const io = this.websocketService.getIO();
+        io.emit(`datasource:${dataSourceId}:status`, {
+          status,
+          metadata,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        this.logger.warn(`Failed to send websocket update: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  // Update the method that broadcasts updates to use the new helper
+  private async broadcastUpdateWrapper(dataSourceId: string | number, status: string, metadata: any = {}) {
+    // Convert dataSourceId to string if it's a number
+    const dsIdStr = dataSourceId.toString();
+    
+    // Update database
+    await this.updateDataSourceStatus(dsIdStr, status as DataSourceStatus, metadata);
+    
+    // Send websocket update
+    this.sendWebsocketUpdate(dsIdStr, status, metadata);
+  }
+
+  // Update vector storing operations to use qdrantService
+  private async storeVectors(collectionName: string, vectors: Array<{id: string, vector: number[], payload: any}>) {
+    try {
+      this.logger.info(`Storing ${vectors.length} vectors in collection ${collectionName}`);
+      
+      // Use the qdrantService for upsertVectors
+      const result = await this.qdrantService.upsertVectors(collectionName, vectors);
+      
+      this.logger.info(`Successfully stored vectors in collection ${collectionName}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Error storing vectors: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
     }
   }
 } 

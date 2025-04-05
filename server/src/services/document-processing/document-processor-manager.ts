@@ -1,5 +1,5 @@
 import { createServiceLogger } from '../../utils/logger-factory';
-import { DocumentProcessorService } from '../../services/document-processor.service';
+import { DocumentProcessorService } from '../../services/data-processing/document-processor.service';
 import { db } from '../../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { FileType } from '../../types/utils/file-types';
@@ -43,9 +43,9 @@ class DocumentProcessorManager {
   private documentProcessor: DocumentProcessorService;
   private readonly logger = createServiceLogger('DocumentProcessorManager');
 
-  constructor() {
+  constructor(private readonly documentProcessorService: DocumentProcessorService) {
     this.jobs = new Map();
-    this.documentProcessor = DocumentProcessorService.getInstance();
+    this.documentProcessor = this.documentProcessorService;
     this.logger.info('Document Processor Manager initialized');
   }
 

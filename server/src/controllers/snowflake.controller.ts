@@ -1,7 +1,7 @@
 import { createServiceLogger } from '../utils/logger-factory';
 import { Request, Response } from '../types';
-import { SnowflakeService } from '../services/snowflake.service';
-import { SnowflakeNLQueryService } from '../services/snowflake-nl-query.service';
+import { SnowflakeService } from '../services/data-processing/snowflake/snowflake.service';
+import { SnowflakeNLQueryService } from '../services/data-processing/snowflake/snowflake-nl-query.service';
 import { BadRequestError } from '../utils/errors';
 
 export class SnowflakeController {
@@ -9,9 +9,9 @@ export class SnowflakeController {
   private snowflakeNLQueryService: SnowflakeNLQueryService;
   private logger = createServiceLogger('SnowflakeController');
 
-  constructor() {
-    this.snowflakeService = SnowflakeService.getInstance();
-    this.snowflakeNLQueryService = SnowflakeNLQueryService.getInstance();
+  constructor(private readonly snowflakeNLQueryService: SnowflakeNLQueryService, private readonly snowflakeService: SnowflakeService) {
+    this.snowflakeService = this.snowflakeService;
+    this.snowflakeNLQueryService = this.snowflakeNLQueryService;
   }
 
   /**

@@ -6,7 +6,7 @@ import { AuthRequest } from '../middleware/auth';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../config/database';
 import { pool } from '../config/database';
-import { DocumentPipelineService } from '../services/document-pipeline.service';
+import { DocumentPipelineService } from '../services/data-processing/document-pipeline.service';
 import { getContentType, getFileType } from '../utils/file-utils';
 import { createServiceLogger } from '../utils/logger-factory';
 
@@ -38,9 +38,9 @@ export class ChunkController {
   private documentPipelineService: DocumentPipelineService;
   private logger = createServiceLogger('ChunkController');
 
-  constructor() {
+  constructor(private readonly documentPipelineService: DocumentPipelineService) {
     this.chunkRegistry = new Map();
-    this.documentPipelineService = DocumentPipelineService.getInstance();
+    this.documentPipelineService = this.documentPipelineService;
     this.logger.info('ChunkController initialized (Unstructured API and LlamaIndex disabled)');
   }
 

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction, RequestHandler } from '../types';
 import multer from 'multer';
 import { FileController } from '../controllers/FileController';
-import { FileService } from '../services/FileService';
+import { FileService } from '../services/util/file/FileService';
 import { db } from '../config/database';
 import { authenticate } from '../middleware/auth';
 import { rateLimiter } from '../middleware/security';

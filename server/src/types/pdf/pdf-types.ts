@@ -5,19 +5,34 @@ import { ChunkMetadata } from '../utils/file-types';
 
 // Re-export from PDF libraries
 import { PDFExtractResult, PDFExtractPage, PDFExtractContent, PDFExtractOptions } from 'pdf.js-extract';
-import { PDFDocumentProxy, PDFPageProxy, TextContent as PDFTextContent, TextItem as PDFTextItem } from 'pdfjs-dist';
 
-// Export PDF-related types from libraries
-export {
-  PDFExtractResult,
-  PDFExtractPage,
-  PDFExtractContent,
-  PDFExtractOptions,
-  PDFDocumentProxy,
-  PDFPageProxy,
-  PDFTextContent,
-  PDFTextItem
-};
+// Define types for pdfjs-dist without requiring the module at build time
+export interface PDFDocumentProxy {
+  numPages: number;
+  getPage(pageNumber: number): Promise<PDFPageProxy>;
+  getMetadata(): Promise<any>;
+  destroy(): Promise<void>;
+}
+
+export interface PDFPageProxy {
+  getViewport(scale: { scale: number }): PDFViewportParams;
+  getTextContent(): Promise<PDFTextContent>;
+  render(renderParams: PDFRenderParams): PDFRenderTask;
+}
+
+export interface PDFTextContent {
+  items: PDFTextItem[];
+  styles: Record<string, any>;
+}
+
+export interface PDFTextItem {
+  str: string;
+  transform: number[];
+  width: number;
+  height: number;
+  dir: string;
+  fontName?: string;
+}
 
 // Define types for PDF viewport without DOM dependency
 export interface PDFViewportParams {

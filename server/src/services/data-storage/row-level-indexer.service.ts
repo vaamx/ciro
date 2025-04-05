@@ -1,22 +1,30 @@
+import { Injectable } from '@nestjs/common';
 import { DataSourceType } from '../../types/data-source';
 import { EnhancedMetadataService } from '../metadata-extraction/enhanced-metadata-service';
-import { SnowflakeService } from '../snowflake.service';
-import { QdrantService } from '../qdrant.service';
-import { OpenAIService } from '../openai.service';
+import { SnowflakeService } from '../data-processing/snowflake/snowflake.service';
+import { QdrantSearchService } from '../vector/search.service';
+import { QdrantCollectionService } from '../vector/collection-manager.service';
+import { QdrantIngestionService } from '../vector/ingestion.service';
+import { OpenAIService } from '../ai/openai.service';
 import { createServiceLogger } from '../../utils/logger-factory';
 import * as os from 'os'; // For memory monitoring
 
 /**
  * Service for indexing individual rows from Snowflake tables for accurate aggregation
  */
+@Injectable()
 export class RowLevelIndexerService {
   private readonly logger = createServiceLogger('RowLevelIndexerService');
-  private static instance: RowLevelIndexerService | null = null;
+  
   
   private constructor(
+    private readonly socketService: SocketService,
+    
     private snowflakeService: SnowflakeService,
     private openaiService: OpenAIService,
-    private qdrantService: QdrantService,
+    private qdrantSearchService: QdrantSearchService,
+    private qdrantCollectionService: QdrantCollectionService,
+    private qdrantIngestionService: QdrantIngestionService,
     private metadataService: EnhancedMetadataService
   ) {
     this.logger.info('RowLevelIndexerService initialized');
@@ -25,22 +33,7 @@ export class RowLevelIndexerService {
   /**
    * Get singleton instance
    */
-  public static getInstance(): RowLevelIndexerService {
-    if (!RowLevelIndexerService.instance) {
-      const snowflakeService = SnowflakeService.getInstance();
-      const openaiService = OpenAIService.getInstance();
-      const qdrantService = QdrantService.getInstance();
-      const metadataService = EnhancedMetadataService.getInstance();
-      
-      RowLevelIndexerService.instance = new RowLevelIndexerService(
-        snowflakeService,
-        openaiService,
-        qdrantService,
-        metadataService
-      );
-    }
-    return RowLevelIndexerService.instance;
-  }
+  
   
   /**
    * Get optimized concurrency based on available system resources
@@ -158,13 +151,28 @@ export class RowLevelIndexerService {
       const collectionName = `row_data_${dataSourceId}_${database.toLowerCase()}_${schema.toLowerCase()}_${tableName.toLowerCase()}`;
       
       // 2. Check if collection exists
-      const collectionExists = await this.qdrantService.collectionExists(collectionName);
+      const collectionExists = await this.qdrantCollectionService.collectionExists(collectionName);
       
       if (collectionExists && !forceReindex) {
         this.logger.info(`Collection ${collectionName} already exists, skipping indexing`);
         
         // Get the count of points to report back
-        const pointsCount = await this.qdrantService.getCollectionInfo(collectionName);
+        let pointsCount = 0;
+        try {
+          const collectionInfo = await this.qdrantCollectionService.getCollectionInfo(collectionName);
+          
+          // Handle different response formats safely
+          if (typeof collectionInfo === 'number') {
+            pointsCount = collectionInfo;
+          } else if (collectionInfo && typeof collectionInfo === 'object') {
+            // TypeScript doesn't know the shape of the object, so we use a type assertion
+            const info = collectionInfo as any;
+            pointsCount = info.vectors_count || 0;
+          }
+        } catch (error) {
+          this.logger.warn(`Error getting collection info: ${error instanceof Error ? error.message : String(error)}`);
+          pointsCount = 0;
+        }
         
         // Send completion status update
         await this.updateIndexingStatus(dataSourceId, {
@@ -187,7 +195,7 @@ export class RowLevelIndexerService {
       // 3. Create or recreate collection
       if (!collectionExists) {
         this.logger.info(`Creating collection ${collectionName}`);
-        await this.qdrantService.createCollection(collectionName, {
+        await this.qdrantCollectionService.createCollection(collectionName, {
           vectors: {
             size: 1536,
             distance: 'Cosine'
@@ -196,8 +204,8 @@ export class RowLevelIndexerService {
       } else if (forceReindex) {
         // Delete all points if force fresh is set
         this.logger.info(`Force fresh set, deleting all points from ${collectionName}`);
-        await this.qdrantService.deleteCollection(collectionName);
-        await this.qdrantService.createCollection(collectionName, {
+        await this.qdrantCollectionService.deleteCollection(collectionName);
+        await this.qdrantCollectionService.createCollection(collectionName, {
           vectors: {
             size: 1536,
             distance: 'Cosine'
@@ -318,7 +326,7 @@ export class RowLevelIndexerService {
       // 8. Optimize collection for better search performance
       this.logger.info(`Forcing optimization of collection ${collectionName}`);
       try {
-        await this.qdrantService.optimizeCollection(collectionName);
+        await this.qdrantCollectionService.optimizeCollection(collectionName);
       } catch (optimizeError: unknown) {
         const errorMessage = optimizeError instanceof Error 
           ? optimizeError.message 
@@ -589,7 +597,7 @@ export class RowLevelIndexerService {
       
       while (storeRetries < maxStoreRetries) {
         try {
-          await this.qdrantService.storeVectors(
+          await this.qdrantIngestionService.storeVectors(
             collectionName,
             vectors,
             payloads,
@@ -753,7 +761,7 @@ export class RowLevelIndexerService {
       // Try to broadcast progress to clients using the SocketService singleton
       try {
         const { SocketService } = require('../socket.service');
-        const socketService = SocketService.getInstance();
+        const socketService = this.socketService;
         
         if (socketService) {
           // Broadcast the update to all clients

@@ -16,7 +16,8 @@ import knexConfig from './knexfile';
 
 // Knex database connection
 const environment = (process.env.NODE_ENV || 'development');
-export const db: Knex = knex(knexConfig as any);
+// Make sure we're using the correct environment configuration from knexfile
+export const db: Knex = knex(knexConfig[environment as keyof typeof knexConfig] as Knex.Config);
 
 // PostgreSQL connection for chat history and structured data
 // Use the centralized configuration from config/index.ts

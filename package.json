@@ -31,10 +31,12 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
     "@types/kafkajs": "^1.9.0",
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.12",
     "@types/sharp": "^0.32.0",
-    "typescript": "^5.8.2"
+    "glob": "^11.0.1",
+    "typescript": "^5.8.3"
   }
 }

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { FileService } from '../services/FileService';
+import { FileService } from '../services/util/file/FileService';
 import { BadRequestError, UnauthorizedError } from '../utils/errors';
 
 export class FileController {
@@ -11,6 +11,11 @@ export class FileController {
     }
 
     const userId = req.user.id;
+    
+    if (!req.user.organizationId) {
+      throw new BadRequestError('Organization ID is required');
+    }
+    
     const organizationId = parseInt(req.user.organizationId, 10);
 
     if (!userId) {

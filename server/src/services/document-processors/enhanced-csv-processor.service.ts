@@ -1,25 +1,25 @@
 import { CsvProcessorService } from './csv-processor.service';
-import { ConfigService } from '../config.service';
-import { ChunkingService } from '../chunking.service';
-import { QdrantService } from '../qdrant.service';
-import { WebSocketService } from '../websocket.service';
+import { ConfigService } from '../../services/core/config.service';
+import { ChunkingService } from '../../services/rag/chunking.service';
+import { SocketService } from '../../services/util/socket.service';
 import { ProcessingResult } from './base-document-processor';
 import { createServiceLogger } from '../../utils/logger-factory';
+import { Injectable } from '@nestjs/common';
 
 /**
  * Enhanced CSV Processor Service
  * Extends the base CSV processor with advanced analytics and processing
  */
+@Injectable()
 export class EnhancedCsvProcessorService extends CsvProcessorService {
+  protected readonly logger = createServiceLogger('EnhancedCsvProcessorService');
+
   constructor(
     configService: ConfigService,
     chunkingService: ChunkingService,
-    qdrantService: QdrantService,
-    websocketService: WebSocketService
+    websocketService: SocketService
   ) {
-    super(configService, chunkingService, qdrantService, websocketService);
-    this.processorName = 'Enhanced CSV Processor';
-    this.logger = createServiceLogger('EnhancedCsvProcessorService');
+    super(configService, chunkingService, websocketService);
   }
 
   /**

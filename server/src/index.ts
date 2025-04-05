@@ -1,7 +1,8 @@
 import { createServer } from 'http';
 import app from './app';
 import { config } from './config';
-import { SocketService } from './services/socket.service';
+import { SocketService } from './services/util/socket.service';
+import { ServiceRegistry } from './services/core/service-registry';
 import { initializeDatabase } from './infrastructure/database/init';
 
 const server = createServer(app);
@@ -10,7 +11,8 @@ const port = config.port;
 let serverInstance: any = null;
 
 // Initialize WebSocket service
-SocketService.getInstance(server);
+const socketService = ServiceRegistry.resolve(SocketService);
+socketService.initialize(server);
 
 async function startServer() {
   try {

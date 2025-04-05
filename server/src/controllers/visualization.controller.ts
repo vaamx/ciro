@@ -1,11 +1,13 @@
 import { Request, Response } from 'express-serve-static-core';
 import { AuthRequest } from '../middleware/auth';
-import { VisualizationService } from '../services/visualization.service';
-import { DataSourceService } from '../services/data-source.service';
-import { QdrantService } from '../services/qdrant.service';
-import { OpenAIService } from '../services/openai.service';
+import { VisualizationService } from '../services/util/visualization.service';
+import { DataSourceService } from '../services/data-processing/data-source.service';
+import { QdrantSearchService } from '../services/vector/search.service';
+import { QdrantCollectionService } from '../services/vector/collection-manager.service';
+import { QdrantClientService } from '../services/vector/qdrant-client.service';
+import { OpenAIService } from '../services/ai/openai.service';
 import * as winston from 'winston';
-import { SnowflakeService } from '../services/snowflake.service';
+import { SnowflakeService } from '../services/data-processing/snowflake/snowflake.service';
 import { BadRequestError } from '../utils/errors';
 
 /**
@@ -14,7 +16,9 @@ import { BadRequestError } from '../utils/errors';
 export class VisualizationController {
   private visualizationService: VisualizationService;
   private dataSourceService: DataSourceService;
-  private qdrantService: QdrantService;
+  private qdrantService: QdrantSearchService;
+  private qdrantCollectionService: QdrantCollectionService;
+  private qdrantClientService: QdrantClientService;
   private openaiService: OpenAIService;
   private snowflakeService: SnowflakeService;
   private logger: winston.Logger;
@@ -33,12 +37,14 @@ export class VisualizationController {
     '#BAB0AC'  // gray
   ];
 
-  constructor() {
-    this.visualizationService = VisualizationService.getInstance();
-    this.dataSourceService = DataSourceService.getInstance();
-    this.qdrantService = QdrantService.getInstance();
-    this.openaiService = OpenAIService.getInstance();
-    this.snowflakeService = SnowflakeService.getInstance();
+  constructor(private readonly dataSourceService: DataSourceService, private readonly openAIService: OpenAIService, private readonly qdrantClientService: QdrantClientService, private readonly qdrantCollectionService: QdrantCollectionService, private readonly qdrantSearchService: QdrantSearchService, private readonly snowflakeService: SnowflakeService, private readonly visualizationService: VisualizationService) {
+    this.visualizationService = this.visualizationService;
+    this.dataSourceService = this.dataSourceService;
+    this.qdrantService = this.qdrantSearchService;
+    this.qdrantCollectionService = this.qdrantCollectionService;
+    this.qdrantClientService = this.qdrantClientService;
+    this.openaiService = this.openAIService;
+    this.snowflakeService = this.snowflakeService;
 
     // Initialize logger
     this.logger = winston.createLogger({
@@ -111,7 +117,7 @@ export class VisualizationController {
         this.logger.info(`Attempting to generate visualization from Qdrant collection: ${collectionName}`);
         
         // Check if collection exists
-        const qdrantCollections = await this.qdrantService.listCollections();
+        const qdrantCollections = await this.qdrantCollectionService.listCollections();
         
         if (qdrantCollections.includes(collectionName)) {
           // Use Qdrant data
@@ -193,6 +199,26 @@ export class VisualizationController {
   }
 
   /**
+   * Get all points from a collection
+   * @param collectionName The name of the collection to get points from
+   * @param limit Maximum number of points to return
+   */
+  private async getAllPoints(collectionName: string, limit: number = 100) {
+    try {
+      const client = this.qdrantClientService.getClient();
+      const result = await client.scroll(collectionName, {
+        limit,
+        with_payload: true,
+        with_vector: false
+      });
+      return result.points;
+    } catch (error) {
+      this.logger.error(`Error getting points from collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  }
+
+  /**
    * Generate a visualization from Qdrant data source
    */
   private async generateQdrantVisualization(dataSource: any) {
@@ -203,7 +229,7 @@ export class VisualizationController {
       this.logger.info(`Generating visualization for Qdrant collection: ${collectionName}`);
       
       // Check if the collection exists first
-      const collections = await this.qdrantService.listCollections();
+      const collections = await this.qdrantCollectionService.listCollections();
       if (!collections.includes(collectionName)) {
         this.logger.warn(`Qdrant collection not found: ${collectionName}`);
         throw new BadRequestError(`Collection ${collectionName} not found`);
@@ -211,7 +237,7 @@ export class VisualizationController {
       
       // Get sample data from Qdrant collection
       this.logger.info(`Fetching points from collection: ${collectionName}`);
-      const points = await this.qdrantService.getAllPoints(collectionName, 100);
+      const points = await this.getAllPoints(collectionName, 100);
       this.logger.info(`Retrieved ${points?.length || 0} points from collection`);
 
       if (!points || points.length === 0) {
@@ -228,7 +254,7 @@ export class VisualizationController {
             textContent = point.payload.text;
           } else if (typeof point.payload.content === 'string') {
             textContent = point.payload.content;
-          } else if (point.payload.page_content) {
+          } else if (typeof point.payload.page_content === 'string') {
             textContent = point.payload.page_content;
           }
         }

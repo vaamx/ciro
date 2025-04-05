@@ -1,14 +1,13 @@
 import { createServiceLogger } from '../utils/logger-factory';
-import { conversationSummaryService } from '../services/conversation-summary.service';
+import { conversationSummaryService } from '../services/util/conversation-summary.service';
 import { config } from '../config';
 import { Config, TasksConfig } from '../types';
 import { db } from '../config/database';
-import { QdrantService } from '../services/qdrant.service';
-import { getServiceRegistry } from '../services/service-registry';
+import { QdrantCollectionService } from '../services/vector/collection-manager.service';
 import { AggregationRefreshTask } from './aggregation-refresh.task';
 
 const logger = createServiceLogger('ScheduledTasks');
-const qdrantService = QdrantService.getInstance();
+const qdrantService = QdrantCollectionService.getInstance();
 const aggregationRefreshTask = new AggregationRefreshTask();
 
 // Track all interval IDs so we can clear them if needed
@@ -268,7 +267,7 @@ async function runVectorIndexing(): Promise<void> {
         // Check collection size
         const collectionInfo = await qdrantService.getCollectionInfo(collectionName);
         
-        if (collectionInfo && collectionInfo.points_count > 1000) {
+        if (typeof collectionInfo === 'number' && collectionInfo > 1000) {
           // Collection is large enough to warrant optimization
           await qdrantService.optimizeCollection(collectionName);
           optimizedCount++;

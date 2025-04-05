@@ -1,0 +1,97 @@
+import { createServer } from 'http';
+import app from './app';
+import { config } from './config';
+import { SocketService } from './services/util/socket.service';
+import { initializeDatabase } from './infrastructure/database/init';
+
+const server = createServer(app);
+const port = config.port;
+
+let serverInstance: any = null;
+
+// Initialize WebSocket service
+SocketService.getInstance(server);
+
+async function startServer() {
+  try {
+    // First, initialize the database
+    await initializeDatabase();
+
+    // Create a promise that resolves when the server starts listening
+    await new Promise((resolve, reject) => {
+      serverInstance = server.listen(port, () => {
+        console.log(`Server is running on port ${port}`);
+        resolve(true);
+      });
+
+      server.on('error', (error: any) => {
+        if (error.code === 'EADDRINUSE') {
+          console.log(`Port ${port} is already in use. Attempting to close existing connection...`);
+          require('child_process').exec(`lsof -i :${port} | grep LISTEN | awk '{print $2}' | xargs kill -9`, (err: any) => {
+            if (err) {
+              console.error('Error killing process:', err);
+              reject(err);
+            } else {
+              console.log(`Successfully killed process on port ${port}`);
+              // Try starting the server again after a short delay
+              setTimeout(() => {
+                server.listen(port, () => {
+                  console.log(`Server is now running on port ${port}`);
+                  resolve(true);
+                });
+              }, 1000);
+            }
+          });
+        } else {
+          console.error('Server error:', error);
+          reject(error);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Handle cleanup
+async function cleanup() {
+  console.log('Shutting down server...');
+  
+  if (serverInstance) {
+    await new Promise<void>((resolve) => {
+      serverInstance.close(() => {
+        console.log('Server closed');
+        resolve();
+      });
+
+      // Force close after 5 seconds
+      setTimeout(() => {
+        console.warn('Could not close connections in time, forcefully shutting down');
+        resolve();
+      }, 5000);
+    });
+  }
+
+  process.exit(0);
+}
+
+// Handle different shutdown signals
+process.on('SIGTERM', cleanup);
+process.on('SIGINT', cleanup);
+process.on('SIGUSR2', cleanup);
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  cleanup();
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  cleanup();
+});
+
+// Start the server
+startServer(); 

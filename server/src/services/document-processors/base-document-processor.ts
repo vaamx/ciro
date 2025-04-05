@@ -1,9 +1,9 @@
 import * as winston from 'winston';
-import { QdrantService } from '../qdrant.service';
+import { QdrantAdapter } from '../data-processing/document-processors/qdrant-adapter';
 import { db } from '../../config/database';
 import fs from 'fs';
 import path from 'path';
-import { EventManager } from '../../services/event-manager';
+import { EventManager } from '../../services/util/event-manager';
 
 // Define DataSourceStatus type since it's missing
 export type DataSourceStatus = 'connected' | 'processing' | 'error' | 'disconnected' | 'failed' | 'ready' | 'completed';
@@ -26,10 +26,10 @@ export interface ProcessingResult {
  */
 export abstract class BaseDocumentProcessor {
   protected logger: winston.Logger;
-  protected qdrantService: QdrantService;
+  protected qdrantService: QdrantAdapter;
   public processorName: string;
 
-  constructor(serviceName: string) {
+  constructor(serviceName: string, private readonly eventManager: EventManager, private readonly qdrantAdapter: QdrantAdapter) {
     // Initialize the logger first before using it
     this.logger = winston.createLogger({
       level: process.env.LOG_LEVEL || 'info',
@@ -56,7 +56,7 @@ export abstract class BaseDocumentProcessor {
       ]
     });
     
-    this.qdrantService = QdrantService.getInstance();
+    this.qdrantService = this.qdrantAdapter;
     this.processorName = serviceName;
     this.logger.info(`Initializing ${serviceName}`);
   }
@@ -145,7 +145,7 @@ export abstract class BaseDocumentProcessor {
         // Dynamically import EventManager to avoid circular dependencies
         const EventManager = require('../event-manager').EventManager;
         if (EventManager && typeof EventManager.getInstance === 'function') {
-          const eventManager = EventManager.getInstance();
+          const eventManager = this.eventManager;
           if (eventManager) {
             this.logger.info(`Emitting dataSourceUpdate event for ${dataSourceId}`);
             // Create event data object with all needed properties

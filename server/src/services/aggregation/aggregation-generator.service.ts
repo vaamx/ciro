@@ -1,31 +1,31 @@
+import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../utils/logger-factory';
-import { OpenAIService } from '../openai.service';
-import { QdrantService } from '../qdrant.service';
+import { OpenAIService } from '../../services/ai/openai.service';
+import { QdrantSearchService } from '../../services/vector/search.service';
+import { QdrantCollectionService } from '../../services/vector/collection-manager.service';
 import { DataSourceType } from '../../types/data-source';
 import { db } from '../../config/database';
-import { SnowflakeService } from '../snowflake.service';
+import { SnowflakeService } from '../../services/data-processing/snowflake/snowflake.service';
 
 const logger = createServiceLogger('AggregationGeneratorService');
 
+@Injectable()
 export class AggregationGeneratorService {
-  private static instance: AggregationGeneratorService;
+  
   
   private constructor(
-    private qdrantService: QdrantService,
+    private readonly snowflakeService: SnowflakeService,
+    private readonly qdrantClientService: QdrantClientService,
+    private readonly aggregationGeneratorService: AggregationGeneratorService,
+    
+    private qdrantSearchService: QdrantSearchService,
+    private qdrantCollectionService: QdrantCollectionService,
     private openaiService: OpenAIService,
     private database = db,
-    private snowflakeService: SnowflakeService = SnowflakeService.getInstance(),
+    private snowflakeService: SnowflakeService = this.snowflakeService,
   ) {}
   
-  public static getInstance(): AggregationGeneratorService {
-    if (!AggregationGeneratorService.instance) {
-      AggregationGeneratorService.instance = new AggregationGeneratorService(
-        QdrantService.getInstance(),
-        OpenAIService.getInstance(),
-      );
-    }
-    return AggregationGeneratorService.instance;
-  }
+  
   
   // Common aggregation types to generate
   readonly AGGREGATION_TYPES = [
@@ -998,10 +998,10 @@ export class AggregationGeneratorService {
     
     // Ensure collection exists
     const collectionName = `datasource_${dataSourceId}_aggregations`;
-    const collectionExists = await this.qdrantService.collectionExists(collectionName);
+    const collectionExists = await this.qdrantCollectionService.collectionExists(collectionName);
     
     if (!collectionExists) {
-      await this.qdrantService.createCollection(collectionName, {
+      await this.qdrantCollectionService.createCollection(collectionName, {
         vectors: {
           size: 1536, // OpenAI embedding dimension
           distance: 'Cosine'
@@ -1009,11 +1009,12 @@ export class AggregationGeneratorService {
       });
     }
     
-    // Upsert to collection
-    await this.qdrantService.upsertVectors(
-      collectionName,
+    // Upsert to collection - need to import QdrantClientService for this
+    const { QdrantClientService } = await import('../../services/vector/qdrant-client.service');
+    const client = this.qdrantClientService.getClient();
+    await client.upsert(collectionName, {
       points
-    );
+    });
     
     logger.info(`Successfully stored ${points.length} aggregation points in collection ${collectionName}`);
   }
@@ -1523,4 +1524,4 @@ interface Product {
 }
 
 // Export singleton instance
-export const aggregationGeneratorService = AggregationGeneratorService.getInstance(); 
+export const aggregationGeneratorService = this.aggregationGeneratorService; 

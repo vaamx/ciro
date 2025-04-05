@@ -1,0 +1,376 @@
+import { createServiceLogger } from '../../utils/logger-factory';
+import { QueryAnalyzerService } from './query-analyzer.service';
+import { RetrievalService } from './retrieval.service';
+import { GenerationService } from './generation.service';
+import { RagQueryResult, RagResponseMetadata, Document } from './interfaces';
+
+// Define DataSourceType locally if the module cannot be found
+export type DataSourceType = 
+  | 'pdf' 
+  | 'docx' 
+  | 'excel' 
+  | 'csv' 
+  | 'snowflake' 
+  | '***REMOVED***ql' 
+  | 'mysql' 
+  | 'file' 
+  | 'unknown';
+
+/**
+ * Service that integrates all RAG components into a complete pipeline.
+ * This is the main entry point for the RAG system.
+ */
+export class RagIntegrationService {
+  private readonly logger = createServiceLogger('RagIntegrationService');
+  private static instance: RagIntegrationService | null = null;
+  
+  private queryAnalyzer: QueryAnalyzerService;
+  private retrievalService: RetrievalService;
+  private generationService: GenerationService;
+
+  private constructor() {
+    this.logger.info('RagIntegrationService initialized');
+    this.queryAnalyzer = QueryAnalyzerService.getInstance();
+    this.retrievalService = RetrievalService.getInstance();
+    this.generationService = GenerationService.getInstance();
+  }
+
+  /**
+   * Get the singleton instance of RagIntegrationService
+   */
+  public static getInstance(): RagIntegrationService {
+    if (!RagIntegrationService.instance) {
+      RagIntegrationService.instance = new RagIntegrationService();
+    }
+    return RagIntegrationService.instance;
+  }
+
+  /**
+   * Process a RAG query to generate a response
+   * @param query The user query
+   * @param dataSourceIds Data source IDs to query
+   * @param options Additional options
+   * @returns The response with metadata
+   */
+  async processQuery(
+    query: string,
+    dataSourceIds: string[] | number[],
+    options: {
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+      useHybridSearch?: boolean;
+      semanticWeight?: number;
+      keywordWeight?: number;
+      includeMetadata?: boolean;
+      similarityThreshold?: number;
+      enhanceResults?: boolean;
+    } = {}
+  ): Promise<RagQueryResult> {
+    const startTime = Date.now();
+    this.logger.info(`Processing RAG query: "${query}"`);
+    this.logger.info(`Using data sources: ${dataSourceIds.join(', ')}`);
+    
+    try {
+      // 1. Analyze query
+      const queryAnalysis = await this.queryAnalyzer.analyzeQuery(query);
+      
+      // 2. Retrieve relevant documents
+      let documents: Document[] = [];
+      let retrievalMethod = 'vector';
+      
+      // Determine if we should use hybrid search
+      const useHybridSearch = options.useHybridSearch !== undefined 
+        ? options.useHybridSearch 
+        : queryAnalysis.isAnalytical;
+      
+      if (useHybridSearch) {
+        // Use hybrid search
+        retrievalMethod = 'hybrid';
+        
+        // Call the hybrid search from the vector service
+        const vectorServices = await import('../vector/index');
+        const { QdrantSearchService } = vectorServices;
+        const qdrantSearchService = QdrantSearchService.getInstance();
+        
+        const hybridResults = await qdrantSearchService.hybridSearchComprehensive(
+          query,
+          dataSourceIds,
+          {
+            semanticWeight: options.semanticWeight || 0.75,
+            keywordWeight: options.keywordWeight || 0.25,
+            similarityThreshold: options.similarityThreshold || 0.3,
+            includeMetadata: options.includeMetadata !== false,
+            limit: queryAnalysis.searchLimit
+          }
+        );
+        
+        // Convert hybrid results to document format
+        documents = hybridResults.map((result: { id: string | number; payload: any; score: number }) => ({
+          id: typeof result.id === 'string' ? result.id : String(result.id),
+          content: result.payload.content || '',
+          similarity: result.score,
+          metadata: result.payload.metadata
+        }));
+      } else {
+        // Use regular vector retrieval
+        const { documents: retrievedDocs } = await this.retrievalService.retrieveDocumentsFromAllSources(
+          query,
+          dataSourceIds,
+          {
+            similarityThreshold: options.similarityThreshold || 0.3,
+            includeMetadata: options.includeMetadata !== false,
+            limit: queryAnalysis.searchLimit
+          }
+        );
+        
+        documents = retrievedDocs;
+      }
+      
+      // 3. Enhance results with metadata if requested
+      if (options.enhanceResults && documents.length > 0) {
+        documents = await this.enhanceDocumentResults(documents, query);
+      }
+      
+      // 4. Generate response
+      const response = await this.generationService.generateResponse(
+        query,
+        documents,
+        {
+          model: options.model,
+          temperature: options.temperature,
+          maxTokens: options.maxTokens,
+          includeMetadata: options.includeMetadata !== false,
+          isAnalytical: queryAnalysis.isAnalytical
+        }
+      );
+      
+      // 5. Create metadata for the response
+      const metadata: RagResponseMetadata = {
+        processTimeMs: Date.now() - startTime,
+        dataSourceIds: dataSourceIds.map(id => String(id)),
+        documentsRetrieved: documents.length,
+        retrievalMethod,
+        modelUsed: response.model || options.model || 'default',
+        queryAnalysis: {
+          complexity: queryAnalysis.complexity,
+          intent: queryAnalysis.intent,
+          isAnalytical: queryAnalysis.isAnalytical,
+          entityTypes: queryAnalysis.entityTypes
+        }
+      };
+      
+      return {
+        query,
+        content: response.content,
+        sources: documents.map(doc => ({
+          id: doc.id,
+          content: doc.content.substring(0, 200) + (doc.content.length > 200 ? '...' : ''),
+          similarity: doc.similarity || 0,
+          metadata: doc.metadata
+        })),
+        metadata
+      };
+    } catch (error) {
+      this.logger.error(`Error processing RAG query: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a response from a predefined set of documents
+   * @param query The user query
+   * @param documents The documents to use for context
+   * @param options Additional options
+   * @returns The response with metadata
+   */
+  async generateResponseFromDocuments(
+    query: string,
+    documents: Document[],
+    options: {
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+      includeMetadata?: boolean;
+      enhanceResults?: boolean;
+    } = {}
+  ): Promise<RagQueryResult> {
+    const startTime = Date.now();
+    this.logger.info(`Generating response from ${documents.length} provided documents for query: "${query}"`);
+    
+    try {
+      // 1. Analyze query
+      const queryAnalysis = await this.queryAnalyzer.analyzeQuery(query);
+      
+      // 2. Enhance results with metadata if requested
+      let enhancedDocs = documents;
+      if (options.enhanceResults && documents.length > 0) {
+        enhancedDocs = await this.enhanceDocumentResults(documents, query);
+      }
+      
+      // 3. Generate response
+      const response = await this.generationService.generateResponse(
+        query,
+        enhancedDocs,
+        {
+          model: options.model,
+          temperature: options.temperature,
+          maxTokens: options.maxTokens,
+          includeMetadata: options.includeMetadata !== false,
+          isAnalytical: queryAnalysis.isAnalytical
+        }
+      );
+      
+      // 4. Create metadata for the response
+      const metadata: RagResponseMetadata = {
+        processTimeMs: Date.now() - startTime,
+        dataSourceIds: enhancedDocs
+          .map(doc => doc.sourceId)
+          .filter((value, index, self) => value && self.indexOf(value) === index) as string[],
+        documentsRetrieved: enhancedDocs.length,
+        retrievalMethod: 'provided',
+        modelUsed: response.model || options.model || 'default',
+        queryAnalysis: {
+          complexity: queryAnalysis.complexity,
+          intent: queryAnalysis.intent,
+          isAnalytical: queryAnalysis.isAnalytical,
+          entityTypes: queryAnalysis.entityTypes
+        }
+      };
+      
+      return {
+        query,
+        content: response.content,
+        sources: enhancedDocs.map(doc => ({
+          id: doc.id,
+          content: doc.content.substring(0, 200) + (doc.content.length > 200 ? '...' : ''),
+          similarity: doc.similarity || 0,
+          metadata: doc.metadata
+        })),
+        metadata
+      };
+    } catch (error) {
+      this.logger.error(`Error generating response from documents: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Enhance documents with additional metadata to improve results
+   * @param documents Documents to enhance
+   * @param query The original query
+   * @returns Enhanced documents
+   */
+  private async enhanceDocumentResults(documents: Document[], query: string): Promise<Document[]> {
+    try {
+      this.logger.info(`Enhancing ${documents.length} documents with metadata`);
+      
+      // Import the enhanced metadata service dynamically
+      // This allows the service to be loaded only when needed
+      // If the module can't be found, we'll handle the error and return the original documents
+      let metadataService;
+      try {
+        const EnhancedMetadataService = (await import('../../services/metadata-extraction/enhanced-metadata-service')).EnhancedMetadataService;
+        metadataService = EnhancedMetadataService.getInstance();
+      } catch (importError) {
+        this.logger.error(`Could not import enhanced metadata service: ${importError instanceof Error ? importError.message : String(importError)}`);
+        return documents;
+      }
+      
+      // Group documents by source
+      const docsBySource = documents.reduce((groups, doc) => {
+        const sourceId = doc.sourceId || 'unknown';
+        if (!groups[sourceId]) {
+          groups[sourceId] = [];
+        }
+        groups[sourceId].push(doc);
+        return groups;
+      }, {} as Record<string, Document[]>);
+      
+      const enhancedDocs: Document[] = [];
+      
+      // Process each group of documents
+      for (const [sourceId, docs] of Object.entries(docsBySource)) {
+        // Determine source type based on metadata or content
+        const sourceType = this.determineSourceType(docs);
+        
+        // Extract enhanced metadata
+        const sourceData = docs.map(doc => ({
+          content: doc.content,
+          metadata: doc.metadata || {}
+        }));
+        
+        const enhancedMetadata = await metadataService.extractEnhancedMetadata(
+          sourceData,
+          sourceType,
+          {
+            calculateDistributions: true,
+            extractDates: true,
+            sampleSize: Math.min(docs.length, 100) // Sample at most 100 docs
+          }
+        );
+        
+        // Add enhanced metadata to each document
+        for (const doc of docs) {
+          enhancedDocs.push({
+            ...doc,
+            metadata: {
+              ...doc.metadata,
+              enhancedMetadata: {
+                sourceType,
+                numericRanges: enhancedMetadata.numericRanges,
+                entityFrequencies: enhancedMetadata.entityFrequencies,
+                uniqueValues: enhancedMetadata.uniqueValues,
+                commonValues: enhancedMetadata.commonValues,
+                totalProcessed: docs.length
+              }
+            }
+          });
+        }
+      }
+      
+      this.logger.info(`Successfully enhanced ${enhancedDocs.length} documents with metadata`);
+      return enhancedDocs;
+    } catch (error) {
+      this.logger.error(`Error enhancing documents: ${error instanceof Error ? error.message : String(error)}`);
+      // Return original documents on error
+      return documents;
+    }
+  }
+
+  /**
+   * Determine the source type based on document content and metadata
+   * @param documents Documents to analyze
+   * @returns The determined source type
+   */
+  private determineSourceType(documents: Document[]): DataSourceType {
+    if (documents.length === 0) {
+      return 'unknown';
+    }
+    
+    // Check if metadata has source type
+    const firstDoc = documents[0];
+    if (firstDoc.metadata?.sourceType) {
+      return firstDoc.metadata.sourceType as DataSourceType;
+    }
+    
+    if (firstDoc.metadata?.fileType) {
+      const fileType = String(firstDoc.metadata.fileType).toLowerCase();
+      if (fileType.includes('pdf')) return 'pdf';
+      if (fileType.includes('docx') || fileType.includes('doc')) return 'docx';
+      if (fileType.includes('xlsx') || fileType.includes('xls')) return 'excel';
+      if (fileType.includes('csv')) return 'csv';
+    }
+    
+    // Look for clues in metadata
+    if (firstDoc.metadata?.database) {
+      const db = String(firstDoc.metadata.database).toLowerCase();
+      if (db.includes('snowflake')) return 'snowflake';
+      if (db.includes('***REMOVED***')) return '***REMOVED***ql';
+      if (db.includes('mysql')) return 'mysql';
+    }
+    
+    // Default to generic file type
+    return 'file';
+  }
+} 

@@ -6,16 +6,16 @@ import { PDFExtract, PDFExtractOptions } from 'pdf.js-extract';
 import { createWorker } from 'tesseract.js';
 import { Injectable } from '@nestjs/common';
 import { BaseDocumentProcessor, ProcessingResult, DataSourceStatus } from './base-document-processor';
-import { ChunkingService } from '../chunking.service';
-import { QdrantService } from '../qdrant.service';
-import { ConfigService } from '../config.service';
+import { ChunkingService } from '../../services/rag/chunking.service';
+import { ConfigService } from '../../services/core/config.service';
 import * as pdfPoppler from 'pdf-poppler';
 import { createServiceLogger } from '../../utils/logger-factory';
 import { execSync } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../../config/database';
-import { WebSocketService } from '../websocket.service';
+import { SocketService } from '../../services/util/socket.service';
 import * as os from 'os';
+import { OpenAIService } from '../../services/ai/openai.service';
 
 /**
  * Custom PDF Processor Service
@@ -26,7 +26,7 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
     protected readonly logger = createServiceLogger('CustomPdfProcessorService');
     private chunkingService: ChunkingService;
     private pdfExtract: PDFExtract;
-    private openaiService: any; // Will be initialized in constructor if needed
+    private openaiService: OpenAIService;
     
     // Batch size for embedding generation to avoid rate limits
     private readonly EMBEDDING_BATCH_SIZE = 20;
@@ -34,27 +34,19 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
     constructor(
         private configService: ConfigService,
         chunkingService: ChunkingService,
-        protected qdrantService: QdrantService,
-        private readonly websocketService?: WebSocketService
-    ) {
+        private readonly websocketService?: SocketService
+    , private readonly chunkingService: ChunkingService, private readonly openAIService: OpenAIService) {
         super('CustomPdfProcessorService');
         
         // Make sure we have a chunking service
         if (chunkingService) {
             this.chunkingService = chunkingService;
         } else {
-            this.chunkingService = ChunkingService.getInstance();
+            this.chunkingService = this.chunkingService;
         }
         
-        // If qdrantService is not provided, create a new instance
-        if (!this.qdrantService) {
-            this.qdrantService = QdrantService.getInstance();
-        }
-        
-        // If websocketService is not provided, create a new instance
-        if (!this.websocketService) {
-            this.websocketService = new WebSocketService();
-        }
+        // Initialize OpenAI service
+        this.openaiService = this.openAIService;
         
         this.pdfExtract = new PDFExtract();
         this.logger.info('CustomPdfProcessorService initialized');
@@ -474,10 +466,10 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
             // Ensure the collection exists
             try {
                 // First check if collection exists
-                const exists = await this.qdrantService.collectionExists(collectionName);
-                this.logger.info(`Collection ${collectionName} exists: ${exists}`);
+                const collectionExists = await this.qdrantService.collectionExists(collectionName);
+                this.logger.info(`Collection ${collectionName} exists: ${collectionExists}`);
                 
-                if (!exists) {
+                if (!collectionExists) {
                     this.logger.info(`Creating collection ${collectionName} for vector storage`);
                     await this.qdrantService.createCollection(collectionName, {
                         vectors: {
@@ -719,10 +711,10 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
                 
                 try {
                     // Generate embeddings for this batch
-                    const batchTexts = batchChunks.map(chunk => chunk.text);
+                    const batchTexts = batchChunks.map((chunk: { text: string }) => chunk.text);
                     
                     // Check for empty texts that might cause API errors
-                    const validBatchTexts = batchTexts.map(text => text || 'Empty content');
+                    const validBatchTexts = batchTexts.map((text: string | null | undefined) => text || 'Empty content');
                     
                     const batchEmbeddings = await this.createEmbeddings(validBatchTexts);
                     
@@ -880,13 +872,9 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
      * Create embeddings for an array of texts
      */
     private async createEmbeddings(texts: string[]): Promise<number[][]> {
-        // Create an instance of the OpenAI service
-        const { OpenAIService } = require('../../services/openai.service');
-        const openaiService = OpenAIService.getInstance();
-        
         // Use the correct method name: createEmbeddings instead of generateEmbedding
         // Process all texts in a single batch using the built-in batching of createEmbeddings
-        return await openaiService.createEmbeddings(texts);
+        return await this.openaiService.createEmbeddings(texts);
     }
 
     /**
@@ -1082,6 +1070,22 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
             }
         } catch (error: any) {
             this.logger.error(`UpdateDataSourceStatus error: ${error.message}`, error);
+        }
+    }
+
+    // Helper method to send websocket updates if websocket service is available
+    private sendWebsocketUpdate(dataSourceId: string, status: string, metadata: any = {}) {
+        if (this.websocketService) {
+            try {
+                const io = this.websocketService.getIO();
+                io.emit(`datasource:${dataSourceId}:status`, {
+                    status,
+                    metadata,
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                this.logger.warn(`Failed to send websocket update: ${error instanceof Error ? error.message : String(error)}`);
+            }
         }
     }
 }

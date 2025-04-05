@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction, RequestHandler } from 'express';
-import { openAIService } from '../services/openai.service';
+import { OpenAIService } from '../services/ai/openai.service';
+import { ServiceRegistry } from '../services/core/service-registry';
 // import { produceMessage, TOPICS } from '../infrastructure/kafka';
 import { db } from '../config/database';
 // import { executeQuery } from '../infrastructure/connectors/factory';
@@ -15,6 +16,9 @@ interface ChatMessageBody {
 
 const router = express.Router();
 const chatController = new ChatController(db);
+
+// Get OpenAIService from ServiceRegistry
+const openAIService = ServiceRegistry.resolve(OpenAIService);
 
 // Apply authentication middleware to all routes
 router.use(authenticate as unknown as RequestHandler);

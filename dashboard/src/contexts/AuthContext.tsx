@@ -3,6 +3,11 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 // Use relative path since we're using Vite's proxy
 export const API_URL = '';
 
+// Helper function to build API URLs with the correct base path
+export function buildApiUrl(path: string): string {
+  return `${API_URL}/api/${path}`;
+}
+
 interface User {
   id: number;
   email: string;

@@ -24,6 +24,8 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { initializeUploadDirectories, UPLOAD_DIR } from './utils/upload';
 import { RequestHandler } from 'express';
+import { ServiceRegistry } from './services/core/service-registry';
+
 
 const app = express();
 
@@ -86,6 +88,10 @@ app.use('/files', (req, res, next) => {
   fallthrough: true,
   redirect: false
 }));
+
+
+// Initialize dependency injection
+ServiceRegistry.initializeServices();
 
 // Routes
 app.use('/api/auth', authRoutes);

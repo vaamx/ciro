@@ -3,13 +3,14 @@ import * as path from 'path';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 import { BaseDocumentProcessor, ProcessingResult, DataSourceStatus } from './base-document-processor';
-import { ConfigService } from '../config.service';
-import { ChunkingService } from '../chunking.service';
-import { QdrantService } from '../qdrant.service';
-import { OpenAIService } from '../openai.service';
+import { ConfigService } from '../core/config.service';
+import { ChunkingService } from '../rag/chunking.service';
+import { OpenAIService } from '../ai/openai.service';
+import { QdrantAdapter } from '../data-processing/document-processors/qdrant-adapter';
 import { createLogger } from '../../utils/logger';
 import { db } from '../../config/database';
 import * as ExcelJsLib from 'exceljs';
+import { Injectable } from '@nestjs/common';
 
 // Define missing type
 interface DocumentProcessorOptions {
@@ -34,10 +35,18 @@ interface ExcelProcessingResult {
   }
 }
 
+// Define point type to prevent implicit any
+interface QdrantPoint {
+  id: string;
+  vector: number[];
+  payload: any;
+}
+
 /**
  * Enhanced Excel Processor Service
  * Handles processing of Excel files (.xlsx, .xls, .ods)
  */
+@Injectable()
 export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
   private readonly MAX_CELLS_PER_SHEET = 50000;
   private readonly MAX_SHEET_SIZE_DEFAULT = 10;
@@ -50,12 +59,12 @@ export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
   constructor(
     configService: ConfigService,
     chunkingService: ChunkingService,
-    qdrantService: QdrantService
-  ) {
-    super('EnhancedExcelProcessorService');
+    qdrantAdapter: QdrantAdapter
+  , private readonly openAIService: OpenAIService) {
+    super('EnhancedExcelProcessor');
     this.configService = configService;
     this.chunkingService = chunkingService;
-    this.openaiService = OpenAIService.getInstance();
+    this.openaiService = this.openAIService;
     this.logger.info('Enhanced Excel Processor Service initialized');
   }
 
@@ -145,9 +154,9 @@ export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
               
               if (points && points.length > 0) {
                 // Ensure all points have required vector property
-                const validPoints = points.filter(point => 
+                const validPoints = points.filter((point: QdrantPoint) => 
                   point && typeof point === 'object' && 'id' in point && 'vector' in point && Array.isArray(point.vector)
-                ) as { id: string; vector: number[]; payload: any }[];
+                ) as QdrantPoint[];
                 
                 if (validPoints.length > 0) {
                   // Upsert points to numeric collection

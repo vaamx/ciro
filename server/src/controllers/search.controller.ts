@@ -2,9 +2,9 @@ import { Request, Response } from '../types';
 import { BadRequestError } from '../utils/errors';
 import { AuthRequest } from '../middleware/auth';
 import { pool } from '../config/database';
-import { QdrantService } from '../services/qdrant.service';
-import { OpenAIService } from '../services/openai.service';
-import { DocumentProcessorService } from '../services/document-processor.service';
+import { QdrantSearchService } from '../services/vector/search.service';
+import { OpenAIService } from '../services/ai/openai.service';
+import { DocumentProcessorService } from '../services/data-processing/document-processor.service';
 
 interface SearchResult {
   id?: string;
@@ -20,7 +20,7 @@ interface MockEmbedding {
 }
 
 export class SearchController {
-  private qdrantService: QdrantService;
+  private qdrantService: QdrantSearchService;
   private openaiService: OpenAIService;
   private documentProcessor: DocumentProcessorService;
   // Create a mock embedding instance
@@ -31,10 +31,10 @@ export class SearchController {
     }
   };
 
-  constructor() {
-    this.qdrantService = QdrantService.getInstance();
-    this.openaiService = OpenAIService.getInstance();
-    this.documentProcessor = DocumentProcessorService.getInstance();
+  constructor(private readonly documentProcessorService: DocumentProcessorService, private readonly openAIService: OpenAIService, private readonly qdrantSearchService: QdrantSearchService) {
+    this.qdrantService = this.qdrantSearchService;
+    this.openaiService = this.openAIService;
+    this.documentProcessor = this.documentProcessorService;
   }
 
   async searchSimilarDocuments(req: Request, res: Response) {

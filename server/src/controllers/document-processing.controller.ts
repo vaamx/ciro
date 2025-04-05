@@ -1,6 +1,6 @@
 import { Request, Response, ProcessingState, FileType } from '../types';
 import { documentProcessorManager, ProcessingJob } from '../services/document-processing/document-processor-manager';
-import { FileService } from '../services/file.service';
+import { FileService } from '../services/util/file/file.service';
 import { db } from '../config/database';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
