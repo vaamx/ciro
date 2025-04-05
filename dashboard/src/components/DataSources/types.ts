@@ -1,11 +1,11 @@
-export type DataSourceType = 'database' | 'crm' | 'storage' | 'analytics' | 'sap' | 'local-files' | 'custom' | 'crm-hubspot' | 'warehouse';
-export type DataSourceStatus = 'connected' | 'disconnected' | 'error' | 'syncing';
+export type DataSourceType = 'database' | 'crm' | 'storage' | 'analytics' | 'sap' | 'local-files' | 'custom' | 'crm-hubspot' | 'warehouse' | 'snowflake';
+export type DataSourceStatus = 'connected' | 'disconnected' | 'processing' | 'error' | 'syncing' | 'ready' | 'completed';
 
 export interface DataSourceMetrics {
   records: number;
   syncRate: number;
   avgSyncTime: string;
-  lastError?: string;
+  lastError?: string | { phase: string; message: string; timestamp: string };
 }
 
 export interface HubSpotContactProperties {
@@ -104,24 +104,36 @@ export interface HubSpotData {
   };
 }
 
-export type LocalFileType = 'csv' | 'excel' | 'pdf' | 'json';
+export type LocalFileType = 'csv' | 'json' | 'xlsx' | 'pdf' | 'docx';
+
+export interface FileChunk {
+  index: number;
+  total: number;
+  data: Uint8Array;
+}
 
 export interface LocalFileMetadata {
   id: string;
   filename: string;
+  originalFilename?: string;
   fileType: LocalFileType;
   size: number;
   uploadedAt: Date;
   lastModified: Date;
   status: 'ready' | 'processing' | 'error';
   records?: number;
-  content?: any[];
+  content?: any[] | string;
   preview?: string;
+  metadata?: Record<string, any>;
+  chunks?: any[];
+  dataSourceId?: string;
+  requiresEmbedding?: boolean;
+  isExcelFile?: boolean;
 }
 
 export interface LocalFileData {
   metadata: LocalFileMetadata;
-  content: any[];
+  content: any[] | string;
   preview: string;
 }
 

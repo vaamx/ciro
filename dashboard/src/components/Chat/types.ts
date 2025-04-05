@@ -11,6 +11,8 @@ export interface BaseMetadata {
     config: Record<string, unknown>;
   };
   suggestions?: string[];
+  structuredResponse?: any;
+  isAnalytical?: boolean;
   [key: string]: unknown;
 }
 
@@ -20,6 +22,21 @@ export interface MessageMetadata extends BaseMetadata {
   estimatedTime?: number;
   contextLength?: number;
   responseQuality?: number;
+  
+  // Flags for controlling message display
+  suppressDirectDisplay?: boolean;
+  structuredContentOnly?: boolean;
+  suppressDuplicateDisplay?: boolean;
+  useStructuredDisplay?: boolean;
+  
+  // Document-specific fields
+  content_type?: string;
+  filename?: string;
+  source_type?: string;
+  document_id?: string;
+  file_type?: 'pdf' | 'excel' | 'csv' | 'docx' | 'text';
+  document_metadata?: Record<string, any>;
+  
   codeBlocks?: {
     language: string;
     code: string;
@@ -100,6 +117,13 @@ export interface ChatSettings {
   systemPrompt?: string;
 }
 
+export interface ChatService {
+  sendMessage(content: string, settings: ChatSettings): Promise<{
+    content: string;
+    metadata?: MessageMetadata;
+  }>;
+}
+
 export interface ChatUIConfig {
   showTimestamps?: boolean;
   showAvatars?: boolean;
@@ -125,6 +149,7 @@ export interface ChatUIConfig {
   messageSpacing?: 'compact' | 'comfortable' | 'spacious';
   messageAlignment?: 'left' | 'right';
   bubbleStyle?: 'modern' | 'classic' | 'minimal';
+  isMobile?: boolean;
   animations?: {
     messageTransition?: boolean;
     typingIndicator?: boolean;
@@ -159,6 +184,8 @@ export interface ComposerProps {
   allowVoiceInput?: boolean;
   maxAttachmentSize?: number;
   supportedFileTypes?: string[];
+  className?: string;
+  isMobile?: boolean;
 }
 
 export interface AssistantMessageProps {
@@ -181,6 +208,7 @@ export interface AssistantMessageProps {
   isInGroup?: boolean;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
+  isMobile?: boolean;
 }
 
 export interface UserMessageProps {
@@ -200,6 +228,7 @@ export interface UserMessageProps {
   isInGroup?: boolean;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
+  isMobile?: boolean;
 }
 
 export interface DataSource {
@@ -221,12 +250,12 @@ export interface ThreadProps {
   onMessageReact?: (message: ChatMessage, reaction: string) => void;
   onMessageReply?: (message: ChatMessage) => void;
   onClose: () => void;
-  onSettingsClick: () => void;
+  onSettingsClick?: () => void;
   onClearChat: () => void;
   onCancelGeneration?: () => void;
   isGenerating: boolean;
   onSubmit: (message: string, attachments?: File[]) => void;
-  settings: ChatSettings;
+  settings?: ChatSettings;
   uiConfig: ChatUIConfig;
   participants?: {
     id: string;
@@ -234,4 +263,5 @@ export interface ThreadProps {
     avatar?: string;
     isTyping?: boolean;
   }[];
+  isMobile?: boolean;
 } 

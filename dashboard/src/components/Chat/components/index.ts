@@ -5,4 +5,5 @@ export { Composer } from './Composer';
 export { TypingIndicator } from './TypingIndicator';
 export { MessageGroup } from './MessageGroup';
 export { ThreadHeader } from './ThreadHeader';
-export { Thread } from './Thread'; 
+export { Thread } from './Thread';
+export { ThinkingProcess, type ThinkingStep } from './ThinkingProcess'; 

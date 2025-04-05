@@ -1,4 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
+import { buildApiUrl } from './AuthContext';
 
 export interface Automation {
   id: string;
@@ -24,7 +25,7 @@ class AutomationApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = '/api/automations';
+    this.baseUrl = buildApiUrl('automations');
   }
 
   private getHeaders() {

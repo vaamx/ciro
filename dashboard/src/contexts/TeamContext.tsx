@@ -1,4 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
+import { buildApiUrl } from './AuthContext';
 
 export interface Team {
   id: string;
@@ -25,7 +26,7 @@ class TeamApiService {
   }
 
   async getItems(organizationId: number): Promise<Team[]> {
-    const response = await fetch(`/api/organizations/${organizationId}/teams`, {
+    const response = await fetch(buildApiUrl(`organizations/${organizationId}/teams`), {
       headers: this.getHeaders(),
       credentials: 'include'
     });

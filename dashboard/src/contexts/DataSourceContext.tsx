@@ -1,4 +1,5 @@
 import { createOrganizationScopedContext } from './OrganizationScopedContext';
+import { buildApiUrl } from './AuthContext';
 
 export interface DataSource {
   id: string;
@@ -18,7 +19,7 @@ class DataSourceApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = '/api/data-sources';
+    this.baseUrl = buildApiUrl('data-sources');
   }
 
   private getHeaders() {

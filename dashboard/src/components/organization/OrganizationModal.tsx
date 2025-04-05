@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useOrganization } from '../../contexts/OrganizationContext';
-import { Building2, Upload, X } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
+import { buildApiUrl } from '../../contexts/AuthContext';
 
 interface OrganizationModalProps {
   isOpen: boolean;
@@ -28,8 +29,9 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
 
   const getLogoUrl = (logoPath: string | undefined | null): string => {
     if (!logoPath) return '';
-    // Avoid adding /files prefix if it's already there
-    return logoPath.startsWith('/files') ? logoPath : `/files${logoPath}`;
+    
+    // Use an inline SVG data URL as a placeholder
+    return 'data:image/svg+xml;charset=UTF-8,%3csvg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24" fill="none" stroke="%23a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3e%3crect width="18" height="18" x="3" y="3" rx="2" ry="2"%3e%3c/rect%3e%3crect width="8" height="8" x="8" y="8" rx="1" ry="1"%3e%3c/rect%3e%3c/svg%3e';
   };
 
   // Reset form data when modal opens or organization changes
@@ -48,7 +50,7 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
     fileInputRef.current?.click();
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) { // 5MB limit
@@ -61,12 +63,50 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
         return;
       }
 
-      setLogoFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        // Convert image to a web-safe format (JPEG/PNG)
+        const canvas = document.createElement('canvas');
+        const img = new Image();
+        
+        img.onload = () => {
+          // Scale down if necessary while maintaining aspect ratio
+          let width = img.width;
+          let height = img.height;
+          const maxDimension = 1024;
+          
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = (height / width) * maxDimension;
+              width = maxDimension;
+            } else {
+              width = (width / height) * maxDimension;
+              height = maxDimension;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Convert to PNG format
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const processedFile = new File([blob], file.name.replace(/\.[^/.]+$/, '') + '.png', {
+                type: 'image/png'
+              });
+              setLogoFile(processedFile);
+              setLogoPreview(URL.createObjectURL(processedFile));
+            }
+          }, 'image/png', 0.9);
+        };
+        
+        img.src = URL.createObjectURL(file);
+      } catch (error) {
+        console.error('Error processing image:', error);
+        alert('Failed to process image. Please try another file.');
+      }
     }
   };
 
@@ -90,27 +130,45 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
         formDataToSend.append('description', formData.description);
       }
       if (logoFile) {
-        formDataToSend.append('logo', logoFile, logoFile.name);
+        formDataToSend.append('logo', logoFile);
+        console.log('Logo file details:', {
+          name: logoFile.name,
+          type: logoFile.type,
+          size: logoFile.size
+        });
       }
 
       const url = organization
-        ? `/api/organizations/${organization.id}`
-        : '/api/organizations';
+        ? buildApiUrl(`organizations/${organization.id}`)
+        : buildApiUrl('organizations');
       
       const token = localStorage.getItem('auth_token');
+      console.log('Sending request to:', url);
+      
       const response = await fetch(url, {
         method: organization ? 'PUT' : 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
+        mode: 'cors',
         credentials: 'include',
         body: formDataToSend,
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save organization');
+        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error response' }));
+        console.error('Server response:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData,
+          url: response.url,
+          headers: Object.fromEntries(response.headers.entries())
+        });
+        throw new Error(errorData.error || `Failed to save organization (${response.status})`);
       }
+
+      const responseData = await response.json();
+      console.log('Success response:', responseData);
 
       await loadOrganizations();
       onClose();
@@ -125,13 +183,21 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-xl font-semibold text-white mb-6">
-          {organization ? 'Edit Organization' : 'Create Organization'}
-        </h2>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-lg p-4 sm:p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg sm:text-xl font-semibold text-white">
+            {organization ? 'Edit Organization' : 'Create Organization'}
+          </h2>
+          <button 
+            onClick={onClose}
+            className="p-1.5 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-white transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {/* Logo Upload */}
           <div className="flex flex-col items-center">
             <input
@@ -145,21 +211,26 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
               onClick={handleImageClick}
               className="relative cursor-pointer group"
             >
-              <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center border-2 border-gray-600 hover:border-purple-500 transition-colors">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center border-2 border-gray-600 hover:border-purple-500 transition-colors">
                 {logoPreview ? (
                   <img 
                     src={logoPreview} 
                     alt="Organization logo" 
                     className="w-full h-full object-cover"
+                    crossOrigin="use-credentials"
+                    onError={(e) => {
+                      // Use fallback SVG if image fails to load
+                      e.currentTarget.src = 'data:image/svg+xml;charset=UTF-8,%3csvg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24" fill="none" stroke="%23a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3e%3crect width="18" height="18" x="3" y="3" rx="2" ry="2"%3e%3c/rect%3e%3crect width="8" height="8" x="8" y="8" rx="1" ry="1"%3e%3c/rect%3e%3c/svg%3e';
+                    }}
                   />
                 ) : (
                   <div className="flex flex-col items-center">
-                    <Upload size={24} className="text-gray-400 mb-1" />
+                    <Upload size={20} className="text-gray-400 mb-1" />
                     <span className="text-xs text-gray-400">Upload Logo</span>
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-opacity flex items-center justify-center">
-                  <Upload size={20} className="text-white opacity-0 group-hover:opacity-100" />
+                  <Upload size={18} className="text-white opacity-0 group-hover:opacity-100" />
                 </div>
               </div>
               {logoPreview && (
@@ -184,6 +255,7 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full bg-gray-700 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
               required
+              placeholder="Enter organization name"
             />
           </div>
 
@@ -196,24 +268,33 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full bg-gray-700 text-white rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
               rows={3}
+              placeholder="Describe your organization (optional)"
             />
           </div>
 
-          <div className="flex justify-end space-x-3 mt-6">
+          <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-300 hover:text-white focus:outline-none"
+              className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md font-medium transition-colors"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-gradient-to-br from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-md font-medium transition-all disabled:opacity-70 disabled:cursor-not-allowed"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Saving...' : 'Save'}
+              {isSubmitting ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Saving...
+                </span>
+              ) : organization ? 'Save Changes' : 'Create Organization'}
             </button>
           </div>
         </form>

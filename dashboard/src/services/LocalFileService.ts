@@ -1,215 +1,425 @@
-import { LocalFileType, LocalFileMetadata } from '../components/DataSources/types';
+import axios from 'axios';
+import { getAuthorizationHeader, getAuthToken } from '../utils/authToken';
+import { LocalFileType } from '../components/DataSources/types';
+import { jwtDecode } from 'jwt-decode';
 
+// Define file metadata interface
+export interface LocalFileMetadata {
+  id: string;
+  filename: string;
+  fileType: LocalFileType;
+  size: number;
+  uploadedAt: Date;
+  lastModified: Date;
+  status: 'ready' | 'processing' | 'error';
+  url?: string;
+  processingMethod?: string;
+  preview?: any;
+  dataSourceId?: string | number;
+}
+
+// Add a function to get the organization ID from the auth token
+function getOrganizationIdFromToken(): number | null {
+  try {
+    const token = getAuthToken();
+    if (!token) return null;
+    
+    const decoded = jwtDecode<{ 
+      organizationId?: number | string, 
+      organizations?: (number | string)[] 
+    }>(token);
+    
+    // First, check for active organization in local storage
+    const activeOrgId = localStorage.getItem('active_organization_id');
+    if (activeOrgId) {
+      const orgId = parseInt(activeOrgId, 10);
+      
+      // Validate that this org ID is in the user's accessible organizations
+      if (decoded.organizations && 
+          decoded.organizations.some(id => 
+            (typeof id === 'string' ? parseInt(id, 10) : id) === orgId)) {
+        console.log(`Using active organization ID from storage: ${orgId}`);
+        return orgId;
+      }
+    }
+    
+    // Fallback to the token's primary organizationId
+    if (decoded && decoded.organizationId) {
+      const orgId = typeof decoded.organizationId === 'string' 
+        ? parseInt(decoded.organizationId, 10) 
+        : decoded.organizationId;
+      console.log(`Using primary organization ID from token: ${orgId}`);
+      return orgId;
+    }
+    
+    // Final fallback - use the first organization in the array
+    if (decoded && decoded.organizations && decoded.organizations.length > 0) {
+      const firstOrgId = decoded.organizations[0];
+      const orgId = typeof firstOrgId === 'string'
+        ? parseInt(firstOrgId, 10)
+        : firstOrgId;
+      console.log(`Using first available organization ID: ${orgId}`);
+      return orgId;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error extracting organization ID from token:', error);
+    return null;
+  }
+}
+
+/**
+ * Service for handling local file operations
+ */
 export class LocalFileService {
   private static instance: LocalFileService;
-  private mockFiles: LocalFileMetadata[] = [];
+  private readonly apiBaseUrl: string;
+  private readonly MAX_CHUNK_SIZE = 1024 * 1024 * 5; // 5MB chunks
+  private mockMode: boolean;
+  private fileTypeCache: Map<string, string> = new Map(); // Cache for file type determination
+  private isInitialized: boolean = false;
 
-  private constructor() {}
+  /**
+   * Private constructor for singleton pattern
+   */
+  private constructor(options: { mockMode?: boolean } = {}) {
+    this.apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'; // Use environment variable
+    this.mockMode = options.mockMode || false;
+    
+    // Initialize the service
+    this.initialize();
+  }
 
-  public static getInstance(): LocalFileService {
+  /**
+   * Initialize the service
+   */
+  private initialize(): void {
+    if (this.isInitialized) return;
+    
+    // Pre-populate the file type cache with common extensions
+    const commonExtensions = {
+      'csv': 'csv',
+      'xlsx': 'excel',
+      'xls': 'excel',
+      'pdf': 'pdf',
+      'doc': 'word',
+      'docx': 'word',
+      'txt': 'text',
+      'text': 'text',
+      'json': 'json'
+    };
+    
+    // Add all common extensions to the cache
+    Object.entries(commonExtensions).forEach(([ext, type]) => {
+      this.fileTypeCache.set(ext, type);
+    });
+    
+    // Mark as initialized
+    this.isInitialized = true;
+  }
+
+  /**
+   * Get singleton instance
+   */
+  public static getInstance(options: { mockMode?: boolean } = {}): LocalFileService {
     if (!LocalFileService.instance) {
-      LocalFileService.instance = new LocalFileService();
+      LocalFileService.instance = new LocalFileService(options);
     }
     return LocalFileService.instance;
   }
 
-  private getFileType(filename: string): LocalFileType {
-    const extension = filename.split('.').pop()?.toLowerCase();
-    switch (extension) {
-      case 'csv':
-        return 'csv';
-      case 'pdf':
-        return 'pdf';
-      case 'xlsx':
-      case 'xls':
-        return 'excel';
-      case 'json':
-        return 'json';
-      default:
-        throw new Error('Unsupported file type');
+  /**
+   * Preload the service to improve performance
+   * Call this method early in your application to initialize the service
+   */
+  public static preload(): void {
+    // Create the instance if it doesn't exist
+    if (!LocalFileService.instance) {
+      LocalFileService.instance = new LocalFileService();
     }
   }
 
-  public async uploadFile(file: File): Promise<LocalFileMetadata> {
+  /**
+   * Check if the server is available
+   */
+  async checkServerAvailability(): Promise<boolean> {
     try {
-      // Read file content
-      const content = await this.readFileContent(file);
-      const records = this.countRecords(content, file.name);
-      const preview = this.generatePreview(content, file.name);
-      
-      console.log('File content parsed:', {
-        contentLength: content.length,
-        recordsCount: records,
-        preview: preview.slice(0, 100) // Just log first 100 chars of preview
-      });
-      
-      // Create file metadata
-      const metadata: LocalFileMetadata = {
-        id: Math.random().toString(36).substring(7),
-        filename: file.name,
-        fileType: this.getFileType(file.name),
-        size: file.size,
-        uploadedAt: new Date(),
-        lastModified: new Date(file.lastModified),
-        status: 'ready',
-        records,
-        content,
-        preview
-      };
-
-      // Store in mock storage
-      this.mockFiles.push(metadata);
-      
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      console.log('File uploaded with metadata:', {
-        ...metadata,
-        content: content.slice(0, 2), // Just log first 2 records
-        records,
-        preview: preview.slice(0, 100) // Just log first 100 chars of preview
-      });
-      
-      return metadata;
+      const response = await axios.get(`${this.apiBaseUrl}/health`);
+      return response.status === 200;
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('Server health check failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Determine file type based on extension
+   */
+  getFileType(filename: string): string {
+    // Extract extension
+    const extension = filename.split('.').pop()?.toLowerCase() || '';
+    
+    // Check cache first
+    if (this.fileTypeCache.has(extension)) {
+      return this.fileTypeCache.get(extension) || 'unknown';
+    }
+    
+    // Determine type based on extension
+    let fileType = 'unknown';
+    if (extension === 'csv') fileType = 'csv';
+    else if (['xlsx', 'xls'].includes(extension)) fileType = 'excel';
+    else if (extension === 'pdf') fileType = 'pdf';
+    else if (['doc', 'docx'].includes(extension)) fileType = 'word';
+    else if (['txt', 'text'].includes(extension)) fileType = 'text';
+    else if (extension === 'json') fileType = 'json';
+    
+    // Cache the result
+    this.fileTypeCache.set(extension, fileType);
+    
+    return fileType;
+  }
+
+  /**
+   * Determine file type based on extension and MIME type
+   */
+  determineFileType(file: File): string {
+    // First try to determine by extension
+    const extensionType = this.getFileType(file.name);
+    
+    // If we got a valid type from extension, return it immediately
+    if (extensionType !== 'unknown') {
+      return extensionType;
+    }
+    
+    // Fall back to MIME type
+    const mimeType = file.type.toLowerCase();
+    
+    // Determine type based on MIME type
+    let fileType = 'unknown';
+    if (mimeType.includes('csv')) fileType = 'csv';
+    else if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) fileType = 'excel';
+    else if (mimeType.includes('pdf')) fileType = 'pdf';
+    else if (mimeType.includes('word') || mimeType.includes('document')) fileType = 'word';
+    else if (mimeType.includes('text/plain')) fileType = 'text';
+    else if (mimeType.includes('json')) fileType = 'json';
+    
+    return fileType;
+  }
+
+  /**
+   * Upload a file to the server
+   */
+  async uploadFile(file: File, onProgress?: (progress: number) => void): Promise<LocalFileMetadata> {
+    const fileType = this.determineFileType(file);
+    
+    // Determine processing method based on file type
+    let processingMethod = 'auto';
+    if (fileType === 'csv') {
+      processingMethod = 'csv-processor';
+    }
+    
+    // For small files, upload directly
+    if (file.size <= this.MAX_CHUNK_SIZE) {
+      return await this.uploadSmallFile(file, processingMethod, onProgress);
+    }
+    
+    // For large files, use chunked upload
+    return await this.uploadLargeFile(file, processingMethod, onProgress);
+  }
+
+  /**
+   * Upload a small file directly
+   */
+  private async uploadSmallFile(
+    file: File, 
+    processingMethod: string,
+    onProgress?: (progress: number) => void
+  ): Promise<LocalFileMetadata> {
+    if (this.mockMode) {
+      return this.mockUpload(file, processingMethod);
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('processingMethod', processingMethod);
+    
+    // Add the organization ID from the token if available
+    const organizationId = getOrganizationIdFromToken();
+    if (organizationId) {
+      formData.append('organization_id', organizationId.toString());
+      console.log(`Using organization ID from token/active selection: ${organizationId}`);
+      
+      // Also add the active organization ID separately for diagnostics
+      const activeOrgId = localStorage.getItem('active_organization_id');
+      if (activeOrgId && activeOrgId !== organizationId.toString()) {
+        formData.append('active_organization_id', activeOrgId);
+        console.log(`Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
+      }
+    }
+    
+    // Use the authorization header helper function as an alternative
+    const authHeader = getAuthorizationHeader();
+    
+    const config = {
+      onUploadProgress: (progressEvent: any) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (onProgress) {
+          onProgress(percentCompleted);
+        }
+      },
+      headers: {
+        // Don't set Content-Type here - Axios will set it with the correct boundary for multipart/form-data
+        'Authorization': authHeader // Use the full header from the utility function
+      }
+    };
+    
+    try {
+      const response = await axios.post(`${this.apiBaseUrl}/api/files/upload`, formData, config);
+      return this.mapResponseToFileMetadata(response.data);
+    } catch (error: any) {
+      console.error('Axios error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
       throw error;
     }
   }
 
-  private async readFileContent(file: File): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const content = e.target?.result as string;
-          const fileType = this.getFileType(file.name);
-          
-          switch (fileType) {
-            case 'csv': {
-              // Improved CSV parsing
-              const lines = content.split('\n').filter(line => line.trim());
-              const headers = lines[0].split(',').map(h => h.trim());
-              const records = lines.slice(1).map(line => {
-                const values = line.split(',').map(v => v.trim());
-                return headers.reduce((obj, header, i) => {
-                  obj[header] = values[i] || '';
-                  return obj;
-                }, {} as Record<string, string>);
-              }).filter(record => Object.values(record).some(v => v));
-              console.log('Parsed CSV records:', records.slice(0, 2));
-              resolve(records);
-              break;
-            }
-            case 'json': {
-              const parsed = JSON.parse(content);
-              const records = Array.isArray(parsed) ? parsed : [parsed];
-              console.log('Parsed JSON records:', records.slice(0, 2));
-              resolve(records);
-              break;
-            }
-            case 'excel':
-            case 'pdf': {
-              // For demo purposes, create mock structured data
-              const mockData = Array.from({ length: 10 }, (_, i) => ({
-                row: i + 1,
-                content: `Mock ${fileType.toUpperCase()} content for row ${i + 1}`
-              }));
-              console.log(`Mock ${fileType.toUpperCase()} data:`, mockData.slice(0, 2));
-              resolve(mockData);
-              break;
-            }
-            default:
-              resolve([]);
-          }
-        } catch (error) {
-          console.error('Error parsing file:', error);
-          reject(error);
+  /**
+   * Upload a large file in chunks
+   */
+  private async uploadLargeFile(
+    file: File,
+    processingMethod: string,
+    onProgress?: (progress: number) => void
+  ): Promise<LocalFileMetadata> {
+    try {
+      // Get organization ID from token
+      const organizationId = getOrganizationIdFromToken();
+      
+      // Step 1: Initialize the chunked upload
+      const initData: any = {
+        filename: file.name,
+        fileSize: file.size,
+        fileType: this.determineFileType(file),
+        processingMethod
+      };
+      
+      // Add the organization ID from the token if available
+      if (organizationId) {
+        initData.organization_id = organizationId;
+        console.log(`Using organization ID from token/active selection for chunked upload: ${organizationId}`);
+        
+        // Also add the active organization ID separately for diagnostics
+        const activeOrgId = localStorage.getItem('active_organization_id');
+        if (activeOrgId && activeOrgId !== organizationId.toString()) {
+          initData.active_organization_id = activeOrgId;
+          console.log(`Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
         }
-      };
-      
-      reader.onerror = () => {
-        console.error('FileReader error:', reader.error);
-        reject(reader.error);
-      };
-      
-      if (this.getFileType(file.name) === 'json' || this.getFileType(file.name) === 'csv') {
-        reader.readAsText(file);
-      } else {
-        reader.readAsArrayBuffer(file);
       }
-    });
-  }
-
-  private countRecords(content: any[], filename: string): number {
-    const fileType = this.getFileType(filename);
-    const count = content.length;
-    console.log(`Counting records for ${fileType} file:`, count);
-    return count;
-  }
-
-  private generatePreview(content: any[], filename: string): string {
-    const fileType = this.getFileType(filename);
-    
-    switch (fileType) {
-      case 'csv': {
-        // Create a more readable CSV preview
-        const records = content.slice(0, 5);
-        if (records.length === 0) return 'No records found';
+      
+      const initResponse = await axios.post(
+        `${this.apiBaseUrl}/api/files/initiate-chunked-upload`,
+        initData,
+        {
+          headers: {
+            Authorization: getAuthorizationHeader() || `Bearer ${getAuthToken()}`
+          }
+        }
+      );
+      
+      const { uploadId } = initResponse.data;
+      
+      // Calculate total chunks
+      const totalChunks = Math.ceil(file.size / this.MAX_CHUNK_SIZE);
+      
+      // Step 2: Upload each chunk
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * this.MAX_CHUNK_SIZE;
+        const end = Math.min(start + this.MAX_CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
         
-        const headers = Object.keys(records[0]);
-        const preview = [
-          'CSV Preview (first 5 records):',
-          '',
-          headers.join(', '),
-          ...records.map(record => 
-            headers.map(header => record[header]).join(', ')
-          )
-        ].join('\n');
+        const formData = new FormData();
+        // Use 'file' as the field name, not 'chunk', to match server multer config
+        formData.append('file', chunk);
         
-        return preview;
+        await axios.post(
+          `${this.apiBaseUrl}/api/files/upload-chunk?uploadId=${uploadId}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}`,
+          formData,
+          {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              Authorization: getAuthorizationHeader() || `Bearer ${getAuthToken()}`
+            },
+            onUploadProgress: (progressEvent) => {
+              if (onProgress && progressEvent.total) {
+                // Calculate overall progress considering current chunk
+                const chunkProgress = progressEvent.loaded / progressEvent.total;
+                const overallProgress = (chunkIndex + chunkProgress) / totalChunks;
+                onProgress(overallProgress * 100);
+              }
+            }
+          }
+        );
       }
-      case 'json':
-        return JSON.stringify(content.slice(0, 5), null, 2);
-      case 'excel':
-        return `Excel file with ${content.length} rows`;
-      case 'pdf':
-        return `PDF file with ${content.length} pages`;
-      default:
-        return 'No preview available';
+      
+      // Step 3: Complete the upload
+      const completeResponse = await axios.post(
+        `${this.apiBaseUrl}/api/files/complete-chunked-upload`,
+        {
+          uploadId
+        },
+        {
+          headers: {
+            Authorization: getAuthorizationHeader() || `Bearer ${getAuthToken()}`
+          }
+        }
+      );
+      
+      return this.mapResponseToFileMetadata(completeResponse.data);
+    } catch (error) {
+      console.error('Error in chunked upload:', error);
+      throw error;
     }
   }
 
-  public async getFileData(fileId: string): Promise<{ metadata: LocalFileMetadata; content: any[]; preview: string }> {
-    const metadata = this.mockFiles.find(f => f.id === fileId);
-    if (!metadata) {
-      throw new Error('File not found');
-    }
-    
+  /**
+   * Map API response to file metadata
+   */
+  private mapResponseToFileMetadata(response: any): LocalFileMetadata {
     return {
-      metadata,
-      content: metadata.content || [],
-      preview: metadata.preview || 'No preview available'
+      id: response.id || response.fileId || '',
+      filename: response.original_filename || response.originalname || response.name || response.fileName || '',
+      fileType: (response.file_type || response.type || 'unknown') as LocalFileType,
+      size: response.size || 0,
+      uploadedAt: new Date(response.created_at || response.uploadDate || response.createdAt || Date.now()),
+      lastModified: new Date(response.updated_at || response.lastModified || Date.now()),
+      status: 'ready',
+      url: response.url || '',
+      processingMethod: response.metadata?.processingMethod || response.processingMethod || 'auto',
+      preview: response.preview || null,
+      dataSourceId: response.dataSourceId || response.data_source_id || null
     };
   }
 
-  public async getAllFiles(): Promise<LocalFileMetadata[]> {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return this.mockFiles;
-  }
-
-  public async deleteFile(fileId: string): Promise<void> {
-    this.mockFiles = this.mockFiles.filter(f => f.id !== fileId);
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-
-  public async previewFile(fileId: string): Promise<string> {
-    const file = this.mockFiles.find(f => f.id === fileId);
-    if (!file) {
-      throw new Error('File not found');
-    }
-    return 'Mock preview content';
+  /**
+   * Mock upload for testing
+   */
+  private mockUpload(file: File, processingMethod: string): LocalFileMetadata {
+    // Generate a mock file metadata object
+    return {
+      id: `mock-${Date.now()}`,
+      filename: file.name,
+      fileType: this.determineFileType(file) as LocalFileType,
+      size: file.size,
+      uploadedAt: new Date(),
+      lastModified: new Date(file.lastModified),
+      status: 'ready',
+      processingMethod,
+      dataSourceId: `mock-ds-${Date.now()}` // Add mock dataSourceId
+    };
   }
 } 

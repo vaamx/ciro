@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChatHistoryItem } from './ChatHistoryItem';
 import { Loader2 as LoaderIcon, Plus as PlusIcon, Search as SearchIcon, X as XIcon } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
+import { useChat } from '../providers/ChatProvider';
+import { DataTypeBadge } from './DataTypeBadge';
+import { ChatMessage } from '../types';
 
 const Loader2 = LoaderIcon as React.FC<LucideProps>;
 const Plus = PlusIcon as React.FC<LucideProps>;
@@ -39,6 +42,20 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredSessions, setFilteredSessions] = useState(sessions);
   const [selectedId, setSelectedId] = useState<string | null>(activeSessionId);
+  const { messages } = useChat();
+  
+  // Group messages by content type and count occurrences
+  const contentTypeCounts: Record<string, number> = {};
+  
+  messages.forEach((message: ChatMessage) => {
+    if (message.role === 'assistant' && message.metadata?.contentType) {
+      const contentType = message.metadata.contentType as string;
+      contentTypeCounts[contentType] = (contentTypeCounts[contentType] || 0) + 1;
+    }
+  });
+  
+  // Check if we have any content types detected
+  const hasContentTypes = Object.keys(contentTypeCounts).length > 0;
 
   useEffect(() => {
     const filtered = sessions.filter(session => 
@@ -124,6 +141,26 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
             >
               <X className="h-5 w-5" />
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Content Type Summary */}
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Conversation Context</h2>
+        <div className="mb-6">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Content Types</h3>
+          {hasContentTypes ? (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(contentTypeCounts).map(([type, count]) => (
+                <div key={type} className="flex items-center">
+                  <DataTypeBadge dataType={type} />
+                  <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">({count})</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No content types detected</p>
           )}
         </div>
       </div>

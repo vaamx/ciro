@@ -16,28 +16,36 @@ export const LocalFileUploader: React.FC<LocalFileUploaderProps> = ({
   const [uploading, setUploading] = useState(false);
   const fileService = LocalFileService.getInstance();
 
-  const getAcceptedFileTypes = (type?: LocalFileType): Accept => {
-    switch (type) {
-      case 'csv':
-        return { 'text/csv': ['.csv'] };
-      case 'excel':
-        return {
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-          'application/vnd.ms-excel': ['.xls']
-        };
-      case 'pdf':
-        return { 'application/pdf': ['.pdf'] };
-      case 'json':
-        return { 'application/json': ['.json'] };
-      default:
-        return {
-          'text/csv': ['.csv'],
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-          'application/vnd.ms-excel': ['.xls'],
-          'application/pdf': ['.pdf'],
-          'application/json': ['.json']
-        };
+  // Simplified file type filtering - precompute accept objects
+  const FILE_TYPE_MAPPING: Record<LocalFileType, Accept> = {
+    csv: { 'text/csv': ['.csv'] },
+    xlsx: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls']
+    },
+    pdf: { 'application/pdf': ['.pdf'] },
+    json: { 'application/json': ['.json'] },
+    docx: {
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc']
     }
+  };
+
+  // Default accept object for all file types
+  const ALL_FILE_TYPES: Accept = {
+    'text/csv': ['.csv'],
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+    'application/vnd.ms-excel': ['.xls'],
+    'application/pdf': ['.pdf'],
+    'application/json': ['.json'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+    'application/msword': ['.doc']
+  };
+
+  // Get accepted file types - simplified to use precomputed objects
+  const getAcceptedFileTypes = (type?: LocalFileType): Accept => {
+    if (!type) return ALL_FILE_TYPES;
+    return FILE_TYPE_MAPPING[type] || ALL_FILE_TYPES;
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -59,7 +67,10 @@ export const LocalFileUploader: React.FC<LocalFileUploaderProps> = ({
     onDrop,
     accept: getAcceptedFileTypes(fileType),
     maxFiles: 1,
-    multiple: false
+    multiple: false,
+    // Add noClick option to prevent automatic file browser opening
+    // This will make the file browser only open when clicking the "browse" link
+    noClick: false
   });
 
   return (

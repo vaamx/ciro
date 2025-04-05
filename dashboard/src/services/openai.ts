@@ -1,12 +1,5 @@
 import { apiService } from './api';
-import type { ChatMessage, MessageRole, MessageStatus, MessageMetadata } from '../components/Chat/types';
-
-export interface ChatOptions {
-  model?: 'gpt-4o' | 'gpt-4' | 'gpt-3.5-turbo';
-  temperature?: number;
-  stream?: boolean;
-  systemPrompt?: string;
-}
+import type { ChatMessage, ChatSettings } from '../components/Chat/types';
 
 export class OpenAIService {
   private static instance: OpenAIService;
@@ -21,24 +14,30 @@ export class OpenAIService {
 
   async generateChatCompletion(
     messages: ChatMessage[],
-    options: ChatOptions = {},
+    options: ChatSettings = {
+      model: 'gpt-4',
+      temperature: 0.7,
+      contextLength: 4096,
+      streaming: false
+    },
     onStream?: (chunk: string) => void
   ): Promise<ChatMessage> {
     const {
-      model = 'gpt-4o',
+      model = 'gpt-4',
       temperature = 0.7,
-      stream = false,
-      systemPrompt = 'You are a helpful AI assistant.'
+      streaming = false,
+      systemPrompt = 'You are a helpful AI assistant.',
+      contextLength = 4096
     } = options;
 
     try {
-      if (stream && onStream) {
+      if (streaming && onStream) {
         const response = await apiService.streamChatCompletion(messages, {
           model,
           temperature,
           systemPrompt,
           streaming: true,
-          contextLength: 4096
+          contextLength
         });
 
         const reader = response.body?.getReader();
@@ -80,28 +79,28 @@ export class OpenAIService {
           status: 'complete',
           timestamp: Date.now()
         };
-      } else {
-        const response = await apiService.generateChatCompletion(messages, {
-          model,
-          temperature,
-          systemPrompt,
-          streaming: false,
-          contextLength: 4096
-        });
-
-        const data = await response.json();
-        return {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: data.message.content,
-          status: 'complete',
-          timestamp: Date.now(),
-          metadata: {
-            model,
-            tokens: data.usage
-          }
-        };
       }
+
+      const response = await apiService.generateChatCompletion(messages, {
+        model,
+        temperature,
+        systemPrompt,
+        streaming: false,
+        contextLength
+      });
+
+      const data = await response.json();
+      return {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: data.message.content,
+        status: 'complete',
+        timestamp: Date.now(),
+        metadata: {
+          model,
+          tokens: data.usage
+        }
+      };
     } catch (error) {
       console.error('Error generating chat completion:', error);
       return {
@@ -157,8 +156,10 @@ export class OpenAIService {
       ];
 
       const completion = await this.generateChatCompletion(messages, {
+        model: 'gpt-4',
         temperature: 0.7,
-        stream: false
+        streaming: false,
+        contextLength: 4096
       });
 
       // Parse the response

@@ -12,10 +12,27 @@ export default {
     'text-blue-600',
     'text-green-600',
     'text-yellow-600',
+    'bg-gray-50',
+    'bg-gray-100',
+    'text-gray-600',
+    'hover:bg-gray-100',
+    'hover:bg-gray-200',
   ],
   theme: {
     extend: {
       colors: {
+        gray: {
+          50: '#f9fafb',
+          100: '#f3f4f6',
+          200: '#e5e7eb',
+          300: '#d1d5db',
+          400: '#9ca3af',
+          500: '#6b7280',
+          600: '#4b5563',
+          700: '#374151',
+          800: '#1f2937',
+          900: '#111827',
+        },
         purple: {
           50: '#f5f3ff',
           100: '#ede9fe',
@@ -68,16 +85,23 @@ export default {
       animation: {
         'fade-in': 'fadeIn 0.2s ease-in-out',
         'spin-slow': 'spin 3s linear infinite',
+        'fadeIn': 'fadeIn 0.3s ease-out',
+        'scaleIn': 'scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
       },
       keyframes: {
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        scaleIn: {
+          '0%': { transform: 'scale(0.95)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
       },
       zIndex: {
         '50': '50',
         '60': '60',
+        '100': '100',
       },
     },
   },

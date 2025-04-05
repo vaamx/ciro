@@ -1,42 +1,27 @@
 import type { Widget } from '../components/Dashboard/WidgetManager';
-import type { MetricCard } from '../components/Dashboard/StaticMetricsCards';
+import type { MetricCard, Dashboard as DashboardType } from '../types/dashboard';
+import {buildApiUrl } from '../contexts/AuthContext';
 
-export interface Dashboard {
-  id: string;
-  name: string;
-  description: string;
-  team?: string;
-  category?: string;
-  widgets: Widget[];
-  metrics: MetricCard[];
-  createdBy: number;
-  createdAt: string;
-  updatedAt: string;
-  organization_id: number;
-}
-
-// Widget type mapping between frontend and backend
-const WIDGET_TYPE_MAP = {
-  // Frontend -> Backend
-  activity: 'timeline',
-  stats: 'metrics',
-  // Backend -> Frontend
-  timeline: 'activity',
-  metrics: 'stats',
-} as const;
+// Use the imported Dashboard type as the interface for the API
+export type Dashboard = DashboardType;
 
 class DashboardApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = '/api/dashboards';
+    this.baseUrl = buildApiUrl('dashboards');
   }
 
   private getHeaders() {
     const token = localStorage.getItem('auth_token');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Origin': window.location.origin
     };
   }
 
@@ -54,18 +39,31 @@ class DashboardApiService {
   }
 
   async createDashboard(dashboard: Omit<Dashboard, 'id' | 'createdAt' | 'updatedAt'>): Promise<Dashboard> {
+    const { createdBy, ...rest } = dashboard;
+    const payload = {
+      ...rest,
+      created_by: Number(createdBy), // Convert to number since users table uses integer IDs
+    };
+
     const response = await fetch(`${this.baseUrl}`, {
       method: 'POST',
       headers: this.getHeaders(),
       credentials: 'include',
-      body: JSON.stringify(dashboard)
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
-      throw new Error('Failed to create dashboard');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to create dashboard');
     }
 
-    return response.json();
+    const data = await response.json();
+    return {
+      ...data,
+      createdBy: Number(data.created_by), // Convert to number when receiving from API
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
   }
 
   async updateDashboard(id: string, dashboard: Partial<Dashboard>): Promise<Dashboard> {

@@ -1,10 +1,8 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useRef } from 'react';
 import { type ChatMessage } from '../types';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
 import { ErrorMessage } from './ErrorMessage';
-import { formatTimestamp } from '../utils/formatTimestamp';
 
 interface MessageGroupProps {
   messages: ChatMessage[];
@@ -18,60 +16,63 @@ interface MessageGroupProps {
   messageAlignment?: 'left' | 'right';
   bubbleStyle?: 'modern' | 'classic' | 'minimal';
   accentColor?: string;
+  isMobile?: boolean;
 }
 
-export const MessageGroup: React.FC<MessageGroupProps> = ({
-  messages,
-  isLastGroup,
-  onRegenerate,
-  onCopy,
-  onEdit,
-  onDelete,
-  showMetadata,
-  showAvatar,
-  messageAlignment = 'left',
-  bubbleStyle = 'modern',
-  accentColor,
-}) => {
-  const showGroupMetadata = showMetadata || isLastGroup;
-  const firstMessage = messages[0];
-  const lastMessage = messages[messages.length - 1];
-  const isAssistantGroup = firstMessage.role === 'assistant';
-
-  const groupVariants = {
-    initial: { opacity: 0, y: 20 },
-    animate: { 
-      opacity: 1, 
-      y: 0,
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.1
-      }
-    },
-    exit: { opacity: 0, y: -20 }
-  };
-
-  const renderMessage = (message: ChatMessage, index: number) => {
-    const isFirst = index === 0;
-    const isLast = index === messages.length - 1;
-    const commonProps = {
-      message,
-      showAvatar: showAvatar && isFirst,
-      showMetadata: showGroupMetadata && isLast,
-      messageAlignment,
-      bubbleStyle,
-      accentColor,
-      isFirstInGroup: isFirst,
-      isLastInGroup: isLast,
-    };
+// Create a memoized message component to prevent unnecessary re-renders
+const MemoizedMessage = React.memo(
+  ({ 
+    message, 
+    isFirst, 
+    isLast, 
+    showGroupMetadata, 
+    showAvatar, 
+    messageAlignment,
+    onCopy,
+    onRegenerate,
+    onEdit,
+    onDelete,
+    isMobile
+  }: { 
+    message: ChatMessage; 
+    index: number;
+    isFirst: boolean;
+    isLast: boolean;
+    showGroupMetadata: boolean;
+    showAvatar: boolean;
+    messageAlignment: 'left' | 'right';
+    onCopy: (message: ChatMessage) => void;
+    onRegenerate: (message: ChatMessage) => void;
+    onEdit?: (message: ChatMessage, newContent: string) => void;
+    onDelete?: (message: ChatMessage) => void;
+    isMobile?: boolean;
+  }) => {
+    // Use a ref to ensure we only log once per message
+    const hasLoggedRef = useRef(false);
+    
+    if (!hasLoggedRef.current) {
+      console.log(`Rendering message in group: ${message.role}, id: ${message.id}, content length: ${message.content?.length || 0}`);
+      hasLoggedRef.current = true;
+    }
+    
+    if (!message.content && message.status !== 'loading') {
+      console.warn(`Empty message content detected: ${message.id}, role: ${message.role}, status: ${message.status}`);
+    }
 
     if (message.role === 'assistant') {
       return (
         <AssistantMessage
           key={message.id}
-          {...commonProps}
+          message={message}
+          isFirstInGroup={isFirst}
+          isLastInGroup={isLast}
           onCopy={() => onCopy(message)}
           onReload={() => onRegenerate(message)}
+          showMetadata={showGroupMetadata && isLast}
+          showAvatar={showAvatar && isFirst}
+          isRunning={message.status === 'loading'}
+          messageAlignment={messageAlignment}
+          isMobile={isMobile}
         />
       );
     }
@@ -80,9 +81,15 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
       return (
         <UserMessage
           key={message.id}
-          {...commonProps}
-          onEdit={(content: string) => onEdit?.(message, content)}
-          onDelete={() => onDelete?.(message)}
+          message={message}
+          isFirstInGroup={isFirst}
+          isLastInGroup={isLast}
+          onEdit={onEdit ? (content: string) => onEdit(message, content) : undefined}
+          onDelete={onDelete ? () => onDelete(message) : undefined}
+          showMetadata={showGroupMetadata && isLast}
+          showAvatar={showAvatar && isFirst}
+          messageAlignment={messageAlignment}
+          isMobile={isMobile}
         />
       );
     }
@@ -93,56 +100,58 @@ export const MessageGroup: React.FC<MessageGroupProps> = ({
           key={message.id}
           message={message}
           timestamp={message.timestamp}
+          isMobile={isMobile}
         />
       );
     }
 
     return null;
-  };
+  },
+  // Custom comparison function to prevent re-renders unless necessary
+  (prevProps, nextProps) => {
+    // Only re-render if the message ID is different or if the status changed
+    return prevProps.message.id === nextProps.message.id && 
+           prevProps.message.status === nextProps.message.status &&
+           prevProps.message.content === nextProps.message.content &&
+           prevProps.isMobile === nextProps.isMobile;
+  }
+);
 
+export const MessageGroup: React.FC<MessageGroupProps> = ({
+  messages,
+  isLastGroup,
+  onRegenerate,
+  onCopy,
+  onEdit,
+  onDelete,
+  showMetadata = false,
+  showAvatar = true,
+  messageAlignment = 'left',
+  isMobile = false
+}) => {
   return (
-    <motion.div
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      variants={groupVariants}
-      className={`
-        relative py-2 first:pt-4 last:pb-4
-        ${isAssistantGroup ? 'bg-gradient-to-b from-gray-50/50 to-transparent dark:from-gray-900/30' : ''}
-      `}
-    >
-      {messages.length > 1 && (
-        <div className={`
-          absolute top-0 left-0 w-full h-full pointer-events-none
-          ${isAssistantGroup 
-            ? 'border-l-2 border-indigo-500/20 dark:border-indigo-400/20 ml-4' 
-            : 'border-r-2 border-purple-500/20 dark:border-purple-400/20 mr-4'
-          }
-        `} />
-      )}
-
-      <div className={`
-        flex flex-col
-        ${messageAlignment === 'right' ? 'items-end' : 'items-start'}
-        ${messages.length > 1 ? 'space-y-1' : ''}
-      `}>
-        {messages.map(renderMessage)}
-
-        {showGroupMetadata && messages.length > 1 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className={`
-              text-xs text-gray-500 dark:text-gray-400 px-4
-              ${messageAlignment === 'right' ? 'text-right' : 'text-left'}
-            `}
-          >
-            {formatTimestamp(firstMessage.timestamp || 0)} - {formatTimestamp(lastMessage.timestamp || 0)}
-            <span className="mx-2">•</span>
-            {messages.length} messages
-          </motion.div>
-        )}
-      </div>
-    </motion.div>
+    <div className={`message-group ${isLastGroup ? '' : 'mb-1'}`}>
+      {messages.map((message, index) => {
+        const isFirst = index === 0;
+        const isLast = index === messages.length - 1;
+        return (
+          <MemoizedMessage
+            key={`${message.id}-${index}`}
+            message={message}
+            index={index}
+            isFirst={isFirst}
+            isLast={isLast}
+            showGroupMetadata={showMetadata}
+            showAvatar={showAvatar}
+            messageAlignment={messageAlignment}
+            onCopy={onCopy}
+            onRegenerate={onRegenerate}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            isMobile={isMobile}
+          />
+        );
+      })}
+    </div>
   );
 }; 
