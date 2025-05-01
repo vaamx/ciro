@@ -9,8 +9,7 @@ import {
   Move,
   Trash2,
   Plus,
-  Minimize2,
-  RefreshCw
+  Minimize2
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 

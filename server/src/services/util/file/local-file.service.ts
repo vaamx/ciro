@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { createServiceLogger } from '../../../utils/logger-factory';
+import { createServiceLogger } from '../../../common/utils/logger-factory';
 import { injectable } from 'inversify';
-import { ensureDirectoryExists } from '../../../utils/file-utils';
+import { ensureDirectoryExists } from '../../../common/utils/file-utils';
 import { parse } from 'csv-parse/sync';
 import { FileUploadService } from './file-upload.service';
 
@@ -25,11 +25,9 @@ export interface ProcessedFile {
 @injectable()
 export class LocalFileService {
   private readonly logger = createServiceLogger('LocalFileService');
-  private uploadService: FileUploadService;
   private uploadsDir = path.join(process.cwd(), 'uploads');
   
-  constructor() {
-    this.uploadService = new FileUploadService();
+  constructor(private readonly uploadService: FileUploadService) {
     this.logger.info('LocalFileService initialized');
     
     // Ensure uploads directory exists

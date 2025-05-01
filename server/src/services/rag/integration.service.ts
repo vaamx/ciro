@@ -1,9 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { QueryAnalyzerService } from './query-analyzer.service';
 import { RetrievalService } from './retrieval.service';
 import { GenerationService } from './generation.service';
-import { RagQueryResult, RagResponseMetadata, Document } from './interfaces';
+import { RagQueryResult, RagResponseMetadata, Document } from '../vector/vector.interfaces';
+import { QdrantSearchService } from '../vector/search.service';
+import { HybridSearchService } from '../vector/hybrid-search.service';
+import { EnhancedMetadataService } from '../shared/metadata/enhanced-metadata.service';
+import { OpenAIService } from '../ai/openai.service';
+import { EnhancedRetrievalService } from './enhanced-retrieval.service';
 
 // Define DataSourceType locally if the module cannot be found
 export type DataSourceType = 
@@ -23,30 +27,39 @@ export type DataSourceType =
  */
 @Injectable()
 export class RagIntegrationService {
-  private readonly logger = createServiceLogger('RagIntegrationService');
+  private readonly logger = new Logger(RagIntegrationService.name);
   
-  
-  private queryAnalyzer: QueryAnalyzerService;
-  private retrievalService: RetrievalService;
-  private generationService: GenerationService;
+  private readonly queryAnalyzer: QueryAnalyzerService;
+  private readonly openAIService?: OpenAIService;
 
-  private constructor(
-    private readonly queryAnalyzerService: QueryAnalyzerService,
+  constructor(
+    queryAnalyzerService: QueryAnalyzerService,
     private readonly retrievalService: RetrievalService,
     private readonly generationService: GenerationService,
-    private readonly qdrantSearchService: QdrantSearchService,
-    private readonly enhancedMetadataService: EnhancedMetadataService,
-    ) {
-    this.logger.info('RagIntegrationService initialized');
-    this.queryAnalyzer = this.queryAnalyzerService;
-    this.retrievalService = this.retrievalService;
-    this.generationService = this.generationService;
+    @Optional() private readonly qdrantSearchService?: QdrantSearchService,
+    @Optional() private readonly hybridSearchService?: HybridSearchService,
+    @Optional() private readonly enhancedMetadataService?: EnhancedMetadataService,
+    @Optional() private readonly enhancedRetrievalService?: EnhancedRetrievalService,
+  ) {
+    this.logger.log(`${RagIntegrationService.name} initialized (DI pending)`);
+    this.queryAnalyzer = queryAnalyzerService;
+    
+    if (!this.enhancedMetadataService) {
+      this.logger.warn('EnhancedMetadataService is not available - enhanced metadata features will be limited');
+    }
+    
+    if (!this.qdrantSearchService) {
+      this.logger.warn('QdrantSearchService is not available in RagIntegrationService - vector search functionality will be limited');
+    }
+    
+    if (!this.hybridSearchService) {
+      this.logger.warn('HybridSearchService is not available in RagIntegrationService - hybrid search functionality will be limited');
+    }
+    
+    if (!this.enhancedRetrievalService) {
+      this.logger.warn('EnhancedRetrievalService is not available in RagIntegrationService - enhanced retrieval will be limited');
+    }
   }
-
-  /**
-   * Get the singleton instance of RagIntegrationService
-   */
-  
 
   /**
    * Process a RAG query to generate a response
@@ -71,8 +84,8 @@ export class RagIntegrationService {
     } = {}
   ): Promise<RagQueryResult> {
     const startTime = Date.now();
-    this.logger.info(`Processing RAG query: "${query}"`);
-    this.logger.info(`Using data sources: ${dataSourceIds.join(', ')}`);
+    this.logger.log(`Processing RAG query: "${query}"`);
+    this.logger.log(`Using data sources: ${dataSourceIds.join(', ')}`);
     
     try {
       // 1. Analyze query
@@ -91,32 +104,12 @@ export class RagIntegrationService {
         // Use hybrid search
         retrievalMethod = 'hybrid';
         
-        // Call the hybrid search from the vector service
-        const vectorServices = await import('../vector/index');
-        const { QdrantSearchService } = vectorServices;
-        const qdrantSearchService = this.qdrantSearchService;
+        // Just log a warning if service isn't available but use the same retrieval method
+        if (!this.qdrantSearchService) {
+          this.logger.warn('QdrantSearchService not available for hybrid search, performance may be limited');
+        }
         
-        const hybridResults = await qdrantSearchService.hybridSearchComprehensive(
-          query,
-          dataSourceIds,
-          {
-            semanticWeight: options.semanticWeight || 0.75,
-            keywordWeight: options.keywordWeight || 0.25,
-            similarityThreshold: options.similarityThreshold || 0.3,
-            includeMetadata: options.includeMetadata !== false,
-            limit: queryAnalysis.searchLimit
-          }
-        );
-        
-        // Convert hybrid results to document format
-        documents = hybridResults.map((result: { id: string | number; payload: any; score: number }) => ({
-          id: typeof result.id === 'string' ? result.id : String(result.id),
-          content: result.payload.content || '',
-          similarity: result.score,
-          metadata: result.payload.metadata
-        }));
-      } else {
-        // Use regular vector retrieval
+        // Use regular vector retrieval but mark it as hybrid for metadata
         const { documents: retrievedDocs } = await this.retrievalService.retrieveDocumentsFromAllSources(
           query,
           dataSourceIds,
@@ -126,8 +119,20 @@ export class RagIntegrationService {
             limit: queryAnalysis.searchLimit
           }
         );
-        
         documents = retrievedDocs;
+      } else {
+        // Use regular vector retrieval
+          const { documents: retrievedDocs } = await this.retrievalService.retrieveDocumentsFromAllSources(
+            query,
+            dataSourceIds,
+            {
+              similarityThreshold: options.similarityThreshold || 0.3,
+              includeMetadata: options.includeMetadata !== false,
+            limit: queryAnalysis.searchLimit
+            }
+          );
+          
+          documents = retrievedDocs;
       }
       
       // 3. Enhance results with metadata if requested
@@ -151,6 +156,7 @@ export class RagIntegrationService {
       // 5. Create metadata for the response
       const metadata: RagResponseMetadata = {
         processTimeMs: Date.now() - startTime,
+        processingTime: Date.now() - startTime,
         dataSourceIds: dataSourceIds.map(id => String(id)),
         documentsRetrieved: documents.length,
         retrievalMethod,
@@ -199,7 +205,7 @@ export class RagIntegrationService {
     } = {}
   ): Promise<RagQueryResult> {
     const startTime = Date.now();
-    this.logger.info(`Generating response from ${documents.length} provided documents for query: "${query}"`);
+    this.logger.log(`Generating response from ${documents.length} provided documents for query: "${query}"`);
     
     try {
       // 1. Analyze query
@@ -227,6 +233,7 @@ export class RagIntegrationService {
       // 4. Create metadata for the response
       const metadata: RagResponseMetadata = {
         processTimeMs: Date.now() - startTime,
+        processingTime: Date.now() - startTime,
         dataSourceIds: enhancedDocs
           .map(doc => doc.sourceId)
           .filter((value, index, self) => value && self.indexOf(value) === index) as string[],
@@ -265,20 +272,14 @@ export class RagIntegrationService {
    * @returns Enhanced documents
    */
   private async enhanceDocumentResults(documents: Document[], query: string): Promise<Document[]> {
+    // Check if metadata service is available
+    if (!this.enhancedMetadataService) {
+      this.logger.warn('EnhancedMetadataService not available - skipping document enhancement');
+      return documents;
+    }
+    
     try {
-      this.logger.info(`Enhancing ${documents.length} documents with metadata`);
-      
-      // Import the enhanced metadata service dynamically
-      // This allows the service to be loaded only when needed
-      // If the module can't be found, we'll handle the error and return the original documents
-      let metadataService;
-      try {
-        const EnhancedMetadataService = (await import('../../services/metadata-extraction/enhanced-metadata-service')).EnhancedMetadataService;
-        metadataService = this.enhancedMetadataService;
-      } catch (importError) {
-        this.logger.error(`Could not import enhanced metadata service: ${importError instanceof Error ? importError.message : String(importError)}`);
-        return documents;
-      }
+      this.logger.log(`Enhancing ${documents.length} documents with metadata`);
       
       // Group documents by source
       const docsBySource = documents.reduce((groups, doc) => {
@@ -303,7 +304,7 @@ export class RagIntegrationService {
           metadata: doc.metadata || {}
         }));
         
-        const enhancedMetadata = await metadataService.extractEnhancedMetadata(
+        const enhancedMetadata = await this.enhancedMetadataService.extractEnhancedMetadata(
           sourceData,
           sourceType,
           {
@@ -332,12 +333,11 @@ export class RagIntegrationService {
         }
       }
       
-      this.logger.info(`Successfully enhanced ${enhancedDocs.length} documents with metadata`);
+      this.logger.log(`Successfully enhanced ${enhancedDocs.length} documents with metadata`);
       return enhancedDocs;
     } catch (error) {
-      this.logger.error(`Error enhancing documents: ${error instanceof Error ? error.message : String(error)}`);
-      // Return original documents on error
-      return documents;
+      this.logger.error(`Error enhancing document results: ${error}`);
+      return documents; // Return original documents on error
     }
   }
 

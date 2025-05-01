@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
-import type { ChatMessage, MessageRole, MessageMetadata, MessageStatus } from '../types';
+import type { ChatMessage, MessageRole } from '../types';
 import { apiService } from '../../../services/api';
 import type { ChatSettings } from '../types';
 import type { ChatSession } from '../../../services/api';
@@ -9,6 +9,9 @@ import { useAuth } from '../../../contexts/AuthContext';
 import type { ChatContext as ApiChatContext } from '../../../services/api';
 import { useDocumentState } from '../hooks/useDocumentState';
 import { eventEmitter, EventType } from '../../../services/events';
+import { cleanupOldChatSessions, emergencyStorageCleanup } from '../../../services/chat-recovery';
+
+// Constants
 
 interface ChatContextType {
   messages: ChatMessage[];
@@ -146,6 +149,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Track if a session creation is in progress to prevent duplicates (legacy, replacing with mutex)
   const sessionCreationInProgress = useRef(false);
   
+  // Helper function to generate a unique title for new chat sessions
+  const generateUniqueTitle = (): string => {
+    return `Chat ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+  
   // Create refs for tracking previous organization and dashboard IDs
   const prevOrgId = useRef<number | undefined>(undefined);
   const prevDashboardId = useRef<string | undefined>(undefined);
@@ -221,238 +229,255 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [currentOrganization, currentDashboard]);
   
-  // Load messages for a specific session
-  const loadMessagesForSession = async (
-    session: ChatSession, 
-    useLocalStorageOnly = false,
-    skipWelcomeMessage = false
-  ): Promise<void> => {
+  // Function to load messages for a specific session
+  const loadMessagesForSession = useCallback(async (session: ChatSession, useLocalStorageFallback = false) => {
+    // Skip if no session provided
+    if (!session || !session.id) {
+      console.warn('No session provided to loadMessagesForSession');
+      return;
+    }
+    
+    setIsLoadingMessages(true);
+    
     try {
-      // Set loading state
-      setIsLoadingMessages(true);
+      console.log(`Loading messages for session: ${session.id}`);
       
-      // Set the active session ID, which we need for other operations
-      setActiveSessionId(session.id);
-      
-      // Initialize local storage key for this session
-      const localStorageKey = `chat_messages_${session.id}`;
-      
-      // Try to load from localStorage first for faster loading
-      let localStorageMessages: ChatMessage[] = [];
-      if (!useLocalStorageOnly) {
-        try {
-          const storedMessages = localStorage.getItem(localStorageKey);
-          if (storedMessages) {
-            localStorageMessages = JSON.parse(storedMessages) as ChatMessage[];
-            console.log(`Loaded ${localStorageMessages.length} messages from localStorage for session ${session.id}`);
-            
-            // Set messages from localStorage immediately for faster UI response
-            if (localStorageMessages.length > 0) {
-              setMessages(localStorageMessages);
-              
-              // Also update the caches
-              setSessionMessages(prev => ({
-                ...prev,
-                [session.id]: localStorageMessages
-              }));
-            }
-          }
-        } catch (error) {
-          console.error(`Error parsing stored messages for session ${session.id}:`, error);
-        }
+      // Check if we already have messages for this session in memory
+      if (sessionMessages[session.id]) {
+        console.log(`Using cached messages for session ${session.id}`);
+        
+        // Use in-memory cache
+        setMessages(sessionMessages[session.id]);
+        setIsLoadingMessages(false);
+        return;
       }
       
-      // Then fetch from the server to ensure we have the latest
-      if (!useLocalStorageOnly) {
+      // Prepare context for API call
+      const context: ApiChatContext = {
+        organization_id: currentOrganization?.id,
+        dashboard_id: currentDashboard?.id
+      };
+      
+      // Fetch messages from server
+      console.log(`Fetching messages from API for session ${session.id}`);
+      const fetchedMessages = await apiService.getChatHistory(session.id, context);
+      console.log(`Received ${fetchedMessages.length} messages from API`);
+      
+      // If there are messages, set them and update cache
+      if (fetchedMessages && fetchedMessages.length > 0) {
+        setMessages(fetchedMessages);
+        
+        // Store messages in session cache
+        setSessionMessages(prev => ({ ...prev, [session.id]: fetchedMessages }));
+        
+        // Store in localStorage too (with expiration)
+        const localStorageKey = `chat_messages_${session.id}`;
         try {
-          // Get the current context
-          const context = getChatContext();
-          
-          // Fetch messages from the API
-          const history = await apiService.getChatHistory(session.id, context);
-          
-          // If we got messages from the server, use them
-          if (history && history.length > 0) {
-            console.log(`Loaded ${history.length} messages from server for session ${session.id}`);
+          localStorage.setItem(localStorageKey, JSON.stringify(fetchedMessages));
+        } catch (storageError) {
+          // If storage quota exceeded, prune messages to fit
+          if (storageError instanceof DOMException && 
+              (storageError.name === 'QuotaExceededError' || storageError.code === 22)) {
+            console.warn(`Storage quota exceeded when storing fetched messages. Pruning for session ${session.id}`);
             
-            // Update the messages state
-            setMessages(history);
+            // Prune messages to fit in storage
+            const prunedMessages = pruneMessagesToFitStorage(fetchedMessages);
             
-            // Update the caches
-            setSessionMessages(prev => ({
-              ...prev,
-              [session.id]: history
-            }));
-            
-            // Also save to localStorage for future use
-            localStorage.setItem(localStorageKey, JSON.stringify(history));
-          } else if ((localStorageMessages.length === 0 && messages.length === 0) && !skipWelcomeMessage) {
-            // If no messages were found and we're not skipping welcome message, create one
-            const welcomeMessage: ChatMessage = {
-              id: `welcome-${session.id}-${Date.now()}`,
-              role: 'assistant' as MessageRole,
-              content: 'Welcome! How can I help you today?',
-              timestamp: Date.now(),
-              status: 'complete',
-              metadata: {
-                sessionId: session.id,
-                isWelcomeMessage: true,
-                isSimpleWelcome: true // Flag to indicate this is a simple welcome message
-              }
-            };
-            
-            // Update the messages state
-            setMessages([welcomeMessage]);
-            
-            // Update the caches
-            setSessionMessages(prev => ({
-              ...prev,
-              [session.id]: [welcomeMessage]
-            }));
-            
-            // Save the welcome message to localStorage
-            localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
-          } else if (skipWelcomeMessage) {
-            // If we're skipping welcome message, ensure messages array is empty
-            setMessages([]);
-            
-            // Update the caches
-            setSessionMessages(prev => ({
-              ...prev,
-              [session.id]: []
-            }));
+            // Try saving pruned messages
+            localStorage.setItem(localStorageKey, JSON.stringify(prunedMessages));
+            console.log(`Successfully saved ${prunedMessages.length} pruned messages to localStorage`);
+          } else {
+            // For other errors, just log it - we already have messages in memory
+            console.error(`Error saving fetched messages to localStorage: ${storageError}`);
           }
-        } catch (error) {
-          console.error(`Error loading messages from server for session ${session.id}:`, error);
-          
-          // If we failed to load from server but have localStorage messages, keep using those
-          if (localStorageMessages.length > 0) {
-            console.log(`Using ${localStorageMessages.length} localStorage messages as fallback`);
-            
-            // Update the messages state
-            setMessages(localStorageMessages);
-            
-            // Update the caches
-            setSessionMessages(prev => ({
-              ...prev,
-              [session.id]: localStorageMessages
-            }));
-          } else if (!skipWelcomeMessage) {
-            // If no messages were found and we're not skipping welcome message, create a welcome message
-            const welcomeMessage: ChatMessage = {
-              id: `welcome-${session.id}-${Date.now()}`,
-              role: 'assistant' as MessageRole,
-              content: 'Welcome! How can I help you today?',
-              timestamp: Date.now(),
-              status: 'complete',
-              metadata: {
-                sessionId: session.id,
-                isWelcomeMessage: true,
-                isSimpleWelcome: true // Flag to indicate this is a simple welcome message
-              }
-            };
-            
-            // Update the messages state
-            setMessages([welcomeMessage]);
-            
-            // Update the caches
-            setSessionMessages(prev => ({
-              ...prev,
-              [session.id]: [welcomeMessage]
-            }));
-            
-            // Save the welcome message to localStorage
-            localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
+        }
+        
+        // Update cache timestamp
+        const cacheTimestampKey = `chat_cache_${session.id}`;
+        setCacheTimestamp(prev => ({ ...prev, [cacheTimestampKey]: Date.now() }));
+      } else if (fetchedMessages && fetchedMessages.length === 0) {
+        // If the session exists but has no messages, create a welcome message
+        console.log(`No messages for session ${session.id}, creating welcome message`);
+        
+        const welcomeMessage: ChatMessage = {
+          id: `welcome-${session.id}-${Date.now()}`,
+          role: 'assistant',
+          content: 'Welcome! How can I help you today?',
+          timestamp: Date.now(),
+          status: 'complete',
+          metadata: {
+            model: settings.model,
+            welcome: true,
+            isWelcomeMessage: true
           }
+        };
+        
+        // Set welcome message as the only message
+        setMessages([welcomeMessage]);
+        
+        // Update cache with welcome message
+        setSessionMessages(prev => ({ ...prev, [session.id]: [welcomeMessage] }));
+        
+        // Store in localStorage
+        const localStorageKey = `chat_messages_${session.id}`;
+        try {
+          localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
+        } catch (storageError) {
+          console.error(`Error saving welcome message to localStorage: ${storageError}`);
+          // Non-critical error, we can continue without persisting the welcome message
         }
       }
     } catch (error) {
-      console.error(`Error selecting session ${session.id}:`, error);
-      setError(`Failed to select chat session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error(`Error loading messages for session ${session.id}:`, error);
+      
+      if (useLocalStorageFallback) {
+        // Try to load from localStorage
+        try {
+          const localStorageKey = `chat_messages_${session.id}`;
+          const storedMessages = localStorage.getItem(localStorageKey);
+          
+          if (storedMessages) {
+            const parsedMessages = JSON.parse(storedMessages) as ChatMessage[];
+            console.log(`Loaded ${parsedMessages.length} messages from localStorage fallback`);
+            setMessages(parsedMessages);
+          } else {
+            // Check compact backup as a last resort
+            const compactKey = `chat_compact_${session.id}`;
+            const compactMessages = localStorage.getItem(compactKey);
+            
+            if (compactMessages) {
+              const parsedCompactMessages = JSON.parse(compactMessages) as ChatMessage[];
+              console.log(`Loaded ${parsedCompactMessages.length} messages from compact backup`);
+              setMessages(parsedCompactMessages);
+            } else {
+              // If no messages in localStorage, create a welcome message
+              const welcomeMessage: ChatMessage = {
+                id: `welcome-${session.id}-${Date.now()}`,
+                role: 'assistant',
+                content: 'Welcome! How can I help you today?',
+                timestamp: Date.now(),
+                status: 'complete',
+                metadata: {
+                  model: settings.model,
+                  welcome: true,
+                  isWelcomeMessage: true
+                }
+              };
+              
+              setMessages([welcomeMessage]);
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Error loading messages from localStorage:', fallbackError);
+          setMessages([]);
+        }
+      } else {
+        // Show error message
+        setError('Failed to load chat messages. Please try again later.');
+        setMessages([]);
+      }
     } finally {
       setIsLoadingMessages(false);
     }
-  };
+  }, [apiService, currentDashboard?.id, currentOrganization?.id, settings.model, isCacheValid, sessionMessages]);
 
-  // Create a new chat session immediately, bypassing normal initialization flow
-  const createNewSessionImmediately = useCallback(async (force_create: boolean = false, skipWelcomeMessage: boolean = false): Promise<ChatSession | null> => {
-    // Check if we're changing data sources, in which case we should NOT create a new session
-    const changingDataSource = localStorage.getItem('changing_data_source') === 'true';
-    if (changingDataSource) {
-      console.log('Data source change in progress - preventing new session creation');
-      
-      // If we're preserving the welcome screen, ensure messages are empty
-      const preserveWelcomeScreen = localStorage.getItem('preserve_welcome_screen') === 'true';
-      if (preserveWelcomeScreen && activeSessionId) {
-        console.log('Preserving welcome screen during data source switch');
-        setMessages([]);
-      }
-      
-      return null;
+  // Function that creates a new session immediately without waiting for any pending operations
+  const createNewSessionImmediately = useCallback(async (
+    forceCreate = false,
+    skipWelcomeMessage = false
+  ): Promise<ChatSession | null> => {
+    if (!currentOrganization?.id) {
+      throw new Error('No organization selected');
     }
-    
-    // Prevent multiple simultaneous session creations
-    if (sessionCreationInProgress.current) {
-      console.log('Session creation already in progress, skipping duplicate request');
-      return null;
-    }
-    
-    sessionCreationInProgress.current = true;
-    console.log('Creating new session immediately, bypassing loading');
-    
+
     try {
-      // Check if we already have an active session
-      if (!force_create && activeSessionId && sessions.some(s => s.id === activeSessionId)) {
-        console.log(`Already have active session ${activeSessionId}, skipping creation`);
-        sessionCreationInProgress.current = false;
-        return sessions.find(s => s.id === activeSessionId) || null;
+      console.log('Creating new session immediately, force:', forceCreate);
+      sessionCreationInProgress.current = true;
+      
+      // Try to create a session via API first
+      const title = generateUniqueTitle();
+      console.log(`Creating API session with title: ${title}`);
+      
+      const sessionPayload = {
+        title,
+        organization_id: currentOrganization.id,
+        dashboard_id: currentDashboard?.id || undefined
+      };
+      console.log('Session create payload:', sessionPayload);
+      
+      const session = await apiService.createChatSession(sessionPayload);
+      console.log(`Successfully created session with ID: ${session.id}`);
+      
+      try {
+        // Try to save to localStorage
+        localStorage.setItem(`chat_session_${session.id}`, JSON.stringify(session));
+      } catch (storageError) {
+        if (storageError instanceof DOMException && 
+            (storageError.name === 'QuotaExceededError' || storageError.code === 22)) {
+          console.warn('Storage full when creating session. Attempting cleanup...');
+          
+          // Try emergency cleanup and retry
+          emergencyStorageCleanup();
+        }
+        
+        console.error(`Error saving session to localStorage: ${storageError}`);
+        // Continue even if we fail to save to localStorage
       }
       
-      // Get the current context
-      const context = getChatContext();
-      
-      // Clear messages immediately to prevent old messages from being displayed
-      setMessages([]);
-      
-      // Generate a unique title for the new session
-      const sessionTitle = `New Chat ${new Date().toLocaleTimeString()}`;
-      
-      // Create a new session
-      const newSession = await apiService.createChatSession(sessionTitle, context);
-      console.log(`Created immediate new session: ${newSession.id}`);
-      
-      // Add to our sessions list first, checking for duplicates
-      setSessions(prev => {
-        // Check if this session already exists
-        const exists = prev.some(s => s.id === newSession.id);
-        if (exists) {
-          console.log(`Session ${newSession.id} already exists, not adding duplicate`);
-          return prev;
-        }
-        return [newSession, ...prev];
-      });
+      // Add session to our list
+      setSessions(prev => [session, ...prev]);
       
       // Set as active session
-      setActiveSessionId(newSession.id);
+      setActiveSessionId(session.id);
       
-      if (skipWelcomeMessage) {
-        // For a new session, ensure no messages are carried over from previous sessions
-        // Clear the session messages cache for the new session
-        setSessionMessages(prev => ({
-          ...prev,
-          [newSession.id]: []
-        }));
+      // Only create welcome message if not skipped
+      if (!skipWelcomeMessage) {
+        const welcomeMessage: ChatMessage = {
+          id: `welcome-${session.id}-${Date.now()}`,
+          role: 'assistant' as MessageRole,
+          content: 'Welcome! How can I help you today?',
+          timestamp: Date.now(),
+          status: 'complete',
+          metadata: {
+            model: settings.model,
+            welcome: true,
+          }
+        };
+        
+        // Save welcome message to state and local storage
+        setMessages([welcomeMessage]);
+        
+        // Try to save to localStorage, but continue even if it fails due to quota
+        try {
+          const localStorageKey = `chat_messages_${session.id}`;
+          localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
+        } catch (storageError) {
+          console.error('Failed to save welcome message to localStorage:', storageError);
+        }
+      } else {
+        // Set empty messages for this session
+        setMessages([]);
+        
+        // Try to save to localStorage, but continue even if it fails due to quota
+        try {
+          localStorage.setItem(`chat_messages_${session.id}`, JSON.stringify([]));
+        } catch (storageError) {
+          console.error('Failed to save empty message array to localStorage:', storageError);
+        }
       }
       
-      return newSession;
+      // Return for use by other functions
+      console.log(`Created immediate new session: ${session.id}`);
+      return session;
+      
     } catch (error) {
-      console.error('Error creating new session immediately:', error);
+      setError('Failed to create a new chat session. Please try again.');
+      console.error(`Error creating session: ${error}`);
       return null;
     } finally {
-      // Reset the flag regardless of success or failure
       sessionCreationInProgress.current = false;
     }
-  }, [activeSessionId, sessions, getChatContext, apiService]);
+  }, [apiService, currentDashboard?.id, currentOrganization?.id, settings.model]);
 
   // Load sessions from the server
   const loadSessions = useCallback(async () => {
@@ -627,6 +652,58 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     cacheTimestamp
   ]);
 
+  // Add a utility function to estimate the size of a string in bytes
+  const getStringSizeInBytes = (str: string): number => {
+    return new Blob([str]).size;
+  };
+
+  // Add a utility function to limit messages to fit within localStorage
+  const pruneMessagesToFitStorage = (messages: ChatMessage[], maxSizeInBytes = 4 * 1024 * 1024): ChatMessage[] => {
+    // Start with complete messages
+    let prunedMessages = [...messages];
+    let jsonString = JSON.stringify(prunedMessages);
+    let currentSize = getStringSizeInBytes(jsonString);
+    
+    // If already under threshold, return as is
+    if (currentSize <= maxSizeInBytes) {
+      return prunedMessages;
+    }
+    
+    console.log(`Messages size (${currentSize} bytes) exceeds limit (${maxSizeInBytes} bytes). Pruning...`);
+    
+    // First, make a compact version of the messages by trimming unnecessary metadata
+    prunedMessages = messages.map(msg => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+      status: msg.status,
+      metadata: msg.metadata ? { model: msg.metadata.model } : undefined
+    }));
+    
+    jsonString = JSON.stringify(prunedMessages);
+    currentSize = getStringSizeInBytes(jsonString);
+    
+    // If compacting metadata worked, return result
+    if (currentSize <= maxSizeInBytes) {
+      console.log(`Reduced message size to ${currentSize} bytes by compacting metadata`);
+      return prunedMessages;
+    }
+    
+    // If still too large, start removing oldest messages
+    while (prunedMessages.length > 0 && currentSize > maxSizeInBytes) {
+      // Remove the oldest message (messages are typically in chronological order)
+      prunedMessages.shift();
+      
+      // Recalculate size
+      jsonString = JSON.stringify(prunedMessages);
+      currentSize = getStringSizeInBytes(jsonString);
+    }
+    
+    console.log(`Reduced to ${prunedMessages.length} messages (${currentSize} bytes) to fit storage quota`);
+    return prunedMessages;
+  };
+
   // Add a new effect to save messages to localStorage whenever they change
   useEffect(() => {
     // Only save if we have an active session and messages
@@ -634,7 +711,64 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         // Save to localStorage
         const localStorageKey = `chat_messages_${activeSessionId}`;
-        localStorage.setItem(localStorageKey, JSON.stringify(messages));
+        
+        try {
+          localStorage.setItem(localStorageKey, JSON.stringify(messages));
+        } catch (storageError) {
+          // If storage quota exceeded, try to clean up old sessions first
+          if (storageError instanceof DOMException && 
+              (storageError.name === 'QuotaExceededError' || storageError.code === 22)) {
+            console.warn(`Storage quota exceeded. Attempting cleanup for session ${activeSessionId}`);
+            
+            // Try to clean up old sessions first
+            try {
+              // Start with standard cleanup
+              const cleanedUpCount = cleanupOldChatSessions();
+              
+              if (cleanedUpCount > 0) {
+                // If we cleaned up items, try again with original messages
+                try {
+                  localStorage.setItem(localStorageKey, JSON.stringify(messages));
+                  console.log(`Successfully saved messages after cleaning up ${cleanedUpCount} old items`);
+                  return; // Exit early if successful
+                } catch (retryError) {
+                  console.log(`Still insufficient space after standard cleanup, trying emergency cleanup`);
+                }
+              }
+              
+              // If standard cleanup didn't work, try emergency cleanup
+              if (emergencyStorageCleanup()) {
+                try {
+                  localStorage.setItem(localStorageKey, JSON.stringify(messages));
+                  console.log(`Successfully saved messages after emergency cleanup`);
+                  return; // Exit early if successful
+                } catch (emergencyRetryError) {
+                  // If still failing, try to save a minimal version
+                  console.log(`Emergency cleanup insufficient, attempting to save minimal data`);
+                  
+                  // Try to save just the last message
+                  if (messages.length > 0) {
+                    try {
+                      const lastMessage = messages[messages.length - 1];
+                      localStorage.setItem(`chat_lastmsg_${activeSessionId}`, JSON.stringify(lastMessage));
+                      console.log(`Saved only the last message as a fallback`);
+                    } catch (lastMsgError) {
+                      console.error(`Failed to save even the last message: ${lastMsgError}`);
+                    }
+                  }
+                }
+              }
+              
+              // If we're here, all cleanup attempts failed
+              throw storageError;
+            } catch (cleanupError) {
+              console.error(`Error during storage cleanup:`, cleanupError);
+              throw storageError; // Re-throw original error for default handling
+            }
+          } else {
+            throw storageError; // Re-throw non-quota errors
+          }
+        }
         
         // Also save to the server
         const context = getChatContext();
@@ -670,6 +804,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           console.log(`Saved compact message backup to ${compactKey}`);
         } catch (compactError) {
           console.error(`All attempts to save messages failed: ${compactError}`);
+          
+          // Alert the user that local storage is full
+          if (!localStorage.getItem('storage_warning_shown')) {
+            alert('Browser storage is full. Please clear some browser data or history to continue using chat. Your messages may not be saved locally.');
+            localStorage.setItem('storage_warning_shown', 'true');
+          }
         }
       }
     }
@@ -855,317 +995,166 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     handleContextChange();
   }, [currentOrganization?.id, currentDashboard?.id, loadSessions, activeSessionId, sessions, sessionMessages, contextVersion, getChatContext]);
 
-  // Improved selectChatSession with context validation
-  const selectChatSession = useCallback(async (sessionId: string): Promise<void> => {
-    // Skip if already selected
-    if (sessionId === activeSessionId) {
-      console.log(`Session ${sessionId} is already active`);
-      return;
+  // Function to select a session
+  const selectSession = useCallback(async (sessionId: string): Promise<void> => {
+    console.log(`Selecting session: ${sessionId}`);
+    
+    // Set the active session ID
+    setActiveSessionId(sessionId);
+    
+    // Find the session in the sessions list
+    const sessionToSelect = sessions.find(s => s.id === sessionId);
+    
+    if (sessionToSelect) {
+      // Load messages for this session
+      await loadMessagesForSession(sessionToSelect);
+    } else {
+      console.error(`Session ${sessionId} not found in sessions list`);
+      setError('Session not found. Please refresh the page.');
+    }
+  }, [sessions, loadMessagesForSession]);
+
+  // Helper function to get active data source IDs
+  const getActiveDataSourceIds = (): string[] => {
+    // This should be replaced with your actual implementation
+    // Typically, you would get this from a context or state
+    // For now, return a placeholder value
+    return ['default_data_source'];
+  };
+
+  /**
+   * Create a new chat session
+   * This is the main public API for creating sessions that should be used by components
+   */
+  const createSession = useCallback(async (
+    title?: string,
+    skipWelcomeMessage = false
+  ): Promise<ChatSession> => {
+    // Block if another session creation is in progress
+    if (sessionCreationInProgress.current) {
+      console.log('Creating new session immediately, force: true');
+      // If a creation is in progress, force a new one
+      const newSession = await createNewSessionImmediately(true, skipWelcomeMessage);
+      if (!newSession) {
+        throw new Error('Failed to create new session');
+      }
+      return newSession;
     }
     
-    try {
-      // Set loading messages state
-      setIsLoadingMessages(true);
-      
-      // Reset error
-      setError(null);
-      
-      // Update operation state
-      setOperationState({
-        type: 'selecting-session',
-        inProgress: true,
-        operationId: `select-session-${Date.now()}`,
-        startTime: Date.now(),
-        contextVersionAtStart: contextVersion
-      });
-      
-      console.log(`Selecting session ${sessionId}`);
-      
-      // Find the session in our current list
-      const session = sessions.find(s => s.id === sessionId);
-      
-      // Check if session exists
-      if (!session) {
-        throw new Error(`Session ${sessionId} not found in current sessions list`);
-      }
-      
-      // Get current context
-      const context = getChatContext();
-      
-      // FIXED: More permissive validation for dashboard_id:
-      // - Sessions must belong to the current organization
-      // - If the session has a dashboard_id, check if it matches only when context also has a dashboard_id
-      // - Allow global sessions (no dashboard_id) to be selected from any dashboard
-      const validOrg = session.organization_id === context.organization_id;
-      const validDashboard = 
-        !session.dashboard_id || // Global session (no dashboard) is always valid
-        !context.dashboard_id || // When in global view, all sessions are valid
-        session.dashboard_id === context.dashboard_id; // In dashboard view, session must match dashboard
-      
-      if (!validOrg || !validDashboard) {
-        console.warn(`Session ${sessionId} has invalid context for current view:`,
-          { sessionContext: { org: session.organization_id, dashboard: session.dashboard_id },
-            currentContext: context });
-        
-        // Create a more user-friendly error message
-        let errorMsg = "This chat session is not available in the current view.";
-        
-        if (!validOrg) {
-          errorMsg = "This chat session belongs to a different organization.";
-        } else if (!validDashboard) {
-          errorMsg = "This chat session belongs to a different dashboard.";
-          
-          // If the session has a dashboard but we're in global view, provide guidance
-          if (session.dashboard_id && !context.dashboard_id) {
-            errorMsg = "This chat is associated with a specific dashboard. Please navigate to that dashboard to view it.";
-          }
-          // If we're in a dashboard but the session is for another dashboard
-          else if (session.dashboard_id && context.dashboard_id) {
-            errorMsg = `This chat is associated with a different dashboard (${session.dashboard_id}).`;
-          }
-        }
-        
-        // Add context check to the sessions list in the UI
-        // Update sessions filter to store the available sessions for display
-        setSessions(prev => {
-          // Mark the filtering operation so UI can detect it
-          const filtered = prev.filter(s => {
-            const validForCurrentOrg = s.organization_id === context.organization_id;
-            const validForCurrentDashboard = 
-              !s.dashboard_id || 
-              !context.dashboard_id ||
-              s.dashboard_id === context.dashboard_id;
-            
-            return validForCurrentOrg && validForCurrentDashboard;
-          });
-          
-          // Log how many sessions were filtered out
-          if (prev.length !== filtered.length) {
-            console.log(`Filtered out ${prev.length - filtered.length} sessions that don't match current context.`);
-          }
-          
-          return filtered;
-        });
-        
-        throw new Error(errorMsg);
-      }
-      
-      // Fetch messages or use cache
-      if (sessionMessages[sessionId]) {
-        console.log(`Using cached messages for session ${sessionId}`);
-        setMessages(sessionMessages[sessionId]);
-      } else {
-        try {
-          // Load messages from API
-          const fetchedMessages = await apiService.getChatHistory(sessionId, context);
-          
-          // Check for context change during loading
-          if (contextVersion !== operationState.contextVersionAtStart) {
-            console.log('Context changed during message loading. Re-validating session in new context.');
-            
-            // Get the new context after the change
-            const newContext = getChatContext();
-            
-            // Re-validate session in the new context
-            const stillValidOrg = session.organization_id === newContext.organization_id;
-            const stillValidDashboard = 
-              !session.dashboard_id || 
-              !newContext.dashboard_id || 
-              session.dashboard_id === newContext.dashboard_id;
-            
-            // If still valid in the new context, use the fetched messages
-            if (stillValidOrg && stillValidDashboard) {
-              console.log(`Session ${sessionId} is still valid in new context. Proceeding with selection.`);
-              setMessages(fetchedMessages);
-              setSessionMessages(prev => ({
-                ...prev,
-                [sessionId]: fetchedMessages
-              }));
-              
-              // Save to local storage as backup
-              try {
-                localStorage.setItem(`chat_messages_${sessionId}`, JSON.stringify(fetchedMessages));
-              } catch (error) {
-                console.warn('Failed to save messages to localStorage:', error);
-              }
-            } else {
-              // If not valid in the new context, abort with a more specific error
-              console.warn(`Session ${sessionId} is no longer valid in new context:`,
-                { sessionContext: { org: session.organization_id, dashboard: session.dashboard_id },
-                  newContext });
-              throw new Error('Session is not valid in the new context after context change');
-            }
-          } else {
-            // No context change, proceed normally
-            console.log(`Loaded ${fetchedMessages.length} messages for session ${sessionId}`);
-            
-            // Update messages state and cache
-            setMessages(fetchedMessages);
-            setSessionMessages(prev => ({
-              ...prev,
-              [sessionId]: fetchedMessages
-            }));
-            
-            // Save to local storage as backup
-            try {
-              localStorage.setItem(`chat_messages_${sessionId}`, JSON.stringify(fetchedMessages));
-            } catch (error) {
-              console.warn('Failed to save messages to localStorage:', error);
-            }
-          }
-        } catch (loadError: unknown) {
-          console.error(`Error loading messages for session ${sessionId}:`, loadError);
-          
-          // If error is not context-related, check if we have localStorage fallback
-          if (loadError instanceof Error && loadError.message !== 'Context changed during operation') {
-            try {
-              const localStorageKey = `chat_messages_${sessionId}`;
-              const storedMessages = localStorage.getItem(localStorageKey);
-              
-              if (storedMessages) {
-                console.log(`Using localStorage fallback for session ${sessionId}`);
-                const parsedMessages = JSON.parse(storedMessages) as ChatMessage[];
-                
-                setMessages(parsedMessages);
-                setSessionMessages(prev => ({
-                  ...prev,
-                  [sessionId]: parsedMessages
-                }));
-              } else {
-                // No fallback available, re-throw the original error
-                throw loadError;
-              }
-            } catch (fallbackError) {
-              console.error(`Fallback also failed for session ${sessionId}:`, fallbackError);
-              throw loadError; // Re-throw the original error
-            }
-          } else {
-            // Re-throw context-related errors
-            throw loadError;
-          }
-        }
-      }
-      
-      // Update active session
-      setActiveSessionId(sessionId);
-      
-      // Update operation state
-      setOperationState({
-        type: 'idle',
-        inProgress: false,
-        startTime: 0,
-        contextVersionAtStart: contextVersion
-      });
-    } catch (error) {
-      console.error(`Error selecting session ${sessionId}:`, error);
-      
-      // Create a helpful error message
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : 'Failed to select session';
-      
-      setError(errorMessage);
-      
-      // Update operation state
-      setOperationState({
-        type: 'idle',
-        inProgress: false,
-        startTime: 0,
-        contextVersionAtStart: contextVersion
-      });
-    } finally {
-      // Always clear loading state
-      setIsLoadingMessages(false);
+    // If auto-titling, generate a unique title
+    if (!title) {
+      title = generateUniqueTitle();
     }
-  }, [
-    activeSessionId, 
-    contextVersion, 
-    getChatContext, 
-    operationState.contextVersionAtStart, 
-    sessionMessages, 
-    sessions
-  ]);
-
-  const createSession = useCallback(async (title?: string, skipWelcomeMessage: boolean = false): Promise<ChatSession> => {
+    
+    console.log(`Creating chat session with title "${title}"`);
+    
+    // Make sure we have context
+    if (!currentOrganization) {
+      const error = new Error('No organization selected');
+      console.error(error);
+      setError(error.message);
+      throw error;
+    }
+    
+    const context: ApiChatContext = {
+      organization_id: currentOrganization.id,
+      dashboard_id: currentDashboard?.id
+    };
+    
+    // Get the current state of data sources
+    const dataSourceIds = getActiveDataSourceIds();
+    
+    // Prepare session data
+    const sessionData = {
+      title,
+      organization_id: context.organization_id,
+      dashboard_id: context.dashboard_id,
+      dataSourceIds: dataSourceIds
+    };
+    
+    // Block multiple creations
+    sessionCreationInProgress.current = true;
+    setIsLoadingSessions(true);
+    
     try {
-      const context = getChatContext();
-      if (!context.organization_id || !context.dashboard_id) {
-        throw new Error('Organization ID and Dashboard ID are required to create a chat session');
-      }
-
-      // Set loading state
-      setIsLoadingMessages(true);
-      setError(null);
+      console.log('Session create payload:', sessionData);
       
-      // Generate a default title if none provided
-      const sessionTitle = title || `New Chat ${new Date().toLocaleTimeString()}`;
-      console.log(`Creating new session with title: ${sessionTitle}`);
-      
-      // Create the session via API
-      const newSession = await apiService.createChatSession(sessionTitle, context);
+      // Create the session
+      const newSession = await apiService.createChatSession(sessionData);
       console.log(`Successfully created session with ID: ${newSession.id}`);
       
-      // Update sessions list with the new session at the beginning
-      setSessions(prev => {
-        // Check if this session already exists to prevent duplicates
-        const exists = prev.some(s => s.id === newSession.id);
-        if (exists) {
-          console.log(`Session ${newSession.id} already exists, not adding duplicate`);
-          return prev;
+      try {
+        // Try to save to localStorage
+        localStorage.setItem(`chat_session_${newSession.id}`, JSON.stringify(newSession));
+      } catch (storageError) {
+        if (storageError instanceof DOMException && 
+            (storageError.name === 'QuotaExceededError' || storageError.code === 22)) {
+          console.warn('Storage full when creating session. Attempting cleanup...');
+          
+          // Try emergency cleanup and retry
+          emergencyStorageCleanup();
         }
-        return [newSession, ...prev];
-      });
+        
+        console.error(`Error saving session to localStorage: ${storageError}`);
+        // Continue even if we fail to save to localStorage
+      }
       
-      // Set the active session ID immediately to update the UI
-      setActiveSessionId(newSession.id);
+      // If successful, add to our sessions list
+      setSessions(prevSessions => [newSession, ...prevSessions]);
       
-      // If skipWelcomeMessage is true, we'll handle loading the session with the flag
-      if (skipWelcomeMessage) {
-        // Load the session but skip creating a welcome message
-        await loadMessagesForSession(newSession, false, true);
-      } else {
-        // Create a welcome message for the new session
+      // Create an initial welcome message
+      if (!skipWelcomeMessage) {
         const welcomeMessage: ChatMessage = {
           id: `welcome-${newSession.id}-${Date.now()}`,
-          role: 'assistant' as MessageRole,
+          role: 'assistant',
           content: 'Welcome! How can I help you today?',
           timestamp: Date.now(),
           status: 'complete',
           metadata: {
-            sessionId: newSession.id,
-            isWelcomeMessage: true,
-            isSimpleWelcome: true
+            model: settings.model,
+            welcome: true,
           }
         };
         
-        // Update the messages state
+        // Only set if we're selecting this session
         setMessages([welcomeMessage]);
         
-        // Update the caches
-        setSessionMessages(prev => ({
-          ...prev,
+        // Try to save to localStorage
+        try {
+          localStorage.setItem(`chat_messages_${newSession.id}`, JSON.stringify([welcomeMessage]));
+        } catch (storageError) {
+          console.error(`Error saving welcome message to localStorage: ${storageError}`);
+          // Continue even if localStorage fails
+        }
+        
+        // Record in session messages cache
+        setSessionMessages(prevState => ({
+          ...prevState,
           [newSession.id]: [welcomeMessage]
         }));
-        
-        setSessionMessages(prev => ({
-          ...prev,
-          [newSession.id]: [welcomeMessage]
-        }));
-        
-        // Save the welcome message to localStorage
-        const localStorageKey = `chat_messages_${newSession.id}`;
-        localStorage.setItem(localStorageKey, JSON.stringify([welcomeMessage]));
       }
       
+      // Set as the active session
+      setActiveSessionId(newSession.id);
+      
+      // Return the session
       return newSession;
     } catch (error) {
-      console.error('Error creating chat session:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create chat session');
-      throw error; // Re-throw to allow proper handling
+      console.error('Error creating session:', error);
+      setError(error instanceof Error ? error.message : 'Failed to create session');
+      throw error;
     } finally {
-      setIsLoadingMessages(false);
+      setIsLoadingSessions(false);
+      sessionCreationInProgress.current = false;
     }
-  }, [getChatContext, loadMessagesForSession]);
+  }, [
+    apiService, 
+    currentDashboard?.id, 
+    currentOrganization, 
+    getActiveDataSourceIds,
+    settings.model, 
+    createNewSessionImmediately
+  ]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     try {
@@ -1181,7 +1170,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (sessionId === activeSessionId) {
         if (remainingSessions.length > 0) {
           // If we have other sessions, select the first one
-          await selectChatSession(remainingSessions[0].id);
+          await selectSession(remainingSessions[0].id);
           
           // Show success notification
           if (window.notificationContext) {
@@ -1246,338 +1235,224 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
       }
     }
-  }, [sessions, activeSessionId, selectChatSession, getChatContext, createSession, documentState]);
+  }, [sessions, activeSessionId, selectSession, getChatContext, createSession, documentState]);
 
-  // Add a comment to explain why the functions were commented out
-  // The functions above (addOrUpdateMessage, saveChatHistory, and updateMessagesForSession)
-  // were originally used for message management but are now handled directly in other functions.
-  // They've been preserved as reference but commented out to prevent lint warnings.
-
-  const sendMessage = useCallback(async (content: any, isAssistantMessage = false): Promise<void> => {
+  // Update sendMessage to integrate dual-path functionality
+  const sendMessage = useCallback(
+    async (content: any, isAssistantMessage = false) => {
+      // Reset error state
+      setError(null);
+      
     if (!activeSessionId) {
-      console.error('No active session to send message to');
-      setError('No active chat session. Please create a new chat or select an existing one.');
+        // If no active session, create one
+        try {
+          const newSession = await createNewSessionImmediately(true, true);
+          if (!newSession) {
+            // If we couldn't create a session, exit
       return;
     }
-
-    // Set operation state to track context version
-    setOperationState({
-      type: 'message-sending',
-      inProgress: true,
-      operationId: `send-message-${Date.now()}`,
-      startTime: Date.now(),
-      contextVersionAtStart: contextVersion
-    });
-
-    // Handle both structured (object) and string messages
-    let messageContent = '';
-    let messageMetadata: MessageMetadata = {};
-
-    if (typeof content === 'object' && content !== null) {
-      // Process structured message
-      if (content.content) {
-        messageContent = content.content;
-      } else {
-        messageContent = JSON.stringify(content);
+        } catch (error) {
+          console.error('Error creating session for message:', error);
+          setError('Failed to create a new chat session');
+          return;
+        }
       }
       
-      if (content.metadata) {
-        messageMetadata = { ...content.metadata };
-      } else if (content.structuredResponse) {
-        // Store structured response in metadata
-        messageMetadata.structuredResponse = content.structuredResponse;
-      }
-    } else {
-      // Simple string message
-      messageContent = String(content);
-    }
-
-    // Create a properly formatted message object
-    const messageObj: ChatMessage = {
-      id: isAssistantMessage ? `assistant-${Date.now()}` : `user-${Date.now()}`,
-      role: isAssistantMessage ? 'assistant' : 'user' as MessageRole,
-      content: messageContent,
-      timestamp: Date.now(),
-      status: 'complete',
-      metadata: messageMetadata
-    };
-
-    try {
-      // Get the current messages
-      const currentMessages = sessionMessages[activeSessionId] || messages;
-      
-      // Add the user message to the current messages
-      const messagesWithUserInput = isAssistantMessage 
-        ? currentMessages 
-        : [...currentMessages, messageObj];
-      
-      // IMPORTANT: Always update the messages state directly to ensure user message is visible
-      setMessages(messagesWithUserInput);
-      
-      // Also update the session cache
-      setSessionMessages(prev => ({
-        ...prev,
-        [activeSessionId]: messagesWithUserInput
-      }));
-      
-      if (!isAssistantMessage) {
-        console.log(`Added user message to chat. Total messages: ${messagesWithUserInput.length}`, 
-          messagesWithUserInput.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-      }
-      
-      // Create placeholder for assistant response
-      const assistantMsgId = `assistant-${Date.now()}`;
-      const assistantMsg: ChatMessage = {
-        id: assistantMsgId,
+      try {
+        // Set generating state
+        setIsGenerating(true);
+        
+        // Determine if this is likely an analytical query
+        const isAnalyticalQuery = detectAnalyticalQuery(content);
+        
+        let response: any;
+        
+        // Choose between regular message API or dual-path API based on query type
+        if (isAnalyticalQuery) {
+          console.log('Detected analytical query, using dual-path API');
+          
+          // Get active data sources from knowledge context - replace with your actual method
+          // This would normally be available through a context or prop
+          const activeDataSourceIds = getActiveDataSourceIds();
+          
+          // Set options for visualization
+          const options = {
+            dataVisualization: true,
+            includeGeneratedCode: true,
+            streaming: settings.streaming
+          };
+          
+          // Process through dual-path API
+          if (settings.streaming) {
+            // Handle streaming response
+            const streamResponse = await apiService.streamDualPathQuery(content, activeDataSourceIds, options);
+            
+            // Process the stream response
+            // This is placeholder code - you would implement proper stream handling
+            const reader = streamResponse.body?.getReader();
+            if (reader) {
+              // Create a new assistant message that will be updated with streaming content
+              const assistantMessageId = `assistant-${Date.now()}`;
+              const initialAssistantMessage: ChatMessage = {
+                id: assistantMessageId,
         role: 'assistant',
-        content: 'Thinking...',
+                content: '',
         timestamp: Date.now(),
         status: 'loading',
         metadata: {
-          isLoading: true,
-          isSimpleLoading: true, // Flag to indicate this is a simple loading message
-          suppressVisualization: true, // Flag to prevent visualization
-          forceSimpleDisplay: true, // Flag to force simple display
-          skipEnhancedVisualization: true // Flag to skip enhanced visualization
-        }
-      };
-      
-      // Add loading message to both current view and session cache
-      const updatedWithAssistant = [...messagesWithUserInput, assistantMsg];
-      
-      // IMPORTANT: Always update the messages state directly
-      setMessages(updatedWithAssistant);
-      
-      // Also update the session cache
-      setSessionMessages(prev => ({
-        ...prev,
-        [activeSessionId]: updatedWithAssistant
-      }));
-      
-      console.log(`Added assistant loading message. Total messages: ${updatedWithAssistant.length}`, 
-        updatedWithAssistant.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-      
-      try {
-        setIsGenerating(true);
-        setError(null);
-        
-        // Save the context version at the start
-        const contextVersionBeforeSend = contextVersion;
-        
-        // Call the API service to generate a response
-        const response = await apiService.sendMessage(
-          activeSessionId,
-          messageContent,
-          getChatContext(),
-          settings
-        );
-        
-        // Check if context changed during the API call
-        if (contextVersion !== contextVersionBeforeSend) {
-          console.log('Context changed during message generation. Verifying if still valid...');
-          
-          // Get the current session
-          const session = sessions.find(s => s.id === activeSessionId);
-          if (!session) {
-            throw new Error('Session no longer exists');
-          }
-          
-          // Get the new context
-          const newContext = getChatContext();
-          
-          // Validate session in the new context
-          const validOrg = session.organization_id === newContext.organization_id;
-          const validDashboard = 
-            !session.dashboard_id || 
-            !newContext.dashboard_id || 
-            session.dashboard_id === newContext.dashboard_id;
-          
-          if (!validOrg || !validDashboard) {
-            console.warn('Session is no longer valid in the new context. Response will not be displayed.');
-            throw new Error('Session is not valid in new context after context change');
-          }
-          
-          console.log('Session is still valid in new context. Continuing to display response.');
-        }
-        
-        // Use type guard to check for suppression flag
-        if (response && response.metadata && 
-            typeof response.metadata === 'object' && 
-            'suppressDuplicateDisplay' in response.metadata && 
-            response.metadata.suppressDuplicateDisplay === true) {
-          console.log('Message has suppressDuplicateDisplay flag, updating message display');
-          
-          const updatedAssistantMsg: ChatMessage = {
-            ...assistantMsg,
-            content: response.content,
+                  isDualPathResponse: true,
+                  isStreaming: true
+                }
+              };
+              
+              // Add the initial message
+              setMessages(prev => [...prev, initialAssistantMessage]);
+              
+              // Process the stream
+              let accumulatedContent = '';
+              
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  
+                  // Decode and process chunks
+                  const chunk = new TextDecoder().decode(value);
+                  accumulatedContent += chunk;
+                  
+                  // Update the message with accumulated content
+                  const updatedMessage: ChatMessage = {
+                    ...initialAssistantMessage,
+                    content: accumulatedContent,
+                    status: 'loading'
+                  };
+                  
+                  setMessages(prev => 
+                    prev.map(msg => 
+                      msg.id === assistantMessageId ? updatedMessage : msg
+                    )
+                  );
+                }
+                
+                // Final message update when stream is complete
+                const finalMessage: ChatMessage = {
+                  ...initialAssistantMessage,
+                  content: accumulatedContent,
+                  status: 'complete'
+                };
+                
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === assistantMessageId ? finalMessage : msg
+                  )
+                );
+              } catch (streamError) {
+                console.error('Error processing stream:', streamError);
+                
+                // Update message with error status
+                const errorMessage: ChatMessage = {
+                  ...initialAssistantMessage,
+                  content: 'Error processing response stream',
+                  status: 'error'
+                };
+                
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === assistantMessageId ? errorMessage : msg
+                  )
+                );
+              } finally {
+                reader.releaseLock();
+              }
+            }
+          } else {
+            // Non-streaming dual-path response
+            response = await apiService.processDualPathQuery(content, activeDataSourceIds, options);
+            
+            // Create assistant message with dual-path response
+            const assistantMessage: ChatMessage = {
+              id: `assistant-${Date.now()}`,
+              role: 'assistant',
+              content: JSON.stringify(response), // Store the entire response
+              timestamp: Date.now(),
             status: 'complete',
             metadata: {
-              ...assistantMsg.metadata,
-              // First apply the original metadata
-              ...(response.metadata as MessageMetadata),
-              // Ensure these flags are set
-              suppressDirectDisplay: true,
-              useStructuredDisplay: true
-            }
-          };
-          
-          // Save document state if this is a document-related message
-          documentState.setDocumentStateForMessage(updatedAssistantMsg, activeSessionId);
-          
-          // Update messages - ensure we keep the user message
-          const finalMessages = updatedWithAssistant.map(m => 
-            m.id === assistantMsgId ? updatedAssistantMsg : m
-          );
-          
-          // IMPORTANT: Always update the messages state directly
-          setMessages(finalMessages);
-          
-          // Also update the session cache
-          setSessionMessages(prev => ({
-            ...prev,
-            [activeSessionId]: finalMessages
-          }));
-          
-          console.log(`Updated assistant message with response. Total messages: ${finalMessages.length}`, 
-            finalMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-          
-          // Update the session with the latest message and count
-          try {
-            // Find the current session
-            const currentSession = sessions.find(s => s.id === activeSessionId);
-            if (currentSession) {
-              // Get the last message content
-              const lastMessageContent = response.content || 'AI response';
-              
-              // Calculate new message count (user message + assistant response)
-              const newMessageCount = (currentSession.message_count || 0) + 2;
-              
-              // Update the session metadata
-              apiService.updateChatSession(
-                activeSessionId,
-                currentSession.title,
-                lastMessageContent,
-                newMessageCount,
-                getChatContext()
-              ).then(() => {
-                // Update the sessions list
-                setSessions(prev => prev.map(session => 
-                  session.id === activeSessionId ? { 
-                    ...session, 
-                    last_message: lastMessageContent,
-                    message_count: newMessageCount
-                  } : session
-                ));
-              }).catch(error => {
-                console.error('Error updating session metadata after response:', error);
-              });
-            }
-          } catch (updateError) {
-            console.error('Error updating session metadata:', updateError);
+                isDualPathResponse: true,
+                routingPath: response.routing.path,
+                routingConfidence: response.routing.confidence
+              }
+            };
+            
+            // Add the message
+            setMessages(prev => [...prev, assistantMessage]);
           }
-          
-          setIsGenerating(false);
         } else {
-          // Process the response
-          const updatedAssistantMsg: ChatMessage = {
-            ...assistantMsg,
-            content: response.content,
-            status: 'complete',
-            metadata: {
-              ...(response.metadata || {}),
-              // Convert tokens format if needed
-              tokens: typeof response.metadata?.tokens === 'object' 
-                ? response.metadata.tokens.total
-                : response.metadata?.tokens
+          // Standard message handling for non-analytical queries
+          response = await apiService.sendMessage(
+            activeSessionId as string,
+            typeof content === 'string' ? content : JSON.stringify(content),
+            getChatContext(),
+            {
+              streaming: settings.streaming,
+              role: isAssistantMessage ? 'assistant' : 'user'
             }
-          };
-          
-          // Save document state if this is a document-related message
-          documentState.setDocumentStateForMessage(updatedAssistantMsg, activeSessionId);
-          
-          // Update messages - ensure we keep the user message
-          const finalMessages = updatedWithAssistant.map(m => 
-            m.id === assistantMsgId ? updatedAssistantMsg : m
           );
           
-          // IMPORTANT: Always update the messages state directly
-          setMessages(finalMessages);
+          // Create a new assistant message
+          const assistantMessage: ChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: response.content,
+            timestamp: Date.now(),
+            status: 'complete',
+            metadata: response.metadata
+          };
           
-          // Also update the session cache
-          setSessionMessages(prev => ({
-            ...prev,
-            [activeSessionId]: finalMessages
-          }));
-          
-          console.log(`Updated assistant message with response. Total messages: ${finalMessages.length}`, 
-            finalMessages.map(m => ({ id: m.id, role: m.role, content: m.content?.substring(0, 30) })));
-          
+          // Add the message
+          setMessages(prev => [...prev, assistantMessage]);
+        }
+      } catch (error) {
+        console.error('Error sending message:', error);
+        setError('Failed to send message. Please try again later.');
+        
+        // Add an error message to the chat
+        const errorMessage: ChatMessage = {
+          id: `error-${Date.now()}`,
+          role: 'error',
+          content: 'Failed to send message. Please try again later.',
+          timestamp: Date.now(),
+          status: 'error'
+        };
+        
+        setMessages(prev => [...prev, errorMessage]);
+      } finally {
+        // Set generating state to false
           setIsGenerating(false);
         }
-      } catch (error: unknown) {
-        console.error('Error generating assistant response:', error);
-        
-        // Create error message
-        const errorMessage = error instanceof Error ? error.message : 'Failed to generate response';
-        
-        // Check if it's a context change error
-        const isContextError = error instanceof Error && 
-          error.message === 'Session is not valid in new context after context change';
-        
-        if (isContextError) {
-          // For context errors, show specific message
-          setError('The organization or dashboard changed while generating a response. Please try again.');
-        } else {
-          // For other errors
-          setError(`Failed to generate a response: ${errorMessage}`);
-        }
-        
-        // Update the loading message to show error
-        const finalMessages = updatedWithAssistant.map(m => 
-          m.id === assistantMsgId ? {
-            ...assistantMsg,
-            content: 'Error: ' + errorMessage,
-            status: 'error' as MessageStatus,
-            metadata: {
-              ...assistantMsg.metadata,
-              isLoading: false,
-              isError: true,
-              error: errorMessage
-            }
-          } : m
-        );
-        
-        setMessages(finalMessages as ChatMessage[]);
-        setSessionMessages(prev => ({
-          ...prev,
-          [activeSessionId]: finalMessages as ChatMessage[]
-        }));
-        
-        setIsGenerating(false);
-      }
-    } catch (error) {
-      console.error('Error processing message:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error');
-    } finally {
-      // Reset operation state
-      setOperationState({
-        type: 'idle',
-        inProgress: false,
-        startTime: 0,
-        contextVersionAtStart: contextVersion
-      });
-    }
-  }, [
-    activeSessionId, 
-    contextVersion, 
-    documentState, 
-    getChatContext, 
-    messages, 
-    sessionMessages, 
-    sessions,
-    settings
-  ]);
-
+    },
+    [activeSessionId, createNewSessionImmediately, apiService, getChatContext, settings]
+  );
+  
+  // Helper function to detect if a query is analytical
+  const detectAnalyticalQuery = (query: string): boolean => {
+    if (typeof query !== 'string') return false;
+    
+    const analyticalKeywords = [
+      'analyze', 'analysis', 'calculate', 'computation', 'trend',
+      'correlation', 'distribution', 'average', 'mean', 'median',
+      'sum', 'total', 'count', 'aggregate', 'group by',
+      'filter', 'segment', 'breakdown', 'percentage', 'ratio',
+      'metric', 'kpi', 'measure', 'visualize', 'visualization', 
+      'chart', 'graph', 'plot', 'display', 'compare'
+    ];
+    
+    const normalizedQuery = query.toLowerCase();
+    
+    // Check if the query contains any analytical keywords
+    return analyticalKeywords.some(keyword => normalizedQuery.includes(keyword));
+  };
+  
+  // Regenerate message function - needed for UI interactions
   const regenerateMessage = useCallback(async (message: ChatMessage) => {
     if (!activeSessionId) {
       console.error('Cannot regenerate message: No active session');
@@ -1588,6 +1463,25 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsGenerating(true);
       setError(null);
       
+      // Check if this is a dual-path response
+      if (message.metadata?.isDualPathResponse) {
+        // For dual-path messages, we need to re-run the query
+        // Extract the original query from the previous user message
+        const messageIndex = messages.findIndex(m => m.id === message.id);
+        if (messageIndex <= 0) {
+          throw new Error('Cannot find original query for regeneration');
+        }
+        
+        // Get the user message that preceded this assistant message
+        const userMessage = messages[messageIndex - 1];
+        if (userMessage.role !== 'user') {
+          throw new Error('Expected user message before assistant message');
+        }
+        
+        // Re-send the user query
+        await sendMessage(userMessage.content);
+      } else {
+        // For standard messages, use the regular regeneration
       // Logic to regenerate the message
       console.log(`Regenerating message ${message.id} for session ${activeSessionId}`);
       
@@ -1596,33 +1490,63 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const updated = [...prev];
         const index = updated.findIndex(m => m.id === message.id);
         if (index !== -1) {
-          updated[index] = { ...updated[index], content: 'Regenerating...' };
+            updated[index] = { 
+              ...updated[index], 
+              content: 'Regenerating...', 
+              status: 'loading' 
+            };
         }
         return updated;
       });
       
-      // For now, just create a simple regenerated message
-      setTimeout(() => {
+        try {
+          // Call the API to regenerate the message
+          const response = await apiService.regenerateMessage(message.id);
+          
+          // Update the message with the new content
         setMessages(prev => {
           const updated = [...prev];
           const index = updated.findIndex(m => m.id === message.id);
           if (index !== -1) {
             updated[index] = { 
               ...updated[index], 
-              content: `Regenerated at ${new Date().toLocaleTimeString()}`
+                content: response.content,
+                status: 'complete',
+                metadata: {
+                  ...updated[index].metadata,
+                  ...response.metadata
+                }
             };
           }
           return updated;
         });
-        setIsGenerating(false);
-      }, 1000);
-      
+        } catch (regenerateError) {
+          console.error('Error calling regenerate API:', regenerateError);
+          
+          // Update message to show error
+          setMessages(prev => {
+            const updated = [...prev];
+            const index = updated.findIndex(m => m.id === message.id);
+            if (index !== -1) {
+              updated[index] = { 
+                ...updated[index], 
+                content: 'Error regenerating message',
+                status: 'error'
+              };
+            }
+            return updated;
+          });
+          
+          throw regenerateError;
+        }
+      }
     } catch (error: any) {
       console.error('Error regenerating message:', error);
       setError(`Error regenerating message: ${error.message}`);
+    } finally {
       setIsGenerating(false);
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, apiService, messages, sendMessage]);
 
   // Listen for logout events and cancel any pending operations
   useEffect(() => {
@@ -1817,7 +1741,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     },
     createSession,
-    selectSession: selectChatSession,
+    selectSession,
     deleteSession,
     settings,
     updateSettings: (newSettings: Partial<ChatContextType['settings']>) => setSettings(prev => ({ ...prev, ...newSettings })),
@@ -1829,7 +1753,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSessions(loadedSessions);
         
         if (loadedSessions.length > 0) {
-          await selectChatSession(loadedSessions[0].id);
+          await selectSession(loadedSessions[0].id);
         }
       } catch (error) {
         console.error('Error retrying session load:', error);

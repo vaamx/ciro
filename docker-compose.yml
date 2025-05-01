@@ -22,3 +22,21 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 10s 
+
+  redis:
+    image: redis:latest
+    container_name: ciro-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  qdrant_data:
+  redis_data: 

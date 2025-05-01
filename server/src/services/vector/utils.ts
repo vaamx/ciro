@@ -74,11 +74,30 @@ export function isValidCollectionName(name: string): boolean {
 }
 
 /**
- * Normalize a collection name to follow our naming convention
+ * Normalize collection name for the vector database
+ * Handles both general collection names and data source IDs
+ * 
+ * @param nameOrId Collection name or data source ID
+ * @param type Optional type parameter to force specific normalization ('collection' or 'datasource')
+ * @returns Normalized collection name
  */
-export function normalizeCollectionName(name: string): string {
+export function normalizeCollectionName(nameOrId: string | number, type?: 'collection' | 'datasource'): string {
+  const stringValue = String(nameOrId);
+  
+  // For data source normalization
+  if (type === 'datasource' || (!type && stringValue.match(/^\d+$/) || stringValue.startsWith('datasource_'))) {
+    // If already prefixed with datasource_, return as is
+    if (stringValue.startsWith('datasource_')) {
+      return stringValue;
+    }
+    
+    // Otherwise add the prefix
+    return `datasource_${stringValue}`;
+  }
+  
+  // For general collection name normalization
   // Remove special characters and convert to lowercase
-  let normalized = name
+  let normalized = stringValue
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, '_')
     .replace(/^[0-9]/, 'collection_$&')
@@ -118,4 +137,136 @@ export function calculateCentroid(vectors: number[][]): number[] {
   
   // Divide by count to get average
   return centroid.map(val => val / vectors.length);
+}
+
+/**
+ * Common utilities for vector search services
+ */
+
+/**
+ * Combine filters for Qdrant search
+ * @param baseFilter Base filter object
+ * @param additionalFilter Additional filter to add
+ * @returns Combined filter
+ */
+export function combineFilters(baseFilter: any, additionalFilter: any): any {
+  // If either filter is undefined, return the other
+  if (!baseFilter) return additionalFilter;
+  if (!additionalFilter) return baseFilter;
+
+  // If both filters have 'must' property, combine them
+  if (baseFilter.must && additionalFilter.must) {
+    return {
+      must: [...baseFilter.must, ...additionalFilter.must]
+    };
+  }
+
+  // If only one filter has 'must', add the other as a complete condition
+  if (baseFilter.must) {
+    return {
+      must: [...baseFilter.must, additionalFilter]
+    };
+  }
+
+  if (additionalFilter.must) {
+    return {
+      must: [baseFilter, ...additionalFilter.must]
+    };
+  }
+
+  // If neither has 'must', create a new 'must' array with both filters
+  return {
+    must: [baseFilter, additionalFilter]
+  };
+}
+
+/**
+ * Extract meaningful keywords from a query
+ * @param query The user query
+ * @returns Array of keywords
+ */
+export function extractKeywords(query: string): string[] {
+  // Common words to exclude
+  const stopWords = new Set([
+    'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were',
+    'in', 'on', 'at', 'to', 'for', 'with', 'by', 'about', 'of', 'from',
+    'that', 'this', 'these', 'those', 'it', 'its', 'they', 'them',
+    'their', 'what', 'which', 'who', 'whom', 'when', 'where', 'why', 'how'
+  ]);
+  
+  // Split by whitespace, convert to lowercase, remove punctuation
+  return query
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '') // Remove punctuation
+    .split(/\s+/)
+    .filter(word => 
+      word.length > 2 && // Filter out short words
+      !stopWords.has(word) // Filter out common words
+    );
+}
+
+/**
+ * Create a keyword filter for text search
+ * @param keywords Keywords to search for
+ * @param fields Fields to search in
+ * @returns Qdrant filter object
+ */
+export function createKeywordFilter(keywords: string[], fields: string[]): any {
+  if (keywords.length === 0 || fields.length === 0) {
+    return undefined;
+  }
+  
+  // Create conditions for each field and keyword
+  const conditions = [];
+  
+  for (const field of fields) {
+    for (const keyword of keywords) {
+      conditions.push({
+        text: {
+          [field]: {
+            match: {
+              text: keyword
+            }
+          }
+        }
+      });
+    }
+  }
+  
+  // Return as a 'should' filter (equivalent to OR)
+  return {
+    should: conditions
+  };
+}
+
+/**
+ * Calculate the text match score based on keyword frequency
+ * @param text The text to analyze
+ * @param keywords Keywords to match
+ * @returns Score between 0 and 1
+ */
+export function calculateKeywordMatchScore(text: string, keywords: string[]): number {
+  if (!text || keywords.length === 0) {
+    return 0;
+  }
+  
+  const lowercaseText = text.toLowerCase();
+  let matchCount = 0;
+  
+  for (const keyword of keywords) {
+    // Count occurrences
+    const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+    const matches = lowercaseText.match(regex);
+    
+    if (matches) {
+      matchCount += matches.length;
+    }
+  }
+  
+  // Calculate score based on match density
+  // Higher score for more matches and shorter text (higher concentration)
+  const textLength = text.length;
+  const keywordCount = keywords.length;
+  
+  return Math.min(1, (matchCount / keywordCount) * Math.min(1, 1000 / textLength));
 } 

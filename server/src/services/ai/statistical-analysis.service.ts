@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
+import { AnalyticalOperationType } from '../../types/document/processing';
 
 /**
  * Statistical significance levels
@@ -120,9 +121,9 @@ export interface StatisticalInsight {
 @Injectable()
 export class StatisticalAnalysisService {
   
-  private readonly logger = createServiceLogger('StatisticalAnalysisService');
+  private readonly logger = createServiceLogger(StatisticalAnalysisService.name);
 
-  private constructor() {}
+  constructor() {}
 
   /**
    * Get singleton instance
@@ -923,5 +924,158 @@ export class StatisticalAnalysisService {
     
     const t = z + p.length - 0.5;
     return Math.log(Math.sqrt(2 * Math.PI)) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+  }
+
+  /**
+   * Determine if statistical analysis can be applied to the data (Moved Method)
+   * @param data The data to analyze
+   * @returns Whether statistical analysis can be applied
+   */
+  public canApplyStatistics(data: any): boolean {
+    if (Array.isArray(data) && data.length > 5) {
+      // Check if the data has numeric fields
+      if (data[0] && typeof data[0] === 'object') {
+        const sample = data[0];
+        return Object.values(sample).some(val => typeof val === 'number');
+      }
+      // Also allow if it's a flat array of numbers
+      if (typeof data[0] === 'number') {
+         return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Extract numeric data from various data structures (Moved Method)
+   * Handles arrays of numbers or arrays of objects with numeric values.
+   * @param data The data (potentially parsed JSON or array)
+   * @returns Array of numeric values extracted from the data
+   */
+  private extractNumericData(data: any): number[] {
+    const numericValues: number[] = [];
+    if (!Array.isArray(data)) {
+      return numericValues;
+    }
+
+    for (const item of data) {
+      if (typeof item === 'number') {
+        numericValues.push(item);
+      } else if (typeof item === 'object' && item !== null) {
+        // If it's an object, extract all numeric values
+        Object.values(item).forEach(value => {
+          if (typeof value === 'number') {
+            numericValues.push(value);
+          }
+        });
+      }
+    }
+    return numericValues;
+  }
+
+  /**
+   * Enhance data string with statistical analysis based on requested operations (Moved Method)
+   * @param dataString The processed data as a string (potentially JSON or CSV string)
+   * @param operations The analytical operations requested
+   * @returns Original string potentially appended with statistical analysis results.
+   */
+  public enhanceDataWithStatistics(
+    dataString: string, 
+    operations: AnalyticalOperationType[]
+  ): string {
+    try {
+      // Check if any relevant statistical operations are requested
+      const relevantOps = [
+        AnalyticalOperationType.AVERAGE,
+        AnalyticalOperationType.MIN,
+        AnalyticalOperationType.MAX,
+        AnalyticalOperationType.SUM,
+        AnalyticalOperationType.TREND,
+        AnalyticalOperationType.FORECAST,
+        AnalyticalOperationType.CORRELATE,
+        // Add others if the service implements them later
+      ];
+      if (!operations.some(op => relevantOps.includes(op))) {
+        this.logger.debug('No relevant statistical operations requested, skipping enhancement.');
+        return dataString;
+      }
+      
+      // Try to parse the data string (JSON or CSV)
+      let parsedData: any;
+      try {
+        parsedData = JSON.parse(dataString);
+      } catch {
+        if (dataString.includes(',') && dataString.includes('\n')) {
+          const lines = dataString.trim().split('\n');
+          if (lines.length < 2) return dataString; // Not enough lines for CSV
+          const headers = lines[0].split(',').map(h => h.trim());
+          
+          parsedData = lines.slice(1).map(line => {
+            const values = line.split(',');
+            const row: Record<string, any> = {};
+            headers.forEach((header, index) => {
+              let value = values[index]?.trim() || '';
+              if (/^-?\d+(\.\d+)?$/.test(value)) {
+                row[header] = parseFloat(value);
+              } else {
+                row[header] = value.replace(/^\"|\"$/g, '');
+              }
+            });
+            return row;
+          });
+        } else {
+          this.logger.debug('Data string is not JSON or CSV, skipping statistical enhancement.');
+          return dataString; // Return original if can't parse as JSON or CSV
+        }
+      }
+      
+      // Check if statistics can be applied
+      if (!this.canApplyStatistics(parsedData)) {
+        this.logger.debug('Data structure not suitable for statistics, skipping enhancement.');
+        return dataString;
+      }
+      
+      let enhancedDataString = dataString;
+      
+      try {
+        // Extract all numeric data
+        const numericData = this.extractNumericData(parsedData);
+        
+        if (numericData.length > 0) {
+          const stats = this.calculateBasicStats(numericData);
+          if (stats) {
+            enhancedDataString += `\n\n--- Statistical Analysis ---\n`;
+            enhancedDataString += `\nBasic Statistics:\n${JSON.stringify(stats, null, 2)}\n`;
+          } else {
+             enhancedDataString += `\n\nCould not calculate basic statistics.\n`;
+          }
+
+          // Placeholder for future advanced analysis
+          if (operations.includes(AnalyticalOperationType.TREND)) {
+            enhancedDataString += `\nTrend Analysis: Further analysis needed.\n`;
+          }
+          if (operations.includes(AnalyticalOperationType.FORECAST)) {
+            enhancedDataString += `\nForecasting: Further analysis needed.\n`;
+          }
+           if (operations.includes(AnalyticalOperationType.CORRELATE)) {
+            enhancedDataString += `\nCorrelation Analysis: Further analysis needed.\n`;
+          }
+
+        } else {
+          enhancedDataString += `\n\nNo numeric data found for detailed statistical analysis.\n`;
+        }
+      } catch (analysisError: unknown) {
+        const errorMessage = analysisError instanceof Error ? analysisError.message : String(analysisError);
+        this.logger.error(`Error performing statistical analysis: ${errorMessage}`);
+        enhancedDataString += `\n\nUnable to perform detailed statistical analysis due to an error.\n`;
+      }
+      
+      this.logger.info('Successfully enhanced data with statistical analysis.');
+      return enhancedDataString;
+
+    } catch (error) {
+      this.logger.error('Error enhancing data with statistics:', error);
+      return dataString; // Return original data if enhancement fails
+    }
   }
 } 

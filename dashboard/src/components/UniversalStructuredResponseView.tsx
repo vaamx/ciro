@@ -9,7 +9,7 @@ import {
 import { StructuredAnalysisResponse, AnalysisStep } from '../types/ExcelTypes';
 import DataProcessingProgress from './DataProcessingProgress';
 import ResponsiveAnalysisLayout from './ResponsiveAnalysisLayout';
-import { EnhancedStepByStepVisualization } from './Chat/components/EnhancedStepByStepVisualization';
+import { EnhancedVisualization } from './Chat/components/visualization/EnhancedVisualization';
 import { ResponsiveContainer } from './shared/ResponsiveContainer';
 import { StepIndicator } from './StepIndicator';
 
@@ -262,7 +262,7 @@ export const UniversalStructuredResponseView: React.FC<UniversalStructuredRespon
             <div className="mt-6">
               <h3 className="text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">Visualization</h3>
               <div className="visualization-container" style={{ height: '400px' }}>
-                <EnhancedStepByStepVisualization
+                <EnhancedVisualization
                   steps={[selectedStep]}
                   autoPlay={false}
                   initialStep={0}
@@ -341,7 +341,7 @@ export const UniversalStructuredResponseView: React.FC<UniversalStructuredRespon
                   </div>
                   
                   {/* Progressive Step Visualization */}
-                  <EnhancedStepByStepVisualization
+                  <EnhancedVisualization
                     steps={response.steps}
                     insights={response.insights || []}
                     summary={response.summary || ''}
@@ -394,7 +394,7 @@ export const UniversalStructuredResponseView: React.FC<UniversalStructuredRespon
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                     {selectedStep.visualization && (
                       <div className="mb-6 h-96">
-                        <EnhancedStepByStepVisualization
+                        <EnhancedVisualization
                           steps={[selectedStep]}
                           autoPlay={false}
                           dataSourceType={dataSourceType}

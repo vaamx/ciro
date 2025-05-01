@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as winston from 'winston';
 import { injectable } from 'inversify';
-import { shouldLogInitialization } from '../../utils/logger-config';
+import { shouldLogInitialization } from '../../common/utils/logger-config';
 import dotenv from 'dotenv';
 
 // Load environment variables from .env file
@@ -40,13 +40,18 @@ export class ConfigService {
   private readonly envCache: Record<string, string | undefined> = {};
   
   // Add singleton implementation
-  
+  private static instance: ConfigService | null = null;
   private static constructorCallCount = 0;
   
   /**
    * Get the singleton instance of ConfigService
    */
-  
+  public static getInstance(): ConfigService {
+    if (!ConfigService.instance) {
+      ConfigService.instance = new ConfigService();
+    }
+    return ConfigService.instance;
+  }
   
   /**
    * Get the count of constructor calls for diagnostics
@@ -55,16 +60,14 @@ export class ConfigService {
     return ConfigService.constructorCallCount;
   }
 
-  constructor(
-    private readonly configService: ConfigService,
-    ) {
+  constructor() {
     ConfigService.constructorCallCount++;
     
     // Warn if constructor is called multiple times
     if (ConfigService.constructorCallCount > 1) {
-      this.logger.warn(`⚠️ Warning: ConfigService constructor called ${ConfigService.constructorCallCount} times. Use this.configService instead.`);
+      this.logger.warn(`⚠️ Warning: ConfigService constructor called ${ConfigService.constructorCallCount} times. Use getInstance() instead.`);
       if (ConfigService.instance) {
-        return ConfigService.instance;
+        return ConfigService.instance as any;
       }
     }
     
@@ -135,4 +138,4 @@ export class ConfigService {
 }
 
 // Export a singleton instance
-export const configService = this.configService; 
+export const configService = ConfigService.getInstance(); 

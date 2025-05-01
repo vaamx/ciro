@@ -1,24 +1,39 @@
-import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../utils/logger-factory';
-import { QueryAnalysis } from './interfaces';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { createServiceLogger } from '../../common/utils/logger-factory';
+import { IQueryAnalyzerService, QueryAnalysis } from './interfaces';  // Import from local interfaces
+import { IntentAnalysisService } from './intent-analyzer.service';
+import { ComplexityAnalysisService, QueryComplexity } from './complexity-analyzer.service';
+import { EntityExtractionService } from './entity-extraction.service';
+import { NlpProcessorService } from '../ai/nlp-processor.service';
 
 /**
  * Service for analyzing user queries to determine intent, complexity,
  * data requirements, and visualization needs.
  */
 @Injectable()
-export class QueryAnalyzerService {
+export class QueryAnalyzerService implements IQueryAnalyzerService {
   private readonly logger = createServiceLogger('QueryAnalyzerService');
   
+  private visualizationPatterns = [
+    /chart/i, /graph/i, /visual/i, /plot/i, /dashboard/i, /diagram/i, /show me/i, 
+    /display/i, /visualize/i, /visualisation/i, /visualization/i
+  ];
 
-  private constructor() {
+  private analyticalPatterns = [
+    /trend/i, /compare/i, /analysis/i, /growth/i, /calculate/i, /report/i,
+    /metric/i, /analytics/i, /forecast/i, /projection/i, /performance/i,
+    /statistics/i, /insight/i, /kpi/i
+  ];
+
+  constructor(
+    private readonly intentAnalyzer: IntentAnalysisService,
+    private readonly complexityAnalyzer: ComplexityAnalysisService,
+    @Inject(forwardRef(() => EntityExtractionService))
+    private readonly entityExtractor: EntityExtractionService,
+    private readonly nlpProcessor: NlpProcessorService
+  ) {
     this.logger.info('QueryAnalyzerService initialized');
   }
-
-  /**
-   * Get the singleton instance of the service
-   */
-  
 
   /**
    * Analyze a query to determine intent, complexity, and requirements
@@ -27,17 +42,16 @@ export class QueryAnalyzerService {
   async analyzeQuery(query: string): Promise<QueryAnalysis> {
     this.logger.info(`Analyzing query: "${query}"`);
     
-    // Start with basic analysis
+    // Get initial analysis - using non-async version to match interface
     const basicAnalysis = this.analyzeQueryIntent(query);
     
-    // Extract entity types
-    const entityTypes = this.extractEntityTypes(query);
+    // Use the injected service for entity types (await the async method)
+    const entityTypes = await this.entityExtractor.extractEntities(query);
     
-    // Perform additional analysis for the enhanced version
+    // Add additional analysis needed
     return {
       ...basicAnalysis,
-      entityTypes,
-      // Add any additional analysis needed
+      entityTypes
     };
   }
 
@@ -47,281 +61,117 @@ export class QueryAnalyzerService {
    * @returns Analysis of the query
    */
   analyzeQueryIntent(query: string): QueryAnalysis {
-    // Convert to lowercase for easier pattern matching
-    const normalizedQuery = query.toLowerCase();
-    
-    // Default analysis values
-    const analysis: QueryAnalysis = {
-      intent: 'general',
-      complexity: 'medium',
-      dataVisualization: false,
-      entities: [],
-      searchLimit: 10,
-      similarityThreshold: 0.3,
-      isAnalytical: false
-    };
-    
-    // Determine intent based on query patterns
-    if (this.containsCountPattern(normalizedQuery)) {
-      analysis.intent = 'count';
-      analysis.countType = this.determineCountType(normalizedQuery);
-    } else if (this.containsAnalysisPattern(normalizedQuery)) {
-      analysis.intent = 'analysis';
-      analysis.isAnalytical = true;
-    } else if (this.containsSummaryPattern(normalizedQuery)) {
-      analysis.intent = 'summary';
-    } else if (this.containsComparisonPattern(normalizedQuery)) {
-      analysis.intent = 'comparison';
-      analysis.isAnalytical = true;
-    } else if (this.containsExplorationPattern(normalizedQuery)) {
-      analysis.intent = 'exploration';
+    try {
+      const analysis: QueryAnalysis = {
+        intent: 'query',  // Default intent
+        entities: [],     // Will be populated with extracted entities
+        complexity: 'medium', // Default complexity as string
+        dataVisualization: false, // Default - not requiring visualization
+        searchLimit: 5,    // Default number of documents to retrieve
+        similarityThreshold: 0.7, // Default similarity threshold
+        isAnalytical: false // Default - not an analytical query
+      };
+
+      // Let's analyze the query
+      this.logger.info(`Analyzing query: ${query}`);
+
+      // Determine the complexity of the query - use synchronous determineComplexity instead
+      const complexityResult = this.complexityAnalyzer.determineComplexity(query);
+      // Set the complexity directly from the result
+      if (typeof complexityResult === 'string') {
+        analysis.complexity = complexityResult;
+      }
+      
+      // Extract entities from the query
+      analysis.entities = this.extractEntitiesSync(query);
+      
+      // Check if the query is about time-based data
+      const timeFrame = this.extractTimeFrame(query);
+      if (timeFrame && typeof timeFrame !== 'string' && 'timeframe' in timeFrame && timeFrame.timeframe) {
+        analysis.timeFrame = timeFrame.timeframe;
+      }
+
+      // Check if the query requires full dataset or just a summary/visualization
+      if (this.needsFullDataset(query)) {
+        analysis.requiresFullDataset = true;
+        analysis.searchLimit = 20; // Increase search limit for full dataset queries
+      }
+
+      // Determine if the query might benefit from data visualization
+      analysis.dataVisualization = this.needsDataVisualization(query);
+      
+      // Check if the query is analytical in nature
+      analysis.isAnalytical = this.analyticalPatterns.some(pattern => pattern.test(query));
+
+      // Adjust search limit based on complexity
+      if (analysis.complexity === 'high') {
+        analysis.searchLimit = 10; // More documents for complex queries
+      } else if (analysis.complexity === 'low') {
+        analysis.searchLimit = 3; // Fewer documents for simple queries
+      }
+
+      this.logger.info(`Query analysis complete. Complexity: ${analysis.complexity}, Entities: ${analysis.entities.join(', ')}`);
+      return analysis;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Error analyzing query: ${errorMessage}`, errorStack);
+      return {
+        intent: 'query',
+        entities: [],
+        complexity: 'medium', // Return as string to match interface
+        dataVisualization: false,
+        searchLimit: 5,
+        similarityThreshold: 0.7,
+        isAnalytical: false
+      };
     }
-    
-    // Determine complexity
-    analysis.complexity = this.determineComplexity(normalizedQuery);
-    
-    // Check for data visualization needs
-    analysis.dataVisualization = this.needsDataVisualization(normalizedQuery, analysis.intent);
-    
-    // Extract entities if relevant
-    analysis.entities = this.extractEntities(normalizedQuery);
-    
-    // Adjust search parameters based on query characteristics
-    if (analysis.intent === 'analysis' || analysis.dataVisualization) {
-      analysis.searchLimit = 25; // Increase search limit for analytical queries
-      analysis.similarityThreshold = 0.25; // Lower threshold for more diverse results
-    }
-    
-    // Detect time frame if present
-    analysis.timeFrame = this.extractTimeFrame(normalizedQuery);
-    
-    // Extract entity type if specified
-    analysis.entityType = this.extractEntityType(normalizedQuery);
-    
-    this.logger.info(`Query analysis: intent=${analysis.intent}, complexity=${analysis.complexity}, visualization=${analysis.dataVisualization}`);
-    
-    return analysis;
   }
 
   /**
-   * Check if the query contains count-related patterns
+   * Simple synchronous entity extraction for use in non-async methods
+   * Uses basic pattern matching for common entity types
    */
-  private containsCountPattern(query: string): boolean {
-    const countPatterns = [
-      /how many/i,
-      /count of/i,
-      /number of/i,
-      /total number/i,
-      /count the/i
+  private extractEntitiesSync(query: string): string[] {
+    const entities: string[] = [];
+    const entityPatterns = [
+      { pattern: /company|companies|startup|startups/gi, entity: 'company' },
+      { pattern: /product|products/gi, entity: 'product' },
+      { pattern: /investor|investors/gi, entity: 'investor' },
+      { pattern: /person|people|individual|individuals/gi, entity: 'person' },
+      { pattern: /fund|funds/gi, entity: 'fund' },
+      { pattern: /industry|industries|sector|sectors/gi, entity: 'industry' }
     ];
     
-    return countPatterns.some(pattern => pattern.test(query));
-  }
-  
-  /**
-   * Determine what type of count is being requested
-   */
-  private determineCountType(query: string): 'entity' | 'document' | 'vcfund' | 'general' {
-    if (query.includes('document') || query.includes('documents')) {
-      return 'document';
-    }
-    
-    if (query.includes('fund') || query.includes('funds') || query.includes('investment')) {
-      return 'vcfund';
-    }
-    
-    // Check for common entity types
-    const entityTypes = [
-      'company', 'companies', 'startup', 'startups', 
-      'investor', 'investors', 'person', 'people',
-      'product', 'products', 'deal', 'deals'
-    ];
-    
-    for (const entityType of entityTypes) {
-      if (query.includes(entityType)) {
-        return 'entity';
-      }
-    }
-    
-    return 'general';
-  }
-  
-  /**
-   * Check if the query contains analysis-related patterns
-   */
-  private containsAnalysisPattern(query: string): boolean {
-    const analysisPatterns = [
-      /analyze/i,
-      /analysis/i,
-      /trend/i,
-      /correlation/i,
-      /relationship/i,
-      /pattern/i,
-      /insight/i,
-      /overview of/i,
-      /overview on/i,
-      /deep dive/i,
-      /statistics/i,
-      /statistic/i,
-      /stat/i,
-      /stats/i,
-      /metric/i,
-      /metrics/i,
-      /dashboard/i,
-      /visualize/i,
-      /chart/i,
-      /graph/i,
-      /plot/i,
-      /distribution/i
-    ];
-    
-    return analysisPatterns.some(pattern => pattern.test(query));
-  }
-  
-  /**
-   * Check if the query contains summary-related patterns
-   */
-  private containsSummaryPattern(query: string): boolean {
-    const summaryPatterns = [
-      /summarize/i,
-      /summary/i,
-      /brief overview/i,
-      /key point/i,
-      /main point/i,
-      /tldr/i,
-      /in short/i,
-      /briefly/i,
-      /in brief/i,
-      /overview/i,
-      /in a nutshell/i,
-      /boil down/i,
-      /high level/i
-    ];
-    
-    return summaryPatterns.some(pattern => pattern.test(query));
-  }
-  
-  /**
-   * Check if the query contains comparison-related patterns
-   */
-  private containsComparisonPattern(query: string): boolean {
-    const comparisonPatterns = [
-      /compare/i,
-      /comparison/i,
-      /versus/i,
-      /vs/i,
-      /difference/i,
-      /similar/i,
-      /different/i,
-      /better/i,
-      /worse/i,
-      /against/i,
-      /best/i,
-      /worst/i,
-      /rank/i,
-      /ranking/i,
-      /top/i,
-      /bottom/i
-    ];
-    
-    return comparisonPatterns.some(pattern => pattern.test(query));
-  }
-  
-  /**
-   * Check if the query contains exploration-related patterns
-   */
-  private containsExplorationPattern(query: string): boolean {
-    const explorationPatterns = [
-      /tell me about/i,
-      /what is/i,
-      /who is/i,
-      /explain/i,
-      /elaborate/i,
-      /details/i,
-      /description/i,
-      /information on/i,
-      /information about/i,
-      /learn about/i,
-      /find out about/i,
-      /tell me more/i
-    ];
-    
-    return explorationPatterns.some(pattern => pattern.test(query));
-  }
-  
-  /**
-   * Determine the complexity of the query
-   */
-  private determineComplexity(query: string): 'high' | 'medium' | 'low' {
-    // Check for complex query indicators
-    const highComplexityIndicators = [
-      // Multiple conditions
-      /and.*and/i,
-      /or.*or/i,
-      /and.*or/i,
-      /or.*and/i,
-      // Temporal analysis
-      /trend/i,
-      /over time/i,
-      /past.*years/i,
-      /evolution/i,
-      /growth/i,
-      // Complex analytics
-      /correlation/i,
-      /regression/i,
-      /cluster/i,
-      /segment/i,
-      /pattern/i,
-      /relationship between/i,
-      // Multiple entities
-      /both.*and/i,
-      /among/i,
-      /between/i,
-      // Negation
-      /not.*but/i,
-      /except/i,
-      /excluding/i,
-      // Multiple questions
-      /\?.*\?/i
-    ];
-    
-    // Check for simple query indicators
-    const lowComplexityIndicators = [
-      // Simple queries
-      /^what is/i,
-      /^who is/i,
-      /^how many/i,
-      /^when/i,
-      /^where/i,
-      // Simple lookups
-      /^find/i,
-      /^list/i,
-      /^show/i,
-      /^get/i
-    ];
-    
-    // Check for high complexity
-    for (const pattern of highComplexityIndicators) {
+    // Extract potential entities
+    for (const { pattern, entity } of entityPatterns) {
       if (pattern.test(query)) {
-        return 'high';
+        entities.push(entity);
       }
     }
     
-    // Check for low complexity
-    for (const pattern of lowComplexityIndicators) {
-      if (pattern.test(query) && query.split(' ').length < 10) {
-        return 'low';
-      }
-    }
-    
-    // Default to medium complexity
-    return 'medium';
+    return [...new Set(entities)]; // Remove duplicates
   }
-  
+
+  /**
+   * Converts a numeric complexity score to string representation
+   * @param complexityScore Numeric complexity score (1-10)
+   * @returns String representation of complexity
+   */
+  private convertComplexityToString(complexityScore: number): 'high' | 'medium' | 'low' {
+    if (complexityScore <= 3) {
+      return 'low';
+    } else if (complexityScore <= 7) {
+      return 'medium';
+    } else {
+      return 'high';
+    }
+  }
+
   /**
    * Determine if the query needs data visualization
    */
-  private needsDataVisualization(query: string, intent: string): boolean {
+  private needsDataVisualization(query: string): boolean {
     // Check for explicit visualization requests
     const visualizationPatterns = [
       /visualize/i,
@@ -346,31 +196,28 @@ export class QueryAnalyzerService {
       }
     }
     
-    // Also recommend visualization for certain intents
-    if (intent === 'analysis' || intent === 'comparison') {
-      // Check for analytical queries that benefit from visualization
-      const analyticalPatterns = [
-        /compare/i,
-        /distribution/i,
-        /over time/i,
-        /trend/i,
-        /growth/i,
-        /decline/i,
-        /change/i,
-        /top/i,
-        /bottom/i,
-        /most/i,
-        /least/i,
-        /highest/i,
-        /lowest/i,
-        /best/i,
-        /worst/i
-      ];
-      
-      for (const pattern of analyticalPatterns) {
-        if (pattern.test(query)) {
-          return true;
-        }
+    // Also recommend visualization for certain analytical patterns
+    const analyticalPatterns = [
+      /compare/i,
+      /distribution/i,
+      /over time/i,
+      /trend/i,
+      /growth/i,
+      /decline/i,
+      /change/i,
+      /top/i,
+      /bottom/i,
+      /most/i,
+      /least/i,
+      /highest/i,
+      /lowest/i,
+      /best/i,
+      /worst/i
+    ];
+    
+    for (const pattern of analyticalPatterns) {
+      if (pattern.test(query)) {
+        return true;
       }
     }
     
@@ -378,21 +225,9 @@ export class QueryAnalyzerService {
   }
   
   /**
-   * Extract entities from the query
-   */
-  private extractEntities(query: string): string[] {
-    // Simple entity extraction - look for capitalized words as potential entities
-    const capitalizedWords = query.match(/\b[A-Z][a-zA-Z]*\b/g) || [];
-    
-    // Filter out common capitalized words that aren't entities
-    const commonWords = ['I', 'A', 'The', 'For', 'In', 'On', 'About'];
-    return capitalizedWords.filter(word => !commonWords.includes(word));
-  }
-  
-  /**
    * Extract time frame from the query
    */
-  private extractTimeFrame(query: string): string | undefined {
+  private extractTimeFrame(query: string): QueryComplexity | undefined {
     // Look for time-related phrases
     const timeFramePatterns = [
       { pattern: /past (\d+) (day|week|month|year)s?/i, format: 'past $1 $2s' },
@@ -409,37 +244,21 @@ export class QueryAnalyzerService {
       const match = query.match(pattern);
       if (match) {
         // Replace capture groups in format string
-        return format.replace(/\$(\d+)/g, (_, index) => match[parseInt(index)] || '');
-      }
-    }
-    
-    return undefined;
-  }
-  
-  /**
-   * Extract entity type from the query
-   */
-  private extractEntityType(query: string): string | undefined {
-    // Common entity types
-    const entityTypes = [
-      'customer', 'customers',
-      'product', 'products',
-      'company', 'companies',
-      'investor', 'investors', 
-      'startup', 'startups',
-      'deal', 'deals',
-      'investment', 'investments',
-      'transaction', 'transactions',
-      'employee', 'employees',
-      'user', 'users',
-      'project', 'projects',
-      'industry', 'industries'
-    ];
-    
-    // Look for entity types in the query
-    for (const entityType of entityTypes) {
-      if (query.toLowerCase().includes(entityType)) {
-        return entityType;
+        const timeFrame: QueryComplexity = {
+          timeframe: format.replace(/\$(\d+)/g, (_, index) => match[parseInt(index)] || ''),
+          from: null,
+          to: null,
+          period: null
+        };
+        
+        // Extract date range
+        const dateRange = timeFrame.timeframe?.match(/from (\d{4}) to (\d{4})/i);
+        if (dateRange) {
+          timeFrame.from = dateRange[1];
+          timeFrame.to = dateRange[2];
+        }
+        
+        return timeFrame;
       }
     }
     
@@ -447,35 +266,60 @@ export class QueryAnalyzerService {
   }
 
   /**
-   * Extract entity types from query for enhanced analysis
+   * Determine if a query requires processing the entire dataset
+   * Used for analytical queries that need complete data coverage
    */
-  private extractEntityTypes(query: string): string[] {
-    // Common entity types to look for
-    const commonEntityTypes = [
-      'company', 'companies',
-      'startup', 'startups',
-      'investor', 'investors',
-      'person', 'people',
-      'individual',
-      'product', 'products',
-      'service', 'services',
-      'transaction', 'transactions',
-      'deal', 'deals',
-      'fund', 'funds',
-      'industry', 'industries',
-      'sector', 'sectors',
-      'market', 'markets',
-      'geography', 'region', 'country', 'city',
-      'event', 'events',
-      'project', 'projects',
-      'document', 'documents'
+  private needsFullDataset(query: string): boolean {
+    const fullDataPatterns = [
+      /total/i,
+      /all/i,
+      /entire/i,
+      /complete/i,
+      /full/i,
+      /every/i,
+      /overall/i,
+      /aggregate/i,
+      /sum of all/i,
+      /sum of/i,
+      /sum up/i,
+      /across all/i,
+      /across the/i
     ];
     
-    const normalizedQuery = query.toLowerCase();
+    // Analytics on metrics almost always need full dataset
+    const metricPatterns = [
+      /sales/i,
+      /revenue/i,
+      /profit/i,
+      /cost/i,
+      /expense/i,
+      /income/i,
+      /margin/i,
+      /growth/i,
+      /production/i,
+      /inventory/i,
+      /volume/i,
+      /quantity/i
+    ];
     
-    // Find matching entity types in the query
-    return commonEntityTypes.filter(entityType => 
-      normalizedQuery.includes(entityType)
-    );
+    // Check for analytics functions
+    const analyticsPatterns = [
+      /average/i,
+      /mean/i,
+      /median/i,
+      /mode/i,
+      /forecast/i,
+      /predict/i,
+      /trend/i,
+      /distribution/i
+    ];
+    
+    const hasFullDataIndicator = fullDataPatterns.some(pattern => pattern.test(query));
+    const hasMetricIndicator = metricPatterns.some(pattern => pattern.test(query));
+    const hasAnalyticsIndicator = analyticsPatterns.some(pattern => pattern.test(query));
+    
+    // Need full dataset if we have a "full data" indicator,
+    // or if we have both a metric and an analytics function
+    return hasFullDataIndicator || (hasMetricIndicator && hasAnalyticsIndicator);
   }
 } 

@@ -2,15 +2,18 @@ import React, { useState, useCallback } from 'react';
 import { 
   BarChart, Bar, LineChart, Line, PieChart, Pie,
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, Cell
+  Legend, ResponsiveContainer, Cell, ScatterChart, Scatter
 } from 'recharts';
 import { motion } from 'framer-motion';
-import BarChartComponent from './charts/BarChart';
-import LineChartComponent from './charts/LineChart';
-import PieChartComponent from './charts/PieChart';
-import AreaChartComponent from './charts/AreaChart';
-import ScatterChartComponent from './charts/ScatterChart';
-import HeatmapChartComponent from './charts/HeatmapChart';
+import BarChartComponent from './echarts/bar/BarChart';
+import LineChartComponent from './echarts/line/LineChart';
+import PieChartComponent from './echarts/pie/PieChart';
+import AreaChartComponent from './echarts/line/AreaChart';
+// Note: These components don't seem to exist in the file structure
+// I'm leaving them commented as placeholders - you'll need to implement
+// or remove these components based on your requirements
+// import ScatterChartComponent from './echarts/ScatterChart';
+// import HeatmapChartComponent from './echarts/HeatmapChart';
 import { CHART_COLORS, DARK_CHART_COLORS, CHART_BORDER_COLORS } from './constants';
 
 // Sample data for demos and tests
@@ -143,19 +146,24 @@ export const InteractiveVisualization: React.FC<InteractiveVisualizationProps> =
   // Detect theme if not explicitly provided
   const currentTheme = theme || (document.documentElement.classList.contains('dark') ? 'dark' : 'light');
 
-  // Add color to series if not specified
+  // Add color to series if not specified and ensure each series has a name property
   const coloredSeries = chartSeries.map((s, i) => {
+    // Ensure name is always provided
+    const name = s.name || s.dataKey || `Series ${i+1}`;
+    
     // For bar charts with useDirectColorAssignment, don't add a specific color
     // This allows the BarChart component to apply different colors to each bar
     if (type.toLowerCase() === 'bar' && options.useDirectColorAssignment && !s.color) {
       return {
-        ...s
+        ...s,
+        name
       };
     }
     
     // For other chart types, or if useDirectColorAssignment is false, add color
     return {
       ...s,
+      name,
       color: s.color || CHART_COLORS[i % CHART_COLORS.length]
     };
   });
@@ -317,32 +325,36 @@ export const InteractiveVisualization: React.FC<InteractiveVisualizationProps> =
           />
         );
       case 'scatter':
+        // Fallback to recharts ScatterChart since custom component isn't available
         return (
-          <ScatterChartComponent
-            data={data}
-            width={width}
-            height={height}
-            xKey={xKey}
-            yKey={yKey}
-            series={coloredSeries}
-            labels={labels}
-            options={enhancedOptions}
-            theme={currentTheme}
-          />
+          <div className="chart-fallback">
+            <ResponsiveContainer width="100%" height={height}>
+              <ScatterChart>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey={xKey} name={labels.xAxis || xKey} />
+                <YAxis dataKey={yKey} name={labels.yAxis || yKey} />
+                <Tooltip content={<AnimatedTooltip theme={theme} />} />
+                <Legend />
+                {coloredSeries.map((s, index) => (
+                  <Scatter
+                    key={index}
+                    name={s.name || s.dataKey}
+                    data={data}
+                    fill={s.color}
+                    onClick={handleDataPointClick}
+                  />
+                ))}
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
         );
       case 'heatmap':
+        // Fallback message for heatmap as it requires custom implementation
         return (
-          <HeatmapChartComponent
-            data={data}
-            width={width}
-            height={height}
-            xKey={xKey}
-            yKey={yKey}
-            series={coloredSeries}
-            labels={labels}
-            options={enhancedOptions}
-            theme={currentTheme}
-          />
+          <div className="p-4 text-center bg-gray-100 dark:bg-gray-800 rounded-lg">
+            <p>Heatmap visualization requires custom ECharts implementation.</p>
+            <p className="text-sm text-gray-500 mt-2">Please implement a HeatmapChart component in the echarts/heatmap directory.</p>
+          </div>
         );
       default:
         // For other chart types, use direct recharts components as fallback

@@ -4,14 +4,8 @@ import {
   Plus,
   Search,
   Filter,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Settings,
-  Trash2,
   Play,
   Pause,
-  Mail,
   Calendar,
   FileText,
   MessageSquare,
@@ -20,8 +14,8 @@ import {
   Box,
   BarChart2,
   History,
-  ExternalLink,
-  Activity
+  Settings,
+  Trash2,
 } from 'lucide-react';
 
 interface AutomationFlow {
@@ -185,43 +179,11 @@ const automationFlows: AutomationFlow[] = [
 export const AutomationsView: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFlow, setSelectedFlow] = useState<AutomationFlow | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const filteredFlows = automationFlows.filter(flow => 
     (!activeCategory || activeCategory === 'all' || flow.category === activeCategory) &&
     flow.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <CheckCircle2 className="w-5 h-5 text-green-500" />;
-      case 'draft':
-        return <Clock className="w-5 h-5 text-yellow-500" />;
-      case 'paused':
-        return <Pause className="w-5 h-5 text-orange-500" />;
-      case 'error':
-        return <AlertCircle className="w-5 h-5 text-red-500" />;
-      default:
-        return <AlertCircle className="w-5 h-5 text-gray-500" />;
-    }
-  };
-
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-100 text-green-700';
-      case 'draft':
-        return 'bg-yellow-100 text-yellow-700';
-      case 'paused':
-        return 'bg-orange-100 text-orange-700';
-      case 'error':
-        return 'bg-red-100 text-red-700';
-      default:
-        return 'bg-gray-100 text-gray-700';
-    }
-  };
 
   return (
     <div className="space-y-6 p-6">

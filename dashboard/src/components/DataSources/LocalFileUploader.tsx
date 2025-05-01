@@ -55,7 +55,14 @@ export const LocalFileUploader: React.FC<LocalFileUploaderProps> = ({
     try {
       const file = acceptedFiles[0]; // Only take the first file
       const metadata = await fileService.uploadFile(file);
-      onUploadComplete?.(metadata);
+      
+      // Convert metadata to ensure dataSourceId is a string
+      const typeSafeMetadata = {
+        ...metadata,
+        dataSourceId: metadata.dataSourceId != null ? String(metadata.dataSourceId) : undefined
+      };
+      
+      onUploadComplete?.(typeSafeMetadata);
     } catch (error) {
       console.error('Upload failed:', error);
     } finally {

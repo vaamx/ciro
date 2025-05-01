@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../../utils/logger-factory';
+import { createServiceLogger } from '../../../common/utils/logger-factory';
 
 /**
  * Types of analytical queries that can be detected

@@ -1,182 +1,214 @@
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { QdrantClientService } from './qdrant-client.service';
-import { QdrantCollectionService } from './collection-manager.service';
-import { db } from '../../config/database';
+import { EmbeddingService } from '../ai/embedding.service';
+import { BaseSearchService } from './base-search.service';
 import { 
-  IQdrantSearchService, 
   SearchOptions, 
-  SearchResultItem 
-} from './interfaces';
+  SearchResultItem, 
+  UpsertOptions, 
+  PointsList, 
+  PointItem
+ } from '../vector/vector.interfaces';
+import { normalizeCollectionName, combineFilters } from './utils';
+import { Schemas as QdrantSchemas } from '@qdrant/js-client-rest';
+
+// Define the PointStruct type using the imported Schemas
+type QdrantPointStruct = QdrantSchemas['PointStruct'];
 
 /**
  * Service for searching vectors in Qdrant
+ * Extends the base search service with Qdrant-specific functionality
  */
 @Injectable()
-export class QdrantSearchService implements IQdrantSearchService {
-  private readonly logger = createServiceLogger('QdrantSearchService');
-  private readonly clientService: QdrantClientService;
-  private readonly collectionService: QdrantCollectionService;
-  
+export class QdrantSearchService extends BaseSearchService {
+  // Create a service-specific logger
+  protected override readonly logger = createServiceLogger('QdrantSearchService');
 
-  private constructor(
-    private readonly qdrantClientService: QdrantClientService,
-    private readonly qdrantCollectionService: QdrantCollectionService,
-    private readonly openAIService: OpenAIService,
-    ) {
+  constructor(
+    qdrantClientService: QdrantClientService,
+    embeddingService: EmbeddingService
+  ) {
+    super(qdrantClientService, embeddingService);
     this.logger.info('QdrantSearchService initialized');
-    this.clientService = this.qdrantClientService;
-    this.collectionService = this.qdrantCollectionService;
   }
 
   /**
-   * Get the singleton instance of QdrantSearchService
+   * Check if a Qdrant collection exists.
+   * @param collectionName The name of the collection.
+   * @returns True if the collection exists, false otherwise.
    */
-  
+  public async collectionExists(collectionName: string): Promise<boolean> {
+    const normalizedName = normalizeCollectionName(collectionName);
+    try {
+      this.logger.debug(`Checking existence of collection: ${normalizedName}`);
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return false;
+      }
+      
+      const response = await client.getCollection(normalizedName);
+      return !!response; 
+    } catch (error: any) {
+      // Handle specific error for 'not found' if available, otherwise log and assume false
+      if (error?.status === 404 || error?.message?.includes('Not found')) {
+        this.logger.warn(`Collection ${normalizedName} not found.`);
+        return false;
+      }
+      this.logger.error(`Error checking collection existence for ${normalizedName}:`, error);
+      // Re-throw for unexpected errors? Or return false? Returning false for safety.
+      return false; 
+    }
+  }
 
   /**
-   * Search for vectors in a collection using simple parameters
-   * @param collectionName Collection name
-   * @param vector Vector to search for
-   * @param filter Optional filter to apply to search
-   * @param limit Maximum number of results to return
-   * @param scoreThreshold Minimum score threshold
-   * @returns Array of search results
+   * Implements the search functionality using the Qdrant client.
    */
   async search(
     collectionName: string,
     vector: number[],
     filter?: any,
-    limit: number = 10,
-    scoreThreshold: number = 0.0
+    limit: number = 50,
+    scoreThreshold: number = 0.0,
+    offset: number = 0
   ): Promise<SearchResultItem[]> {
-    if (!collectionName) {
-      this.logger.error('Collection name is required');
-      return [];
+    const normalizedName = normalizeCollectionName(collectionName);
+
+    // Check existence first
+    if (!(await this.collectionExists(normalizedName))) {
+        this.logger.warn(`Attempted search on non-existent collection: ${normalizedName}`);
+        return [];
     }
 
+    const combinedFilter = combineFilters(
+      {
+        // Add default filters if needed by QdrantSearchService
+      },
+      filter
+    );
+
+    // Use a direct object instead of SearchOptions from interface for Qdrant client
+    const searchParams = {
+      vector,
+      limit,
+      offset,
+      filter: combinedFilter,
+      score_threshold: scoreThreshold,
+      with_payload: true, // Ensure payload is returned
+      with_vector: false, // Usually not needed in search results
+    };
+
     try {
-      // Check if collection exists
-      const exists = await this.collectionService.collectionExists(collectionName);
+      this.logger.debug(
+        `Searching collection ${normalizedName} with limit ${limit}, offset ${offset}, threshold ${scoreThreshold}`
+      );
       
-      if (!exists) {
-        this.logger.warn(`Collection ${collectionName} does not exist`);
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
         return [];
       }
       
-      // Construct search options
-      const searchOptions: SearchOptions = {
-        filter,
-        limit,
-        with_payload: true,
-        with_vector: false
-      };
-      
-      if (scoreThreshold > 0) {
-        searchOptions.score_threshold = scoreThreshold;
-      }
-      
-      // Execute search
-      return this.searchWithParams(collectionName, vector, searchOptions);
-    } catch (error) {
-      this.logger.error(`Error searching in collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    }
-  }
-
-  /**
-   * Search for vectors in a collection using full search options
-   * @param collectionName Collection name
-   * @param vector Vector to search for
-   * @param options Search options
-   * @returns Array of search results
-   */
-  async searchWithParams(
-    collectionName: string,
-    vector: number[],
-    options: SearchOptions
-  ): Promise<SearchResultItem[]> {
-    if (!collectionName) {
-      this.logger.error('Collection name is required');
-      return [];
-    }
-
-    if (!vector || vector.length === 0) {
-      this.logger.error('Vector is required');
-      return [];
-    }
-
-    try {
-      const client = this.clientService.getClient();
-      
-      // Execute search
-      const result = await client.search(collectionName, {
-        vector,
-        filter: options.filter,
-        limit: options.limit || 10,
-        offset: options.offset || 0,
-        with_payload: options.with_payload !== false,
-        with_vector: options.with_vector || false,
-        ...(options.score_threshold ? { score_threshold: options.score_threshold } : {}),
-        params: options.params
-      });
-      
-      // Map results to consistent format
-      const mappedResults: SearchResultItem[] = result.map(item => ({
-        id: item.id,
-        score: item.score,
-        payload: item.payload || {},
-        // Only include vector if it's a number array
-        vector: Array.isArray(item.vector) ? item.vector as number[] : undefined
-      }));
-      
-      this.logger.info(`Found ${mappedResults.length} results in collection ${collectionName}`);
-      
-      return mappedResults;
-    } catch (error) {
-      this.logger.error(`Error searching in collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    }
-  }
-
-  /**
-   * Search for multiple vectors in batch
-   * @param collectionName Collection name
-   * @param vectors Array of vectors to search for
-   * @param filter Optional filter to apply to search
-   * @param limit Maximum number of results per vector
-   * @returns Array of search result arrays, one per input vector
-   */
-  async searchBatch(
-    collectionName: string,
-    vectors: number[][],
-    filter?: any,
-    limit: number = 10
-  ): Promise<SearchResultItem[][]> {
-    if (!collectionName) {
-      this.logger.error('Collection name is required');
-      return [];
-    }
-
-    if (!vectors || vectors.length === 0) {
-      this.logger.error('Vectors are required');
-      return [];
-    }
-
-    try {
-      // Execute searches in parallel
-      const searchPromises = vectors.map(vector => 
-        this.search(collectionName, vector, filter, limit)
+      const results = await client.search(
+        normalizedName,
+        searchParams,
       );
       
-      const results = await Promise.all(searchPromises);
-      
-      this.logger.info(`Completed batch search with ${vectors.length} queries in collection ${collectionName}`);
-      
-      return results;
+      // Map results to SearchResultItem format
+      return results.map(hit => ({
+        id: String(hit.id), // Ensure ID is string
+        score: hit.score,
+        payload: hit.payload as Record<string, unknown>,
+        vector: Array.isArray(hit.vector) && hit.vector.every(n => typeof n === 'number') 
+                  ? hit.vector as number[] 
+                  : undefined,
+      }));
     } catch (error) {
-      this.logger.error(`Error in batch search for collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
+      this.logger.error(`Error searching collection ${normalizedName}:`, error);
+      // Consider re-throwing or specific error handling
+      return []; // Return empty on error for now
+    }
+  }
+
+  /**
+   * Implements the upsert functionality using the Qdrant client.
+   */
+  async upsert(
+    collectionName: string,
+    points: PointsList,
+    options?: UpsertOptions
+  ): Promise<void> {
+    const normalizedName = normalizeCollectionName(collectionName);
+    
+    // Check existence first (optional, Qdrant upsert might create if not exists, depending on config)
+    // if (!(await this.collectionExists(normalizedName))) {
+    //     this.logger.warn(`Attempted upsert on non-existent collection: ${normalizedName}. Qdrant might create it.`);
+    // }
+
+    try {
+      this.logger.debug(`Upserting ${points.length} points into collection ${normalizedName}`);
+      
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        throw new Error('Qdrant client is not available');
+      }
+      
+      // Map points to QdrantPointStruct format
+      const qdrantPoints: QdrantPointStruct[] = points.map(p => ({
+        id: p.id,
+        vector: p.vector,
+        payload: p.payload,
+      }));
+
+      // Use parameters directly compatible with Qdrant client
+      await client.upsert(normalizedName, {
+        points: qdrantPoints,
+        wait: true, // Default to waiting for consistency, not using options.wait since it's not in UpsertOptions
+      });
+      this.logger.info(`Successfully upserted ${points.length} points to ${normalizedName}`);
+    } catch (error) {
+      this.logger.error(`Error upserting into collection ${normalizedName}:`, error);
+      // Consider re-throwing or specific error handling
+      throw error; // Re-throw errors for upsert operations
+    }
+  }
+
+  /**
+   * Implements the delete functionality using the Qdrant client.
+   */
+  async delete(collectionName: string, pointIds: string[]): Promise<void> {
+    const normalizedName = normalizeCollectionName(collectionName);
+
+    // Check existence first
+    if (!(await this.collectionExists(normalizedName))) {
+        this.logger.warn(`Attempted delete on non-existent collection: ${normalizedName}`);
+        return; // Can't delete from a non-existent collection
+    }
+
+    if (!pointIds || pointIds.length === 0) {
+      this.logger.warn(`Delete operation called with no points for collection ${normalizedName}.`);
+      return;
+    }
+
+    try {
+      this.logger.debug(`Deleting ${pointIds.length} points from collection ${normalizedName}`);
+      
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        throw new Error('Qdrant client is not available');
+      }
+      
+      await client.delete(normalizedName, {
+        points: pointIds, // Pass the array of string IDs
+      });
+      this.logger.info(`Successfully deleted ${pointIds.length} points from ${normalizedName}`);
+    } catch (error) {
+      this.logger.error(`Error deleting points from collection ${normalizedName}:`, error);
+      // Consider re-throwing or specific error handling
+      throw error; // Re-throw errors for delete operations
     }
   }
 
@@ -236,425 +268,53 @@ export class QdrantSearchService implements IQdrantSearchService {
   }
 
   /**
-   * Perform a comprehensive hybrid search across multiple data sources
-   * Incorporates both vector similarity and keyword matching with controllable weights
-   * @param query The search query
-   * @param dataSourceIds Array of data source IDs to search in
-   * @param options Search options including weights
-   * @returns Array of search results
+   * Get sample data from the Qdrant collection for code generation examples
+   * @returns Sample data array
    */
-  async hybridSearchComprehensive(
-    query: string,
-    dataSourceIds: string[] | number[],
-    options: {
-      limit?: number;
-      semanticWeight?: number;
-      keywordWeight?: number;
-      similarityThreshold?: number;
-      includeMetadata?: boolean;
-    } = {}
-  ): Promise<SearchResultItem[]> {
-    const {
-      limit = 10,
-      semanticWeight = 0.75,
-      keywordWeight = 0.25,
-      similarityThreshold = 0.3,
-      includeMetadata = true,
-    } = options;
-
-    this.logger.info(`Performing hybrid search for: "${query.substring(0, 50)}..."`);
-    this.logger.info(`Search parameters: semanticWeight=${semanticWeight}, keywordWeight=${keywordWeight}, limit=${limit}`);
-
+  public async getSampleData(limit: number = 10): Promise<any[]> {
     try {
-      // Normalize data source IDs
-      const normalizedIds = dataSourceIds.map(id => String(id));
-
-      // 1. Get vectors for the query
-      const OpenAIService = (await import('../../services/ai/openai.service')).OpenAIService;
-      const openAIService = this.openAIService;
-      const embeddings = await openAIService.createEmbeddings(query);
-      if (!embeddings || embeddings.length === 0) {
-        throw new Error('Failed to create embeddings for query');
+      // Assume 'default_collection' exists or handle appropriately
+      const collectionName = 'default_collection'; 
+      if (!(await this.collectionExists(collectionName))) {
+          this.logger.warn(`Sample data collection '${collectionName}' not found. Returning fallback data.`);
+          return [
+              { id: 1, name: 'Sample Item 1', value: 100 },
+              { id: 2, name: 'Sample Item 2', value: 200 },
+              { id: 3, name: 'Sample Item 3', value: 300 },
+          ];
       }
-      const queryEmbedding = embeddings[0];
+      
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return [
+          { id: 1, name: 'Sample Item 1', value: 100 },
+          { id: 2, name: 'Sample Item 2', value: 200 },
+          { id: 3, name: 'Sample Item 3', value: 300 },
+        ];
+      }
+      
+      const response = await client.scroll(collectionName, {
+          limit,
+          with_payload: true
+      });
 
-      // 2. Perform semantic search
-      const semanticResults = await this.performSemanticSearch(
-        queryEmbedding,
-        normalizedIds,
-        Math.ceil(limit * 1.5), // Get more results for reranking
-        similarityThreshold
-      );
+      if (response && response.points && response.points.length > 0) {
+          return response.points.map((point: any) => point.payload || {});
+      }
 
-      this.logger.info(`Found ${semanticResults.length} results from semantic search`);
-
-      // 3. Perform keyword search
-      const keywordResults = await this.performKeywordSearch(
-        query,
-        normalizedIds,
-        Math.ceil(limit * 1.5) // Get more results for reranking
-      );
-
-      this.logger.info(`Found ${keywordResults.length} results from keyword search`);
-
-      // 4. Combine and rerank results
-      const combinedResults = this.combineAndRerank(
-        semanticResults,
-        keywordResults,
-        semanticWeight,
-        keywordWeight,
-        limit
-      );
-
-      this.logger.info(`Returning ${combinedResults.length} hybrid search results`);
-
-      // Map results to expected format
-      return combinedResults.map(result => ({
-        id: result.id,
-        score: result.finalScore,
-        payload: {
-          content: result.content,
-          metadata: includeMetadata ? {
-            ...result.metadata,
-            semanticScore: result.semanticScore,
-            keywordScore: result.keywordScore,
-            finalScore: result.finalScore,
-            sourceId: result.sourceId,
-            sourceName: result.sourceName || 'unknown'
-          } : undefined
-        }
-      }));
+      return [
+          { id: 1, name: 'Sample Item 1', value: 100 },
+          { id: 2, name: 'Sample Item 2', value: 200 },
+          { id: 3, name: 'Sample Item 3', value: 300 },
+      ];
     } catch (error) {
-      this.logger.error(`Error performing hybrid search: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
+      this.logger.error(`Error retrieving sample data: ${error}`);
+      return [
+          { id: 1, name: 'Sample Item 1', value: 100 },
+          { id: 2, name: 'Sample Item 2', value: 200 },
+          { id: 3, name: 'Sample Item 3', value: 300 },
+      ];
     }
-  }
-
-  /**
-   * Perform semantic search across multiple data sources
-   * @private
-   */
-  private async performSemanticSearch(
-    queryEmbedding: number[],
-    dataSourceIds: string[],
-    limit: number,
-    similarityThreshold: number
-  ): Promise<any[]> {
-    try {
-      // Combine results from all data sources
-      const combinedResults: any[] = [];
-
-      // Search in each data source's Qdrant collection
-      for (const sourceId of dataSourceIds) {
-        try {
-          // Get data source info
-          const dataSource = await db('data_sources')
-            .where({ id: sourceId })
-            .first();
-            
-          if (!dataSource) {
-            this.logger.warn(`Data source ${sourceId} not found`);
-            continue;
-          }
-          
-          // Determine collection name
-          const collectionName = this.getCollectionNameForDataSource(sourceId);
-          
-          // Check if collection exists
-          const collectionExists = await this.collectionService.collectionExists(collectionName);
-          
-          if (!collectionExists) {
-            this.logger.warn(`Collection ${collectionName} does not exist`);
-            continue;
-          }
-          
-          // Search in collection
-          const results = await this.search(
-            collectionName,
-            queryEmbedding,
-            undefined,
-            limit,
-            similarityThreshold
-          );
-          
-          if (results && results.length > 0) {
-            // Format results
-            const formattedResults = results.map(result => ({
-              id: result.id,
-              content: result.payload.content || result.payload.text,
-              sourceId,
-              sourceName: dataSource.name || `Source ${sourceId}`,
-              semanticScore: result.score || 0,
-              keywordScore: 0, // Will be populated later if found in keyword results
-              metadata: {
-                ...result.payload.metadata,
-                similarity: result.score
-              }
-            }));
-            
-            combinedResults.push(...formattedResults);
-          }
-        } catch (error) {
-          this.logger.error(`Error searching in data source ${sourceId}:`, error);
-        }
-      }
-
-      // Fallback to PostgreSQL vector search if no results
-      if (combinedResults.length === 0) {
-        this.logger.info('No vector DB results, falling back to PostgreSQL vector search');
-        
-        // Format embedding for PostgreSQL
-        const formattedEmbedding = `[${queryEmbedding.join(',')}]`;
-        
-        // Query database
-        const chunks = await db('document_chunks')
-          .select(
-            'document_chunks.*',
-            db.raw('1 - (embedding <=> ?) as similarity', [formattedEmbedding])
-          )
-          .whereIn('data_source_id', dataSourceIds)
-          .whereRaw('embedding IS NOT NULL')
-          .andWhereRaw('1 - (embedding <=> ?) >= ?', [formattedEmbedding, similarityThreshold])
-          .orderBy('similarity', 'desc')
-          .limit(limit);
-        
-        this.logger.info(`Found ${chunks.length} relevant chunks from PostgreSQL vector search`);
-        
-        if (chunks && chunks.length > 0) {
-          // Get data source names
-          const dataSourceMap = new Map();
-          for (const sourceId of dataSourceIds) {
-            const source = await db('data_sources').where({ id: sourceId }).first();
-            if (source) {
-              dataSourceMap.set(sourceId, source.name || `Source ${sourceId}`);
-            }
-          }
-          
-          // Format results
-          const formattedChunks = chunks.map((chunk: any) => ({
-            id: chunk.id,
-            content: chunk.content,
-            sourceId: chunk.data_source_id,
-            sourceName: dataSourceMap.get(chunk.data_source_id) || `Source ${chunk.data_source_id}`,
-            semanticScore: chunk.similarity || 0,
-            keywordScore: 0,
-            metadata: {
-              ...chunk.metadata,
-              similarity: chunk.similarity
-            }
-          }));
-          
-          combinedResults.push(...formattedChunks);
-        }
-      }
-
-      return combinedResults;
-    } catch (error) {
-      this.logger.error('Error performing semantic search:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Perform keyword-based search using PostgreSQL full-text search
-   * @private
-   */
-  private async performKeywordSearch(
-    query: string,
-    dataSourceIds: string[],
-    limit: number
-  ): Promise<any[]> {
-    try {
-      // Prepare search terms
-      const queryTerms = query
-        .toLowerCase()
-        .replace(/[^\w\s]/g, '') // Remove punctuation
-        .split(/\s+/)
-        .filter(term => term.length > 2) // Filter out short words
-        .filter(term => !['the', 'and', 'but', 'for', 'not', 'you', 'that', 'this', 'with'].includes(term));
-      
-      if (queryTerms.length === 0) {
-        return [];
-      }
-      
-      // Create a tsquery expression for PostgreSQL full-text search
-      const tsQuery = queryTerms.map(term => `${term}:*`).join(' | ');
-      
-      // Get data source names
-      const dataSourceMap = new Map();
-      for (const sourceId of dataSourceIds) {
-        const source = await db('data_sources').where({ id: sourceId }).first();
-        if (source) {
-          dataSourceMap.set(sourceId, source.name || `Source ${sourceId}`);
-        }
-      }
-      
-      // Perform full-text search in PostgreSQL
-      const chunks = await db('document_chunks')
-        .select(
-          'document_chunks.*',
-          db.raw(`ts_rank(to_tsvector('english', content), to_tsquery('english', ?)) as rank`, [tsQuery])
-        )
-        .whereIn('data_source_id', dataSourceIds)
-        .whereRaw(`to_tsvector('english', content) @@ to_tsquery('english', ?)`, [tsQuery])
-        .orderBy('rank', 'desc')
-        .limit(limit);
-      
-      this.logger.info(`Found ${chunks.length} chunks from keyword search`);
-      
-      // Format results
-      return chunks.map((chunk: any) => ({
-        id: chunk.id,
-        content: chunk.content,
-        sourceId: chunk.data_source_id,
-        sourceName: dataSourceMap.get(chunk.data_source_id) || `Source ${chunk.data_source_id}`,
-        semanticScore: 0, // Will be populated later if found in semantic results
-        keywordScore: chunk.rank || 0,
-        metadata: {
-          ...chunk.metadata,
-          keywordRank: chunk.rank
-        }
-      }));
-    } catch (error) {
-      this.logger.error('Error performing keyword search:', error);
-      
-      // Fallback to simpler LIKE query if full-text search fails
-      try {
-        this.logger.info('Falling back to LIKE-based keyword search');
-        
-        // Prepare search terms for LIKE query
-        const searchTerms = query
-          .toLowerCase()
-          .replace(/[^\w\s]/g, '')
-          .split(/\s+/)
-          .filter(term => term.length > 2);
-        
-        if (searchTerms.length === 0) {
-          return [];
-        }
-        
-        // Find chunks that contain any of the search terms
-        let queryBuilder = db('document_chunks')
-          .select('*')
-          .whereIn('data_source_id', dataSourceIds);
-        
-        // Add LIKE conditions for each search term
-        for (const term of searchTerms) {
-          queryBuilder = queryBuilder.orWhereRaw('LOWER(content) LIKE ?', [`%${term}%`]);
-        }
-        
-        const chunks = await queryBuilder.limit(limit);
-        
-        this.logger.info(`Found ${chunks.length} chunks from fallback keyword search`);
-        
-        // Get data source names
-        const dataSourceMap = new Map();
-        for (const sourceId of dataSourceIds) {
-          const source = await db('data_sources').where({ id: sourceId }).first();
-          if (source) {
-            dataSourceMap.set(sourceId, source.name || `Source ${sourceId}`);
-          }
-        }
-        
-        // Calculate a simple score based on how many terms match
-        return chunks.map((chunk: any) => {
-          const content = chunk.content.toLowerCase();
-          let matchCount = 0;
-          
-          for (const term of searchTerms) {
-            if (content.includes(term)) {
-              matchCount++;
-            }
-          }
-          
-          const score = matchCount / searchTerms.length;
-          
-          return {
-            id: chunk.id,
-            content: chunk.content,
-            sourceId: chunk.data_source_id,
-            sourceName: dataSourceMap.get(chunk.data_source_id) || `Source ${chunk.data_source_id}`,
-            semanticScore: 0,
-            keywordScore: score,
-            metadata: {
-              ...chunk.metadata,
-              keywordMatches: matchCount,
-              keywordRank: score
-            }
-          };
-        });
-      } catch (fallbackError) {
-        this.logger.error('Error in fallback keyword search:', fallbackError);
-        return [];
-      }
-    }
-  }
-
-  /**
-   * Combine and rerank results from semantic and keyword searches
-   * @private
-   */
-  private combineAndRerank(
-    semanticResults: any[],
-    keywordResults: any[],
-    semanticWeight: number,
-    keywordWeight: number,
-    limit: number
-  ): any[] {
-    try {
-      // Create a map of all results by ID
-      const resultsMap = new Map();
-      
-      // Add semantic results to the map
-      for (const result of semanticResults) {
-        resultsMap.set(result.id, {
-          ...result,
-          finalScore: result.semanticScore * semanticWeight
-        });
-      }
-      
-      // Update with keyword results or add new ones
-      for (const result of keywordResults) {
-        if (resultsMap.has(result.id)) {
-          // Result exists in semantic results, update scores
-          const existingResult = resultsMap.get(result.id);
-          existingResult.keywordScore = result.keywordScore;
-          existingResult.finalScore = (existingResult.semanticScore * semanticWeight) + 
-                                     (result.keywordScore * keywordWeight);
-        } else {
-          // New result from keyword search
-          resultsMap.set(result.id, {
-            ...result,
-            finalScore: result.keywordScore * keywordWeight
-          });
-        }
-      }
-      
-      // Convert map to array and sort by final score
-      const combinedResults = Array.from(resultsMap.values())
-        .sort((a, b) => b.finalScore - a.finalScore)
-        .slice(0, limit);
-      
-      return combinedResults;
-    } catch (error) {
-      this.logger.error('Error combining and reranking results:', error);
-      
-      // If reranking fails, just return semantic results as fallback
-      return semanticResults.slice(0, limit);
-    }
-  }
-
-  /**
-   * Get collection name for a data source
-   * @private
-   */
-  private getCollectionNameForDataSource(dataSourceId: string | number): string {
-    // If the ID starts with 'datasource_', use it directly
-    if (typeof dataSourceId === 'string' && dataSourceId.startsWith('datasource_')) {
-      return dataSourceId;
-    }
-    
-    // Otherwise, prepend 'datasource_'
-    return `datasource_${dataSourceId}`;
   }
 } 

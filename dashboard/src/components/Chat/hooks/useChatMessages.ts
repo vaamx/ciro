@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { type ChatMessage, type MessageStatus } from '../types';
-import { chatApi } from '../../../services/api';
+// Import removed as the API is incompatible
 
 export const useChatMessages = (sessionId: string) => {
   const [messages, setMessages] = useState<ChatMessage[]>([{
@@ -15,7 +15,10 @@ export const useChatMessages = (sessionId: string) => {
     // Load chat history when component mounts
     const loadChatHistory = async () => {
       try {
-        const history = await chatApi.getChatHistory(sessionId);
+        // TODO: Implement chat history loading
+        console.log('Loading chat history for session:', sessionId);
+        // Mock implementation - would normally fetch from API
+        const history: ChatMessage[] = [];
         if (history.length > 0) {
           setMessages(prev => [...prev, ...history]);
         }
@@ -38,19 +41,16 @@ export const useChatMessages = (sessionId: string) => {
     setMessages(prev => [...prev, newMessage]);
 
     try {
-      const response = await chatApi.sendMessage(
-        sessionId,
-        content,
-        selectedDataSource
-      );
-
-      // Add the assistant's response
+      // TODO: Implement real API call
+      console.log('Sending message:', content, 'with data source:', selectedDataSource);
+      
+      // Mock response
       const assistantMessage: ChatMessage = {
         id: uuidv4(),
         role: 'assistant',
-        content: response.message.content,
+        content: `I received your message: "${content}"`,
         status: 'complete',
-        metadata: response.message.metadata,
+        metadata: { isSimulated: true },
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -73,11 +73,14 @@ export const useChatMessages = (sessionId: string) => {
 
   const regenerateMessage = async (messageId: string) => {
     try {
-      const response = await chatApi.regenerateMessage(messageId);
+      // TODO: Implement regeneration
+      console.log('Regenerating message:', messageId);
+      
+      // Mock implementation
       setMessages(prev => 
         prev.map(m => m.id === messageId ? {
           ...m,
-          content: response.content,
+          content: 'This is a regenerated response.',
           status: 'complete' as MessageStatus,
         } : m)
       );

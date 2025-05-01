@@ -1,8 +1,9 @@
 import { injectable } from 'inversify';
-import { createServiceLogger } from '../../../utils/logger-factory';
+import { createServiceLogger } from '../../../common/utils/logger-factory';
 import { db } from '../../../config/database';
 import { WebSocketService } from '../websocket.service';
 import { DataSource } from '../../../types';
+import { EventManager } from '../event-manager';
 
 // Add interface at the top of the file before class definition
 interface DbResult {
@@ -18,11 +19,12 @@ interface DbResult {
 @injectable()
 export class FileUploadService {
   private readonly logger = createServiceLogger('FileUploadService');
-  private websocketService: WebSocketService;
 
-  constructor() {
+  constructor(
+    private readonly eventManager: EventManager,
+    private readonly websocketService: WebSocketService
+  ) {
     this.logger.info('FileUploadService initialized');
-    this.websocketService = new WebSocketService();
   }
 
   /**

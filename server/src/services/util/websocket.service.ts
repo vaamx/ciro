@@ -8,6 +8,7 @@ import { EventManager } from './event-manager';
 
 /**
  * Service for managing WebSocket connections
+ * Provides SocketService-compatible interface
  */
 @injectable()
 export class WebSocketService {
@@ -93,13 +94,7 @@ export class WebSocketService {
 
       // Add connection handlers if we have an IO instance
       if (this.io) {
-        this.io.on('connection', (socket) => {
-          this.logger.info('New socket connection', { socketId: socket.id });
-
-          socket.on('disconnect', () => {
-            this.logger.info('Socket disconnected', { socketId: socket.id });
-          });
-        });
+        this.setupEventHandlers();
       }
 
       // Initialize standard WebSocket server (separate from Socket.IO)
@@ -140,6 +135,51 @@ export class WebSocketService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Error initializing WebSocket server: ${errorMessage}`, error);
     }
+  }
+
+  /**
+   * Authentication middleware for Socket.IO
+   * Implementation equivalent to SocketService
+   */
+  public async authMiddleware(socket: any, next: (err?: Error) => void) {
+    // Simple pass-through implementation
+    // Since we're using this as an adapter, we'll just pass authentication
+    this.logger.debug(`Auth middleware called for socket ${socket.id}`);
+    next();
+  }
+
+  /**
+   * Set up event handlers for Socket.IO
+   * Implementation equivalent to SocketService
+   */
+  public setupEventHandlers() {
+    if (!this.io) {
+      this.logger.warn('Cannot setup event handlers: Socket.IO server not initialized');
+      return;
+    }
+
+    this.io.on('connection', (socket) => {
+      this.logger.info('Client connected:', socket.id);
+
+      socket.on('disconnect', () => {
+        this.logger.info('Client disconnected:', socket.id);
+      });
+
+      // Add Socket.IO event handlers
+    });
+    
+    this.logger.info('Socket.IO event handlers registered');
+  }
+
+  /**
+   * Get the Socket.IO server instance
+   * Implementation equivalent to SocketService
+   */
+  public getIO(): SocketIOServer {
+    if (!this.io) {
+      throw new Error('Socket.IO server not initialized');
+    }
+    return this.io;
   }
 
   /**
@@ -249,28 +289,7 @@ export class WebSocketService {
         }
       }
       
-      // Fall back to WebSocket if Socket.IO failed or isn't available
-      if (!this.isInitialized) {
-        this.logger.warn('WebSocketService not initialized, cannot broadcast update');
-        
-        // Try to use the SocketService singleton as a fallback if it exists
-        if (this.socketService) {
-          try {
-            // Get the IO instance from the socket service and emit events
-            const io = this.socketService.getIO();
-            io.emit('dataSourceUpdate', data);
-            io.emit('knowledgeBaseUpdated', knowledgeBaseData);
-            this.logger.debug(`Update sent via SocketService: ${dataSourceId} - ${status}`);
-            return;
-          } catch (socketError) {
-            this.logger.warn(`SocketService emission failed: ${socketError instanceof Error ? socketError.message : String(socketError)}`);
-          }
-        }
-        
-        return;
-      }
-      
-      // Last resort: use WebSocket broadcast
+      // Fallback to WebSocket broadcast if Socket.IO is not available
       this.broadcast('dataSourceUpdate', data);
       this.broadcast('knowledgeBaseUpdated', knowledgeBaseData);
     } catch (error) {
@@ -284,20 +303,19 @@ export class WebSocketService {
    * @param clientId Client ID
    * @param event Event name
    * @param data Event data
-   * @returns Whether the message was sent
+   * @returns true if message was sent successfully, false otherwise
    */
   sendToClient(clientId: string, event: string, data: any): boolean {
     try {
       const client = this.connections.get(clientId);
       if (!client || client.readyState !== WebSocket.OPEN) {
-        this.logger.warn(`Cannot send to client ${clientId}, not connected`);
+        this.logger.warn(`Cannot send to client ${clientId}, not connected or not ready`);
         return false;
       }
 
       const message = JSON.stringify({ event, data });
       client.send(message);
-      
-      this.logger.debug(`Sent ${event} to client ${clientId}`);
+      this.logger.debug(`Sent event ${event} to client ${clientId}`);
       return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -308,9 +326,9 @@ export class WebSocketService {
 
   /**
    * Generate a unique client ID
-   * @returns Client ID
+   * @returns Unique client ID
    */
   private generateClientId(): string {
-    return `client-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
   }
 } 

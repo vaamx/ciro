@@ -136,9 +136,6 @@ export class ResponseHandlerFactory {
     const preparedData = this.prepareDataForProcessing(data, dataSourceType);
     
     try {
-      // Get the system prompt for this data source type
-      const prompt = this.getPromptForDataSource(dataSourceType, true);
-      
       // Process the query using the universal processor
       const result = await this.universalProcessor.processDataQuery(
         query,

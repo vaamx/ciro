@@ -4,19 +4,11 @@ import {
   Plus,
   Search,
   Filter,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
   Settings,
   Trash2,
   Play,
   Pause,
-  Code,
-  Database,
-  Zap,
-  ArrowRight,
   History,
-  Activity
 } from 'lucide-react';
 
 interface DecisionRule {
@@ -126,25 +118,11 @@ const decisionRules: DecisionRule[] = [
 export const DecisionsView: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRule, setSelectedRule] = useState<DecisionRule | null>(null);
 
   const filteredRules = decisionRules.filter(rule => 
     (activeCategory === 'all' || rule.status === activeCategory) &&
     rule.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <CheckCircle2 className="w-5 h-5 text-green-500 dark:text-green-400" />;
-      case 'draft':
-        return <Clock className="w-5 h-5 text-yellow-500 dark:text-yellow-400" />;
-      case 'paused':
-        return <Pause className="w-5 h-5 text-orange-500 dark:text-orange-400" />;
-      default:
-        return <AlertCircle className="w-5 h-5 text-gray-500 dark:text-gray-400" />;
-    }
-  };
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {

@@ -2,7 +2,6 @@
  * Dashboard Helper Utilities
  * Useful for debugging and managing the dashboard - Static Charts Edition
  */
-import type { DashboardContextType } from '../contexts/DashboardContext';
 
 /**
  * Initialize the dashboard with static charts
@@ -122,7 +121,7 @@ if (typeof window !== 'undefined') {
 // Add to window type
 declare global {
   interface Window {
-    dashboardContext?: DashboardContextType;
+    dashboardContext?: any;
     dashboardHelpers?: {
       initializeDashboard: typeof initializeDashboard;
       getDashboardDebugInfo: typeof getDashboardDebugInfo;

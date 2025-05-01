@@ -7,7 +7,7 @@ import { QdrantClientService } from '../vector/qdrant-client.service';
 import { DocumentProcessorService } from '../data-processing/document-processor.service';
 import * as config from '../../config';
 import { db } from '../../config/database';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService } from '../ai/openai.service';
 
 @Injectable()

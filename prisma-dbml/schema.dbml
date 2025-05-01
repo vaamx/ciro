@@ -1,0 +1,431 @@
+//// ------------------------------------------------------
+//// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+//// ------------------------------------------------------
+
+Table processing_jobs {
+  id String [pk]
+  data_source_id Int [not null]
+  status String [not null]
+  file_name String
+  s3_key String
+  metadata Json [default: '{}']
+  content String
+  file_type String
+  progress Float
+  error String
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  completed_at DateTime
+  data_sources data_sources [not null]
+}
+
+Table automations {
+  id String [pk]
+  name String [not null]
+  description String
+  organization_id Int [not null]
+  config Json [default: '{}']
+  status String [not null, default: 'inactive']
+  automation_status String
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  organizations organizations [not null]
+}
+
+Table categories {
+  id Int [pk, increment]
+  organization_id Int [not null]
+  name String [not null]
+  description String
+  color String
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  organizations organizations [not null]
+}
+
+Table chat_messages {
+  id String [pk]
+  session_id String [not null]
+  message_type String [not null]
+  content String [not null]
+  metadata Json
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  position Int
+  user_id String
+  role String [not null]
+  chat_sessions chat_sessions [not null]
+}
+
+Table chat_sessions {
+  id String [pk]
+  user_id String [not null]
+  organization_id Int [not null]
+  title String [not null]
+  last_message String
+  message_count Int [default: 0]
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  dashboard_id String [not null]
+  metadata Json
+  chat_messages chat_messages [not null]
+  organizations organizations [not null]
+  users users [not null]
+}
+
+Table conversation_participants {
+  id Int [pk, increment]
+  conversation_id Int [not null]
+  user_id String [not null]
+  created_at DateTime [default: `now()`]
+  conversations conversations [not null]
+  users users [not null]
+
+  indexes {
+    (conversation_id, user_id) [unique]
+  }
+}
+
+Table conversations {
+  id Int [pk, increment]
+  title String [not null]
+  created_by String [not null]
+  organization_id Int [not null]
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  conversation_participants conversation_participants [not null]
+  users users [not null]
+  organizations organizations [not null]
+  messages messages [not null]
+}
+
+Table dashboard_widgets {
+  id String [pk]
+  dashboard_id String
+  widget_type String [not null]
+  title String [not null]
+  size String [not null]
+  settings Json [default: '{}']
+  position Int [not null]
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  new_id Int
+  new_dashboard_id Int
+}
+
+Table dashboards {
+  id String [pk]
+  name String [not null]
+  description String
+  team String
+  category String
+  organization_id Int [not null]
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  created_by String [not null]
+  new_id Int
+  new_created_by Int
+  widgets widgets [not null]
+}
+
+Table data_sources {
+  id Int [pk, increment]
+  organization_id Int [not null]
+  name String [not null]
+  type String [not null]
+  status String [not null, default: 'connected']
+  description String
+  last_sync DateTime
+  metadata Json [default: '{}']
+  metrics Json [default: '{}']
+  data Json [default: '{}']
+  created_by String
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  collection_name String
+  organizations organizations [not null]
+  document_chunks document_chunks [not null]
+  processing_jobs processing_jobs [not null]
+}
+
+Table data_sources_processing_status {
+  uuid String [pk]
+  status String
+  metadata Json
+  created_at DateTime
+  updated_at DateTime
+}
+
+Table document_chunks {
+  id String [pk]
+  content String [not null]
+  metadata Json [not null, default: '{}']
+  embedding String [note: '@db.Vector']
+  data_source_id Int [not null]
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  data_sources data_sources [not null]
+}
+
+Table file_to_data_source {
+  file_id String [not null]
+  data_source_id String [not null]
+  created_at DateTime [default: `now()`]
+
+  indexes {
+    (file_id, data_source_id) [pk]
+  }
+
+  Note: 'This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments'
+}
+
+Table files {
+  id String [pk]
+  filename String [not null]
+  original_filename String [not null]
+  mime_type String [not null]
+  size BigInt [not null]
+  file_type String [not null]
+  metadata Json [default: '{}']
+  content Bytes
+  uploaded_by String
+  organization_id Int
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  error String
+  organizations organizations
+  users users
+
+  Note: 'The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.'
+}
+
+Table fine_tuning_jobs {
+  id String [pk]
+  status String [not null]
+  model String [not null]
+  file_id String
+  organization_id String
+  metadata Json
+  created_at DateTime [default: `now()`]
+  updated_at DateTime [default: `now()`]
+}
+
+Table knex_migrations {
+  id Int [pk, increment]
+  name String
+  batch Int
+  migration_time DateTime
+}
+
+Table knex_migrations_lock {
+  index Int [pk, increment]
+  is_locked Int
+}
+
+Table messages {
+  id Int [pk, increment]
+  conversation_id Int [not null]
+  user_id String [not null]
+  content String [not null]
+  role String [not null, default: 'user']
+  metadata Json [default: '{}']
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  conversations conversations [not null]
+  users users [not null]
+}
+
+Table metrics {
+  id String [pk]
+  dashboard_id String
+  title String [not null]
+  value String [not null]
+  type String [not null]
+  timeframe String
+  trend Json
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  new_id Int
+
+  Note: 'The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.'
+}
+
+Table migrations {
+  id Int [pk, increment]
+  name String [unique, not null]
+  executed_at DateTime [default: `now()`]
+}
+
+Table organization_members {
+  id Int [pk, increment]
+  organization_id Int [not null]
+  user_id String [not null]
+  role String [not null, default: 'member']
+  created_at DateTime [default: `now()`]
+  organizations organizations [not null]
+  users users [not null]
+
+  indexes {
+    (organization_id, user_id) [unique]
+  }
+}
+
+Table organizations {
+  id Int [pk, increment]
+  name String [not null]
+  description String
+  logo_url String
+  settings Json [default: '{}']
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  automations automations [not null]
+  categories categories [not null]
+  chat_sessions chat_sessions [not null]
+  conversations conversations [not null]
+  data_sources data_sources [not null]
+  files files [not null]
+  organization_members organization_members [not null]
+  teams teams [not null]
+  users users [not null]
+}
+
+Table system_settings {
+  key String [pk]
+  value Json [not null]
+  created_at DateTime [default: `now()`]
+  updated_at DateTime [default: `now()`]
+}
+
+Table team_members {
+  id Int [pk, increment]
+  team_id Int [not null]
+  user_id String [not null]
+  role String [not null, default: 'member']
+  created_at DateTime [default: `now()`]
+  teams teams [not null]
+  users users [not null]
+
+  indexes {
+    (team_id, user_id) [unique]
+  }
+}
+
+Table teams {
+  id Int [pk, increment]
+  organization_id Int [not null]
+  name String [not null]
+  description String
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  team_members team_members [not null]
+  organizations organizations [not null]
+}
+
+Table uploaded_files {
+  id String [pk]
+  filename String [not null]
+  original_filename String [not null]
+  mimetype String [not null]
+  size Int [not null]
+  path String [not null]
+  uploaded_by String
+  organization_id Int
+  is_temporary Boolean [not null, default: false]
+  metadata Json
+  created_at DateTime [default: `now()`]
+  updated_at DateTime [default: `now()`]
+}
+
+Table users {
+  id String [pk]
+  email String [unique, not null]
+  password_hash String [not null]
+  first_name String
+  last_name String
+  avatar_url String
+  settings Json [default: '{}']
+  is_active Boolean [default: true]
+  is_verified Boolean [default: false]
+  created_at DateTime [default: `now()`]
+  updated_at DateTime [default: `now()`]
+  name String
+  role String [not null, default: 'user']
+  email_verification_token String
+  email_verification_token_expires_at DateTime
+  last_login DateTime
+  email_verified Boolean [not null, default: false]
+  organization_id Int
+  chat_sessions chat_sessions [not null]
+  conversation_participants conversation_participants [not null]
+  conversations conversations [not null]
+  files files [not null]
+  messages messages [not null]
+  organization_members organization_members [not null]
+  team_members team_members [not null]
+  organizations organizations
+}
+
+Table uuid_to_datasource_mapping {
+  uuid String [pk]
+  data_source_id Int
+  created_at DateTime
+}
+
+Table widgets {
+  id String [pk]
+  dashboard_id String
+  widget_type String [not null]
+  title String [not null]
+  size String [not null]
+  settings Json [default: '{}']
+  position Int [not null]
+  created_at DateTime [default: `now()`, not null]
+  updated_at DateTime [default: `now()`, not null]
+  dashboards dashboards
+}
+
+Ref: processing_jobs.data_source_id > data_sources.id [delete: Cascade]
+
+Ref: automations.organization_id > organizations.id [delete: Cascade]
+
+Ref: categories.organization_id > organizations.id [delete: Cascade]
+
+Ref: chat_messages.session_id > chat_sessions.id [delete: Cascade]
+
+Ref: chat_sessions.organization_id > organizations.id [delete: Cascade]
+
+Ref: chat_sessions.user_id > users.id [delete: Cascade]
+
+Ref: conversation_participants.conversation_id > conversations.id [delete: Cascade]
+
+Ref: conversation_participants.user_id > users.id [delete: Cascade]
+
+Ref: conversations.created_by > users.id [delete: Cascade]
+
+Ref: conversations.organization_id > organizations.id [delete: Cascade]
+
+Ref: data_sources.organization_id > organizations.id [delete: Cascade]
+
+Ref: document_chunks.data_source_id > data_sources.id [delete: Cascade]
+
+Ref: files.organization_id > organizations.id [delete: Cascade]
+
+Ref: files.uploaded_by > users.id
+
+Ref: messages.conversation_id > conversations.id [delete: Cascade]
+
+Ref: messages.user_id > users.id [delete: Cascade]
+
+Ref: organization_members.organization_id > organizations.id [delete: Cascade]
+
+Ref: organization_members.user_id > users.id [delete: Cascade]
+
+Ref: team_members.team_id > teams.id [delete: Cascade]
+
+Ref: team_members.user_id > users.id [delete: Cascade]
+
+Ref: teams.organization_id > organizations.id [delete: Cascade]
+
+Ref: users.organization_id > organizations.id
+
+Ref: widgets.dashboard_id > dashboards.id [delete: Cascade]

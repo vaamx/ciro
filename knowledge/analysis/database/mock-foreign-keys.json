@@ -1,0 +1,16 @@
+[
+  {
+    "table_name": "documents",
+    "column_name": "data_source_id",
+    "foreign_table_name": "data_sources",
+    "foreign_column_name": "id",
+    "constraint_name": "fk_documents_data_source"
+  },
+  {
+    "table_name": "embeddings",
+    "column_name": "document_id",
+    "foreign_table_name": "documents",
+    "foreign_column_name": "id",
+    "constraint_name": "fk_embeddings_document"
+  }
+]

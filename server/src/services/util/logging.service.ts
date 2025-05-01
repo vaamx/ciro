@@ -25,8 +25,7 @@ export class LoggingService {
   private constructor(
     private readonly configService: ConfigService,
     ) {
-    const configService = this.configService;
-    this.logLevel = (configService.get('LOG_LEVEL') as LogLevel) || LogLevel.INFO;
+    this.logLevel = (this.configService.get('LOG_LEVEL') as LogLevel) || LogLevel.INFO;
     
     this.logger = winston.createLogger({
       level: this.logLevel,

@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Visualization } from '../../Visualization';
-import { openAIService } from '../../../services/openai';
 
 export const ProductComparison: React.FC = () => {
   const [visualizations, setVisualizations] = useState<Array<{ type: string; config: any }>>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
 
   // Product comparison data
   const productData = {

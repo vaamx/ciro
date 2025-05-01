@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { BadRequestError } from '../../../utils/errors';
+import { BadRequestError } from '../../../common/utils/errors';
 import { File } from '../../../types';
 import sharp from 'sharp';
 

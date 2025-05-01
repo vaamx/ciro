@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import * as winston from 'winston';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService, ChatMessage } from '../ai/openai.service';
-import { Document, GenerationOptions } from './interfaces';
+import { Document, GenerationOptions, IGenerationService, ContextBuilderOptions, ContextFormat } from '../vector/vector.interfaces';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -10,12 +10,12 @@ import { v4 as uuidv4 } from 'uuid';
  * for RAG (Retrieval Augmented Generation)
  */
 @Injectable()
-export class GenerationService {
+export class GenerationService implements IGenerationService {
   private readonly logger = createServiceLogger('GenerationService');
   
   private openaiService: OpenAIService;
 
-  private constructor(
+  constructor(
     private readonly openAIService: OpenAIService,
     ) {
     this.logger.info('GenerationService initialized');
@@ -23,9 +23,63 @@ export class GenerationService {
   }
 
   /**
-   * Get the singleton instance of the service
+   * Generate content based on a prompt and context
+   * @param prompt The prompt text
+   * @param context String or array of documents providing context
+   * @param options Generation options
+   * @returns Generated text
    */
-  
+  async generate(prompt: string, context: string | Document[], options?: GenerationOptions): Promise<string> {
+    // If context is a string, use it directly, otherwise build context from documents
+    const contextString = typeof context === 'string' 
+      ? context 
+      : this.buildContext(prompt, context, options?.contextOptions);
+    
+    // Create messages for the model
+    const systemMessage = this.createSystemMessage(options?.systemPrompt);
+    const userMessage = this.createUserMessage(prompt, contextString);
+    
+    // Generate response
+    try {
+      // Format messages for OpenAI
+      const messages: ChatMessage[] = [
+        systemMessage,
+        userMessage
+      ];
+      
+      // Select model
+      const model = options?.model || this.selectAppropriateModel(prompt);
+      
+      // Send to OpenAI
+      const response = await this.openaiService.generateChatCompletion(messages, {
+        model: model as any,
+        temperature: options?.temperature || 0.7,
+        ...(options?.maxTokens ? { maxTokens: options?.maxTokens } : {})
+      });
+      
+      // Parse the response
+      const responseText = await response.text();
+      let parsedResponse = {};
+      
+      try {
+        parsedResponse = JSON.parse(responseText);
+      } catch (e) {
+        this.logger.error('Failed to parse JSON response', { response: responseText });
+        return "There was an error generating a response. Please try again.";
+      }
+      
+      // Extract content from response
+      let content = '';
+      if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
+        content = (parsedResponse as any).content || '';
+      }
+      
+      return content;
+    } catch (error) {
+      this.logger.error('Error generating response:', error);
+      return "I encountered an error while generating a response. Please try again.";
+    }
+  }
 
   /**
    * Generate a response based on the query and retrieved documents
@@ -37,7 +91,7 @@ export class GenerationService {
   async generateResponse(
     query: string,
     documents: Document[],
-    options: GenerationOptions = {}
+    options: GenerationOptions & { contextOptions?: ContextBuilderOptions } = {}
   ): Promise<{
     content: string;
     model: string;
@@ -56,11 +110,11 @@ export class GenerationService {
     // Select the appropriate model
     const model = options.model || this.selectAppropriateModel(query);
     
-    // Build context from documents
-    const context = this.buildContext(query, documents);
+    // Build context using enhanced logic (moved from ContextBuilder)
+    const context = this.buildContext(query, documents, options.contextOptions);
     
     // Create system message
-    const systemMessage = this.createSystemMessage(options.extraSystemPrompt);
+    const systemMessage = this.createSystemMessage(options.systemPrompt);
     
     // Create user message
     const userMessage = this.createUserMessage(query, context);
@@ -118,38 +172,153 @@ export class GenerationService {
   }
 
   /**
-   * Build context from documents for the prompt
+   * Build context from documents for the prompt, incorporating logic from ContextBuilder
    * @param query The user query
    * @param documents Retrieved documents
+   * @param options ContextBuilder options
    * @returns Formatted context string
    */
-  private buildContext(query: string, documents: Document[]): string {
-    // Format search results into a context string
-    let context = `Query: ${query}\n\n`;
-    context += `Search Results (${documents.length}):\n\n`;
+  private buildContext(
+    query: string,
+    documents: Document[],
+    options?: ContextBuilderOptions
+  ): string {
+    if (!documents || documents.length === 0) {
+      return '';
+    }
+    
+    const {
+      format = 'default',
+      maxChars,
+      maxDocuments
+    } = options || {};
 
-    // Add each document as context
-    documents.forEach((doc, index) => {
-      context += `Document ${index + 1}:\n`;
-      context += `${doc.content}\n\n`;
-    });
+    // Apply document limit if specified
+    const filteredDocs = maxDocuments && maxDocuments > 0 
+      ? documents.slice(0, maxDocuments) 
+      : documents;
+    
+    // Sort by similarity score (if available)
+    const sortedDocs = [...filteredDocs].sort((a, b) => 
+      (b.similarity || 0) - (a.similarity || 0)
+    );
 
-    return context;
+    let formattedContext = `Context for query: "${query}"\nBased on ${sortedDocs.length} documents:\n\n`;
+
+    // Create a utility function to include metadata formatting consistently
+    const formatWithMetadata = (doc: Document, prefix: string): string => {
+      const metadataStr = doc.metadata ? `\nSource: ${this.formatMetadata(doc.metadata)}` : '';
+      return `${prefix}${metadataStr}\n${doc.content.trim()}`;
+    };
+
+    // Default format if none specified or invalid
+    const defaultFormat = (docs: Document[]): string => {
+      return docs.map((doc, index) => 
+        formatWithMetadata(doc, `[Document ${index + 1}]`)
+      ).join('\n\n');
+    };
+
+    // Convert string format to enum if needed
+    // This allows us to support both string literals and enum values
+    const getFormatType = (fmt: string | ContextFormat): ContextFormat | string => {
+      // If it's already an enum value, return it
+      if (typeof fmt === 'number') return fmt;
+      
+      // Map string values to enum
+      switch(fmt) {
+        case 'markdown': return ContextFormat.MARKDOWN;
+        case 'array': return ContextFormat.ARRAY;
+        case 'string': return ContextFormat.STRING;
+        // Keep other string literals as is
+        default: return fmt;
+      }
+    };
+
+    // Get normalized format
+    const formatType = getFormatType(format);
+
+    // Handle different format cases based on the normalized format
+    if (formatType === ContextFormat.MARKDOWN) {
+      // Markdown format
+      formattedContext += sortedDocs.map((doc, index) => 
+        formatWithMetadata(doc, `### Document ${index + 1}`)
+      ).join('\n\n');
+    } else if (formatType === ContextFormat.ARRAY) {
+      // Array/list format
+      formattedContext += sortedDocs.map((doc, index) => 
+        formatWithMetadata(doc, `- Document ${index + 1}:`)
+      ).join('\n\n');
+    } else if (formatType === ContextFormat.STRING || formatType === 'compact') {
+      // String/compact format just shows content without metadata
+      formattedContext += sortedDocs.map(doc => doc.content.trim()).join('\n\n');
+    } else if (formatType === 'numbered') {
+      // Numbered format (custom string format)
+      formattedContext += sortedDocs.map((doc, index) => 
+        formatWithMetadata(doc, `Document ${index + 1}:`)
+      ).join('\n\n');
+    } else {
+      // Default formatting for any other value
+      formattedContext += defaultFormat(sortedDocs);
+    }
+
+    // Apply character limit if specified
+    if (maxChars && maxChars > 0 && formattedContext.length > maxChars) {
+      formattedContext = formattedContext.substring(0, maxChars) + '... [truncated]';
+    }
+
+    return formattedContext;
+  }
+
+  /**
+   * Deduplicate documents based on content similarity (moved from ContextBuilder)
+   * @param documents Retrieved documents
+   * @returns Deduplicated documents
+   */
+  private deduplicateDocuments(documents: Document[]): Document[] {
+    const uniqueDocs: Document[] = [];
+    const seenContent = new Set<string>();
+    for (const doc of documents) {
+      const contentKey = doc.content.trim().toLowerCase().slice(0, 100);
+      if (seenContent.has(contentKey)) continue;
+      seenContent.add(contentKey);
+      uniqueDocs.push(doc);
+    }
+    this.logger.debug(`Deduplicated ${documents.length} docs down to ${uniqueDocs.length}`);
+    return uniqueDocs;
+  }
+
+  /**
+   * Format metadata object into a string (moved from ContextBuilder)
+   * @param metadata Metadata object
+   * @returns Formatted metadata string
+   */
+  private formatMetadata(metadata: Record<string, any> | undefined): string {
+    if (!metadata) return '';
+    const title = metadata.title || metadata.name || '';
+    const source = metadata.source || metadata.url || metadata.filename || '';
+    const author = metadata.author || '';
+    const date = metadata.date || metadata.createdAt || '';
+    const parts = [];
+    if (title) parts.push(`'${title}'`);
+    if (source) parts.push(`from ${source}`);
+    if (author) parts.push(`by ${author}`);
+    if (date) parts.push(`(${date})`);
+    return parts.filter(p => p).join(' ') || 'Unknown Source';
   }
 
   /**
    * Create system message for the LLM
-   * @param extraPrompt Additional system prompt instructions
+   * @param systemPrompt Additional system prompt instructions
    * @returns Formatted system message
    */
-  private createSystemMessage(extraPrompt?: string): ChatMessage {
+  private createSystemMessage(systemPrompt?: string): ChatMessage {
     const basePrompt = 
       `You are an AI assistant that answers questions based on the provided information. 
       Only use the information from the search results to answer the question. 
       If you don't have enough information, say so. 
       Format your answer in a clear, concise way. Use markdown for formatting.`;
     
-    const systemContent = extraPrompt ? `${basePrompt}\n\n${extraPrompt}` : basePrompt;
+    const systemContent = systemPrompt ? `${basePrompt}\n\n${systemPrompt}` : basePrompt;
     
     return {
       id: uuidv4(),

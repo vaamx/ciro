@@ -75,4 +75,27 @@ export interface DataSourceRecord {
   data: Record<string, any>;
   metadata?: Record<string, any>;
   embedding?: number[];
+}
+
+// Renamed enum to avoid conflict with interface
+export enum DataSourceProcessingStatus { 
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  READY = 'ready',
+  ERROR = 'error',
+  COMPLETED = 'completed'
+}
+
+// Define and export the DataSourceType enum
+export enum DataSourceTypeEnum {
+  SNOWFLAKE = 'snowflake',
+  FILE = 'file',
+  POSTGRESQL = '***REMOVED***ql',
+  MYSQL = 'mysql',
+  EXCEL = 'excel',
+  CSV = 'csv',
+  PDF = 'pdf',
+  DOCX = 'docx',
+  UNKNOWN = 'unknown'
+  // Add others like WEB if needed
 } 

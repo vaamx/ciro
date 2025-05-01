@@ -162,7 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const restoreSession = async () => {
+    const restoreSession = async (): Promise<void> => {
       if (sessionCheckInProgress) return;
       sessionCheckInProgress = true;
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { EnhancedStepByStepVisualization } from './EnhancedStepByStepVisualization';
+import { EnhancedVisualization } from './visualization/EnhancedVisualization';
 import { DataSourceType } from '../../../services/processors/UniversalDataProcessor';
 
 interface AnalyticalResponseAdapterProps {
@@ -211,14 +211,14 @@ export const AnalyticalResponseAdapter: React.FC<AnalyticalResponseAdapterProps>
     summary: summary.substring(0, 100) + (summary.length > 100 ? '...' : '')
   });
   
+  // Render the structured response
   return (
     <div className="analytical-response-container">
-      <EnhancedStepByStepVisualization
+      <EnhancedVisualization
         steps={steps}
         insights={insights}
         summary={summary}
-        dataSourceType={formattedDataSourceType}
-        autoPlay={true}
+        dataSourceType={formatDataSourceType(dataSourceType)}
       />
     </div>
   );

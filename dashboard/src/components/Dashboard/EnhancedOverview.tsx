@@ -70,6 +70,12 @@ export const EnhancedOverview: React.FC<EnhancedOverviewProps> = () => {
     }
   }, [currentDashboard]);
 
+  // Force refresh when dashboard changes
+  useEffect(() => {
+    console.log('Current dashboard changed, refreshing UI');
+    handleForceInitialize();
+  }, [currentDashboard?.id]);
+
   // Simple grid view refresh function
   const handleForceInitialize = () => {
     setIsGridView(true);

@@ -63,4 +63,6 @@ export * from './utils/file';
 export * from './utils/user';
 
 // Export default express
-export { default as express } from './express/express-types'; 
+export { default as express } from './express/express-types';
+
+export * from './visualization.types';
