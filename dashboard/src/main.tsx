@@ -15,7 +15,6 @@ import { LocalFileService } from './services/LocalFileService';
 import './utils/dashboard-helpers';
 // Import visualization service
 import { initializeVisualizationDebugTools } from './services/visualizationService';
-import type { DashboardContextType } from './contexts/DashboardContext';
 
 // Initialize logger settings based on environment
 const initializeLogger = () => {
@@ -64,8 +63,18 @@ root.render(
 // Add TypeScript interface extension for window
 declare global {
   interface Window {
-    dashboardContext?: DashboardContextType;
-    visualizationDebug?: any;
+    __ENV__: any;
+    __APP_EXECUTE_QUERY__?: any;
+    __APP_USE_DATASET__?: any;
+    __APP_DOCUMENT_TRANSFORM__?: any;
+    __APP_GET_CHAT_HISTORY__?: any;
+    __APP_GET_DATASETS__?: any;
+    __APP_GET_DATASOURCES__?: any;
+    __APP_GET_KNOWLEDGE_GRAPH_NODES__?: any;
+    socketHost?: string;
+    showCustomToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+    openDataApp?: any;
+    dashboardContext?: any; // Match the type in echarts.d.ts
   }
 }
 

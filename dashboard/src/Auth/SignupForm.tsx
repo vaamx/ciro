@@ -2,7 +2,6 @@ import React, { useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader2, Mail, Lock, User, LucideProps } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { VerificationPending } from './VerificationPending';
 
 const LoaderIcon = Loader2 as React.FC<LucideProps>;
 const MailIcon = Mail as React.FC<LucideProps>;

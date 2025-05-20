@@ -198,9 +198,15 @@ export const DashboardManager: React.FC = () => {
     if (!window.confirm('Are you sure you want to delete this dashboard?')) {
       return;
     }
+    
     try {
       setIsDeleting(dashboardId);
+      console.log(`Attempting to delete dashboard with ID: ${dashboardId}`);
       await deleteDashboard(dashboardId);
+      console.log(`Dashboard deleted successfully: ${dashboardId}`);
+    } catch (error) {
+      console.error(`Failed to delete dashboard: ${error instanceof Error ? error.message : error}`);
+      alert(`Failed to delete dashboard: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsDeleting(null);
     }
@@ -308,8 +314,11 @@ export const DashboardManager: React.FC = () => {
                     <div 
                       className="flex items-center space-x-2 flex-1 min-w-0 cursor-pointer" 
                       onClick={() => {
+                        console.log(`Dashboard clicked: ${dashboard.id}`);
                         switchDashboard(dashboard.id);
                         setIsDropdownOpen(false);
+                        // Force a re-render by updating state
+                        window.location.hash = dashboard.id;
                       }}
                     >
                       <Icons.Layout 
@@ -384,7 +393,10 @@ export const DashboardManager: React.FC = () => {
           setShowModal(false);
           setSelectedDashboard(undefined);
         }}
-        dashboard={selectedDashboard}
+        dashboard={selectedDashboard ? {
+          ...selectedDashboard,
+          createdBy: selectedDashboard.createdBy ?? 0
+        } : undefined}
       />
     </>
   );

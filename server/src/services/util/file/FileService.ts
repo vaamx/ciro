@@ -1,5 +1,5 @@
 import { Knex } from 'knex';
-import { BadRequestError } from '../../../utils/errors';
+import { BadRequestError } from '../../../common/utils/errors';
 import { File } from '../../../types';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB

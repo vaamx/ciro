@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { db } from '../../config/database';
 import { OpenAIService } from '../ai/openai.service';
 

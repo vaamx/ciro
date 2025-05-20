@@ -4,24 +4,13 @@ import {
   Plus,
   Search,
   Filter,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
   Settings,
   Trash2,
   Play,
   Pause,
-  Bot,
   Phone,
-  Globe,
-  MessageCircle,
-  Smartphone,
-  Mic,
-  BrainCircuit,
-  BarChart2,
   History,
-  Users,
-  MessagesSquare
+  BarChart2
 } from 'lucide-react';
 
 interface Tab {

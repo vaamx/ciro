@@ -1,390 +1,204 @@
-// This is a copy of the schema file for compatibility with standard Prisma commands.
-// The primary schema file is at server/src/infrastructure/database/prisma/schema/schema.prisma
-// These files should be kept in sync if changes are made.
+// prisma/schema.prisma
 
+// 1. Define the database connection
+datasource db {
+  provider = "***REMOVED***ql" // CHANGE THIS if you use MySQL, SQLite, etc.
+  url      = env("DATABASE_URL") // Make sure DATABASE_URL is set in your .env file
+}
+
+// 2. Define the Prisma Client generator
 generator client {
   provider = "prisma-client-js"
+  // Optionally specify binary targets if needed, e.g.:
+  // binaryTargets = ["native", "debian-openssl-3.0.x"] 
 }
 
-generator dbml {
-  provider = "prisma-dbml-generator"
-  output   = "../prisma-dbml"
+// --- Core Models ---
+
+model User {
+  id              Int              @id @default(autoincrement())
+  email           String           @unique
+  hashedPassword  String?          // Store hashed passwords, null if using OAuth only
+  name            String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  role            Role             @default(USER) // Example: User role
+
+  // Example Relations
+  organizations   OrganizationMember[] // User can belong to multiple orgs
+  workspaces      Workspace[]      // Workspaces created by the user
+  chatSessions    ChatSession[]    // Chat sessions initiated by the user
+  files           File[]           // Files uploaded by the user
+  dataSources     DataSource[]     // Data sources created by the user
+  ownedOrganization Organization? @relation("OrganizationOwner") // If a user owns an org
 }
 
-datasource db {
-  provider = "***REMOVED***ql"
-  url      = env("DATABASE_URL")
+enum Role {
+  USER
+  ADMIN
 }
 
-model automations {
-  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String        @db.VarChar(255)
-  description     String?
-  organization_id Int
-  config          Json?         @default("{}")
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
-  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "automations_organization_id_foreign")
-}
-
-model categories {
-  id              Int           @id @default(autoincrement())
-  organization_id Int
-  name            String        @db.VarChar(255)
-  description     String?
-  color           String?       @db.VarChar(255)
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
-  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "categories_organization_id_foreign")
-}
-
-model chat_messages {
-  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  session_id    String        @db.Uuid
-  message_type  String        @db.VarChar(255)
-  content       String
-  metadata      Json?
-  created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
-  position      Int?
-  user_id       String?       @db.Uuid
-  role          String        @db.VarChar(50)
-  chat_sessions chat_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_messages_session_id_foreign")
-
-  @@index([session_id], map: "chat_messages_session_id_index")
-  @@index([session_id, position], map: "idx_chat_messages_session_position")
-  @@index([user_id], map: "idx_chat_messages_user_id")
-}
-
-model chat_sessions {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id         String          @db.Uuid
-  organization_id Int
-  title           String          @db.VarChar(255)
-  last_message    String?
-  message_count   Int?            @default(0)
-  created_at      DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
-  dashboard_id    String          @db.Uuid
-  metadata        Json?
-  chat_messages   chat_messages[]
-  organizations   organizations   @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_sessions_organization_id_foreign")
-  users           users           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "chat_sessions_user_id_foreign")
-
-  @@index([organization_id], map: "idx_chat_sessions_org_id")
-  @@index([user_id], map: "idx_chat_sessions_user_id")
-}
-
-model conversation_participants {
-  id              Int           @id @default(autoincrement())
-  conversation_id Int
-  user_id         String        @db.Uuid
-  created_at      DateTime?     @default(now()) @db.Timestamptz(6)
-  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "conversation_participants_conversation_id_foreign")
-  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "conversation_participants_user_id_foreign")
-
-  @@unique([conversation_id, user_id], map: "conversation_participants_conversation_id_user_id_unique")
-}
-
-model conversations {
-  id                        Int                         @id @default(autoincrement())
-  title                     String                      @db.VarChar(255)
-  created_by                String                      @db.Uuid
-  organization_id           Int
-  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  conversation_participants conversation_participants[]
-  users                     users                       @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "conversations_created_by_foreign")
-  organizations             organizations               @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "conversations_organization_id_foreign")
-  messages                  messages[]
-}
-
-model dashboard_widgets {
-  id               String   @id(map: "widgets_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  dashboard_id     String?  @db.Uuid
-  widget_type      String   @db.VarChar(255)
-  title            String   @db.VarChar(255)
-  size             String   @db.VarChar(255)
-  settings         Json?    @default("{}")
-  position         Int
-  created_at       DateTime @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime @default(now()) @db.Timestamptz(6)
-  new_id           Int?
-  new_dashboard_id Int?
-}
-
-model dashboards {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String    @db.VarChar(255)
-  description     String?
-  team            String?
-  category        String?   @db.VarChar(255)
-  organization_id Int
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
-  created_by      String    @db.Uuid
-  new_id          Int?
-  new_created_by  Int?
-  widgets         widgets[]
-}
-
-model data_sources {
-  id              Int               @id @default(autoincrement())
-  organization_id Int
-  name            String            @db.VarChar(255)
-  type            String            @db.VarChar(255)
-  status          String            @default("connected") @db.VarChar(255)
-  description     String?
-  last_sync       DateTime?         @db.Timestamptz(6)
-  metadata        Json?             @default("{}")
-  metrics         Json?             @default("{}")
-  data            Json?             @default("{}")
-  created_by      String?           @db.VarChar(36)
-  created_at      DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
-  collection_name String?           @db.VarChar(255)
-  organizations   organizations     @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "data_sources_organization_id_foreign")
-  document_chunks document_chunks[]
-}
-
-model data_sources_processing_status {
-  uuid       String    @id
-  status     String?
-  metadata   Json?
-  created_at DateTime? @db.Timestamp(6)
-  updated_at DateTime? @db.Timestamp(6)
-}
-
-model document_chunks {
-  id             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  content        String
-  metadata       Json                  @default("{}")
-  /// @db.Vector
-  embedding      String?
-  data_source_id Int
-  created_at     DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime              @default(now()) @db.Timestamptz(6)
-  data_sources   data_sources          @relation(fields: [data_source_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([data_source_id], map: "document_chunks_data_source_id_index")
-  @@index([data_source_id], map: "idx_document_chunks_data_source_id")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model file_to_data_source {
-  file_id        String    @db.Uuid
-  data_source_id String    @db.VarChar(255)
-  created_at     DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@id([file_id, data_source_id])
-  @@index([data_source_id], map: "file_to_data_source_data_source_id_index")
-  @@index([file_id], map: "file_to_data_source_file_id_index")
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model files {
-  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  filename          String         @db.VarChar(255)
-  original_filename String         @db.VarChar(255)
-  mime_type         String         @db.VarChar(255)
-  size              BigInt
-  file_type         String         @db.VarChar(255)
-  metadata          Json?          @default("{}")
-  content           Bytes?
-  uploaded_by       String?        @db.Uuid
-  organization_id   Int?
-  created_at        DateTime       @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime       @default(now()) @db.Timestamptz(6)
-  error             String?
-  organizations     organizations? @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "files_organization_id_foreign")
-  users             users?         @relation(fields: [uploaded_by], references: [id], onUpdate: NoAction, map: "files_uploaded_by_foreign")
-}
-
-model fine_tuning_jobs {
-  id              String    @id @db.VarChar(255)
-  status          String    @db.VarChar(255)
-  model           String    @db.VarChar(255)
-  file_id         String?   @db.VarChar(255)
-  organization_id String?   @db.VarChar(255)
-  metadata        Json?
-  created_at      DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@index([organization_id], map: "fine_tuning_jobs_organization_id_index")
-  @@index([status], map: "fine_tuning_jobs_status_index")
-}
-
-model knex_migrations {
-  id             Int       @id @default(autoincrement())
-  name           String?   @db.VarChar(255)
-  batch          Int?
-  migration_time DateTime? @db.Timestamptz(6)
-}
-
-model knex_migrations_lock {
-  index     Int  @id @default(autoincrement())
-  is_locked Int?
-}
-
-model messages {
-  id              Int           @id @default(autoincrement())
-  conversation_id Int
-  user_id         String        @db.Uuid
-  content         String
-  role            String        @default("user") @db.VarChar(255)
-  metadata        Json?         @default("{}")
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
-  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "messages_conversation_id_foreign")
-  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "messages_user_id_foreign")
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model metrics {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  dashboard_id String?  @db.Uuid
-  title        String   @db.VarChar(255)
-  value        String   @db.VarChar(255)
-  type         String   @db.VarChar(255)
-  timeframe    String?  @db.VarChar(255)
-  trend        Json?
-  created_at   DateTime @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime @default(now()) @db.Timestamptz(6)
-  new_id       Int?
-}
-
-model migrations {
+model Organization {
   id          Int       @id @default(autoincrement())
-  name        String    @unique @db.VarChar(255)
-  executed_at DateTime? @default(now()) @db.Timestamp(6)
+  name        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Example Relations
+  ownerId     Int?      @unique // Optional: If one user owns the org
+  owner       User?     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members     OrganizationMember[]
+  workspaces  Workspace[]
 }
 
-model organization_members {
-  id              Int           @id @default(autoincrement())
-  organization_id Int
-  user_id         String        @db.Uuid
-  role            String        @default("member") @db.VarChar(255)
-  created_at      DateTime?     @default(now()) @db.Timestamptz(6)
-  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "organization_members_organization_id_foreign")
-  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "organization_members_user_id_foreign")
+// Join table for many-to-many relationship between User and Organization
+model OrganizationMember {
+  userId          Int
+  organizationId  Int
+  assignedAt      DateTime @default(now())
+  assignedBy      String   // Optional: Track who added the member
 
-  @@unique([organization_id, user_id], map: "organization_members_organization_id_user_id_unique")
+  user          User          @relation(fields: [userId], references: [id])
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+
+  @@id([userId, organizationId]) // Composite primary key
 }
 
-model organizations {
-  id                   Int                    @id @default(autoincrement())
-  name                 String                 @db.VarChar(255)
-  description          String?
-  logo_url             String?                @db.VarChar(255)
-  settings             Json?                  @default("{}")
-  created_at           DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
-  automations          automations[]
-  categories           categories[]
-  chat_sessions        chat_sessions[]
-  conversations        conversations[]
-  data_sources         data_sources[]
-  files                files[]
-  organization_members organization_members[]
-  teams                teams[]
-  users                users[]
+model Workspace {
+  id            Int       @id @default(autoincrement())
+  name          String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  organizationId Int
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  creatorId     Int
+  creator       User      @relation(fields: [creatorId], references: [id])
+
+  files         File[]
+  dataSources   DataSource[]
 }
 
-model system_settings {
-  key        String    @id
-  value      Json
-  created_at DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+// --- File & Data Source Models ---
+
+model File {
+  id          Int         @id @default(autoincrement())
+  name        String
+  storagePath String      // Path in local storage or S3 key
+  mimeType    String
+  size        Int         // Size in bytes
+  status      FileStatus  @default(UPLOADED)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  uploaderId  Int
+  uploader    User        @relation(fields: [uploaderId], references: [id])
+  workspaceId Int
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id])
+
+  // Relations to processing outputs
+  processingJobs ProcessingJob[]
+  chunks         DocumentChunk[]
 }
 
-model team_members {
-  id         Int       @id @default(autoincrement())
-  team_id    Int
-  user_id    String    @db.Uuid
-  role       String    @default("member") @db.VarChar(255)
-  created_at DateTime? @default(now()) @db.Timestamptz(6)
-  teams      teams     @relation(fields: [team_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "team_members_team_id_foreign")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "team_members_user_id_foreign")
-
-  @@unique([team_id, user_id], map: "team_members_team_id_user_id_unique")
+enum FileStatus {
+  UPLOADED
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
-model teams {
-  id              Int            @id @default(autoincrement())
-  organization_id Int
-  name            String         @db.VarChar(255)
-  description     String?
-  created_at      DateTime       @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime       @default(now()) @db.Timestamptz(6)
-  team_members    team_members[]
-  organizations   organizations  @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "teams_organization_id_foreign")
+model DataSource {
+  id            Int             @id @default(autoincrement())
+  name          String
+  type          DataSourceType  // e.g., SNOWFLAKE, FILE_UPLOAD, HUBSPOT
+  config        Json?           // Store connection details, credentials etc. (encrypt sensitive parts!)
+  status        FileStatus      @default(UPLOADED) // Reusing FileStatus, maybe rename/create specific one
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  creatorId     Int
+  creator       User            @relation(fields: [creatorId], references: [id])
+  workspaceId   Int
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id])
+
+  processingJobs ProcessingJob[]
 }
 
-model uploaded_files {
-  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  filename          String    @db.VarChar(255)
-  original_filename String    @db.VarChar(255)
-  mimetype          String    @db.VarChar(255)
-  size              Int
-  path              String    @db.VarChar(255)
-  uploaded_by       String?   @db.VarChar(255)
-  organization_id   Int?
-  is_temporary      Boolean   @default(false)
-  metadata          Json?
-  created_at        DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@index([is_temporary], map: "uploaded_files_is_temporary_index")
-  @@index([organization_id], map: "uploaded_files_organization_id_index")
-  @@index([uploaded_by], map: "uploaded_files_uploaded_by_index")
+enum DataSourceType {
+  FILE_UPLOAD
+  SNOWFLAKE
+  HUBSPOT
+  // Add other types as needed
 }
 
-model users {
-  id                                  String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                               String                      @unique(map: "users_email_unique") @db.VarChar(255)
-  password_hash                       String                      @db.VarChar(255)
-  first_name                          String?                     @db.VarChar(255)
-  last_name                           String?                     @db.VarChar(255)
-  avatar_url                          String?                     @db.VarChar(255)
-  settings                            Json?                       @default("{}")
-  is_active                           Boolean?                    @default(true)
-  is_verified                         Boolean?                    @default(false)
-  created_at                          DateTime?                   @default(now()) @db.Timestamptz(6)
-  updated_at                          DateTime?                   @default(now()) @db.Timestamptz(6)
-  name                                String?                     @db.VarChar(255)
-  role                                String                      @default("user") @db.VarChar(255)
-  email_verification_token            String?                     @db.VarChar(64)
-  email_verification_token_expires_at DateTime?                   @db.Timestamptz(6)
-  last_login                          DateTime?                   @db.Timestamptz(6)
-  email_verified                      Boolean                     @default(false)
-  organization_id                     Int?
-  chat_sessions                       chat_sessions[]
-  conversation_participants           conversation_participants[]
-  conversations                       conversations[]
-  files                               files[]
-  messages                            messages[]
-  organization_members                organization_members[]
-  team_members                        team_members[]
-  organizations                       organizations?              @relation(fields: [organization_id], references: [id], onUpdate: NoAction, map: "users_organization_id_foreign")
+// --- Processing & Chunking Models ---
 
-  @@index([organization_id], map: "users_organization_id_index")
+model ProcessingJob {
+  id            Int       @id @default(autoincrement())
+  jobType       String    // e.g., "chunking", "embedding", "analysis"
+  status        JobStatus @default(PENDING)
+  statusMessage String?   // For storing error messages or progress
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relation to the source (could be File or DataSource)
+  fileId        Int?
+  file          File?     @relation(fields: [fileId], references: [id])
+  dataSourceId  Int?
+  dataSource    DataSource? @relation(fields: [dataSourceId], references: [id])
 }
 
-model uuid_to_datasource_mapping {
-  uuid           String    @id
-  data_source_id Int?
-  created_at     DateTime? @db.Timestamp(6)
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
 }
 
-model widgets {
-  id           String      @id(map: "widgets_pkey_new") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  dashboard_id String?     @db.Uuid
-  widget_type  String      @db.VarChar(255)
-  title        String      @db.VarChar(255)
-  size         String      @db.VarChar(255)
-  settings     Json?       @default("{}")
-  position     Int
-  created_at   DateTime    @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime    @default(now()) @db.Timestamptz(6)
-  dashboards   dashboards? @relation(fields: [dashboard_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "widgets_dashboard_id_foreign")
+model DocumentChunk {
+  id          Int       @id @default(autoincrement())
+  content     String    @db.Text // Use Text type for potentially long content
+  metadata    Json?     // Store page numbers, headings, etc.
+  // embedding   Unsupported("vector")? // If using pgvector or similar, define appropriately
+  createdAt   DateTime  @default(now())
+
+  // Relation to the source file
+  fileId      Int
+  file        File      @relation(fields: [fileId], references: [id])
+
+  // Example index (if you plan to search chunks directly)
+  // @@index([fileId]) 
+}
+
+// --- Chat Models ---
+
+model ChatSession {
+  id          Int       @id @default(autoincrement())
+  name        String?   // Optional name for the session
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relation to User
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+
+  messages    ChatMessage[]
+}
+
+model ChatMessage {
+  id          Int       @id @default(autoincrement())
+  role        String    // 'USER' or 'AI'
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+
+  // Relation to Session
+  sessionId   Int
+  session     ChatSession @relation(fields: [sessionId], references: [id])
+
+  // Index for faster retrieval of messages per session
+  @@index([sessionId])
 }

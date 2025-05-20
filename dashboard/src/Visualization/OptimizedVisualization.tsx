@@ -46,7 +46,7 @@ export const OptimizedVisualization: React.FC<VisualizationProps> = ({
   height = RESPONSIVE_CONFIG.defaultHeight,
   width = '100%'
 }) => {
-  const { processData, isProcessing } = useVisualizationWorker();
+  const { processData, isLoading } = useVisualizationWorker();
   const [processedData, setProcessedData] = useState<any[]>([]);
   
   // Process data using worker when config changes
@@ -94,7 +94,7 @@ export const OptimizedVisualization: React.FC<VisualizationProps> = ({
   // Render the appropriate chart based on type
   const renderChart = () => {
     // Show loading indicator while processing
-    if (isProcessing) {
+    if (isLoading) {
       return <LoadingIndicator />;
     }
     

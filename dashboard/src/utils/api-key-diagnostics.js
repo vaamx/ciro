@@ -91,7 +91,7 @@ export async function testServerApiKeyAndUpdateDiagnostics(diagnostics) {
       const mockDiagnostics = getMockDiagnostics();
       diagnostics.serverKeyTested = mockDiagnostics.serverKeyTested;
       diagnostics.serverKeyValid = mockDiagnostics.serverKeyValid;
-      return;
+      return diagnostics;
     }
 
     console.log('Testing server API key...');
@@ -103,6 +103,8 @@ export async function testServerApiKeyAndUpdateDiagnostics(diagnostics) {
     if (!testResult.success && testResult.error) {
       diagnostics.errors.push(`Server API key test failed: ${testResult.error}`);
     }
+    
+    return diagnostics;
   } catch (error) {
     console.error('Error testing server API key:', error);
     diagnostics.errors.push(`Server API key test failed: ${error.message}`);
@@ -112,6 +114,8 @@ export async function testServerApiKeyAndUpdateDiagnostics(diagnostics) {
     const mockDiagnostics = getMockDiagnostics();
     diagnostics.serverKeyTested = mockDiagnostics.serverKeyTested;
     diagnostics.serverKeyValid = mockDiagnostics.serverKeyValid;
+    
+    return diagnostics;
   }
 }
 

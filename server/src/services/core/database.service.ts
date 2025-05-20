@@ -14,7 +14,7 @@ import pg from 'pg';
 import path from 'path';
 import fs from 'fs';
 import { ConfigService } from './config.service';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { Pool } from 'pg';
 import { config } from '../../config';
 

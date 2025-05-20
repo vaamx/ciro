@@ -4,8 +4,6 @@ import {
   CheckCircle,
   AlertTriangle,
   Info,
-  Clock,
-  Filter,
   X,
   Check,
   Eye

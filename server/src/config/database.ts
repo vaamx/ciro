@@ -12,12 +12,60 @@ import * as fs from 'fs';
 import * as path from 'path';
 import knex, { Knex } from 'knex';
 import { config } from './index';
-import knexConfig from './knexfile';
 
 // Knex database connection
-const environment = (process.env.NODE_ENV || 'development');
-// Make sure we're using the correct environment configuration from knexfile
-export const db: Knex = knex(knexConfig[environment as keyof typeof knexConfig] as Knex.Config);
+const environment = process.env.NODE_ENV || 'development';
+
+// Define Knex config directly using the imported 'config' object
+const knexConfigOptions: { [key: string]: Knex.Config } = {
+  development: {
+    client: '***REMOVED***ql',
+    connection: config.database,
+    pool: { min: 2, max: 10 },
+    migrations: { 
+      tableName: 'knex_migrations',
+      directory: path.join(__dirname, '../../../migrations'), // Adjust path relative to src/config
+      extension: 'ts'
+    },
+    seeds: {
+      directory: path.join(__dirname, '../../../seeds'), // Adjust path relative to src/config
+      extension: 'ts'
+    },
+    debug: process.env.DB_DEBUG === 'true'
+  },
+  test: {
+    client: '***REMOVED***ql',
+    connection: { ...config.database, database: `${config.database.database}_test` },
+    pool: { min: 2, max: 10 },
+    migrations: { 
+      tableName: 'knex_migrations',
+      directory: path.join(__dirname, '../../../migrations'),
+      extension: 'ts'
+    },
+    seeds: {
+      directory: path.join(__dirname, '../../../seeds'),
+      extension: 'ts'
+    }
+  },
+  production: {
+    client: '***REMOVED***ql',
+    connection: config.database,
+    pool: { min: 5, max: 30 },
+    migrations: { 
+      tableName: 'knex_migrations',
+      directory: path.join(__dirname, '../../../migrations'),
+      extension: 'ts'
+    },
+    seeds: {
+      directory: path.join(__dirname, '../../../seeds'),
+      extension: 'ts'
+    },
+    debug: false
+  }
+};
+
+// Use the locally defined config object
+export const db: Knex = knex(knexConfigOptions[environment]);
 
 // PostgreSQL connection for chat history and structured data
 // Use the centralized configuration from config/index.ts

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Database, Plus, RefreshCw, Trash2, AlertCircle } from 'lucide-react';
 
 interface DataSource {

@@ -1,0 +1,27 @@
+erDiagram
+    data_sources {
+        uuid id required
+        varchar name required
+        varchar type required
+        timestamp created_at required
+    }
+    documents {
+        uuid id required
+        uuid data_source_id required
+        text content required
+    }
+    embeddings {
+        uuid id required
+        uuid document_id required
+        vector embedding required
+    }
+    collections {
+    }
+    chunks {
+    }
+    users {
+    }
+    settings {
+    }
+    documents }|--|| data_sources : "fk_documents_data_source"
+    embeddings }|--|| documents : "fk_embeddings_document"

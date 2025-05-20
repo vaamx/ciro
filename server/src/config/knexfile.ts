@@ -5,8 +5,10 @@
  * The actual configuration is maintained in src/config/knexfile.ts
  */
 import { Knex } from 'knex';
-import { config } from '../config';
 import path from 'path';
+
+// Use require for config import
+const { config } = require('./src/config/config');
 
 // Base knex configuration derived from the centralized config
 const baseConfig: Knex.Config = {

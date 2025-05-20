@@ -1,0 +1,63 @@
+# TypeORM to Prisma Migration PRD
+
+## Project Overview
+This project aims to migrate an existing NestJS application from TypeORM to Prisma as the ORM (Object-Relational Mapping) tool. The application is a data analysis platform with features for document processing, analytics, AI integrations, and user management. The migration must be completed in a phased approach to ensure continuous functionality throughout the transition.
+
+## Current Architecture
+- NestJS backend with TypeORM integration
+- PostgreSQL database with multiple entities and relationships
+- Authentication system with JWT
+- Document processing pipeline with job queues
+- AI/NLP services for data analysis
+
+## Migration Goals
+1. Replace all TypeORM entities with Prisma models
+2. Update all services to use PrismaService instead of TypeORM repositories
+3. Ensure all queries and relationships work correctly
+4. Remove TypeORM dependencies and configuration
+5. Validate that all features continue to work as expected
+6. Improve performance where possible through Prisma's optimizations
+
+## Requirements
+
+### Phase 1: Setup and Planning
+- Initialize Prisma in the project
+- Generate Prisma schema from existing database
+- Create migration plan and task breakdown
+- Set up PrismaService for dependency injection
+
+### Phase 2: Core Services Migration
+- Migrate authentication service
+- Migrate user and organization services
+- Migrate data source management
+- Update core modules and controllers
+
+### Phase 3: Feature Services Migration
+- Migrate document processing services
+- Migrate analytics services
+- Migrate AI/NLP services
+- Update feature modules and controllers
+
+### Phase 4: Testing and Cleanup
+- Verify all features work as expected
+- Remove unused TypeORM imports and dependencies
+- Update documentation
+- Perform final testing and validation
+
+## Technical Constraints
+- The database schema should remain compatible
+- API endpoints should maintain the same behavior
+- The migration should support existing data
+- Transactions should be preserved where used
+- Authentication and authorization must be maintained
+- Performance should be maintained or improved
+
+## Success Criteria
+- All tests pass with Prisma integration
+- No TypeORM dependencies remain in the codebase
+- Application functions correctly with Prisma
+- No regression in performance
+- All API endpoints maintain the same behavior
+
+## Timeline
+The migration should be completed within 4 weeks, with each phase taking approximately 1 week. 

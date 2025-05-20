@@ -1171,11 +1171,6 @@ export const StudioEditor = ({
   
   // ...
   
-  const initializeWorkspace = useCallback(async (id: string) => {
-    console.log('initializeWorkspace called with ID:', id);
-    // ... rest of function unchanged
-  }, []);
-
   // Helper function to get chart name from template ID
   const getChartNameFromTemplateId = (templateId: string): string => {
     const chartConfig = allCharts.find(c => c.id === templateId);

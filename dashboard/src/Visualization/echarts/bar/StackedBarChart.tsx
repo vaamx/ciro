@@ -146,31 +146,35 @@ const StackedBarChart: React.FC<StackedBarChartProps> = (props) => {
   ]);
 
   // Create enhanced options object with stack-specific settings
-  const enhancedOptions = useMemo(() => ({
-    ...(props.options || {}),
+  const enhancedOptions = useMemo(() => {
+    const options = props.options || {};
     
-    // Add stack total label configuration if enabled
-    series: Array.isArray(props.options?.series) ? props.options.series.map(series => ({
-      ...series,
-      // Add label configuration if stack labels are enabled
-      label: showStackLabels ? {
-        show: true,
-        position: stackLabelPosition,
-        formatter: stackLabelFormatter,
-        ...series?.label
-      } : series?.label
-    })) : undefined,
-    
-    // Add config for showing percentage mode if enabled
-    yAxis: percentageMode ? {
-      ...(props.options?.yAxis || {}),
-      axisLabel: {
-        ...(props.options?.yAxis?.axisLabel || {}),
-        formatter: '{value}%'
-      },
-      max: 100
-    } : props.options?.yAxis
-  }), [
+    return {
+      ...options,
+      
+      // Add stack total label configuration if enabled
+      series: Array.isArray(options.series) ? options.series.map((series: any) => ({
+        ...series,
+        // Add label configuration if stack labels are enabled
+        label: showStackLabels ? {
+          show: true,
+          position: stackLabelPosition,
+          formatter: stackLabelFormatter,
+          ...series?.label
+        } : series?.label
+      })) : undefined,
+      
+      // Add config for showing percentage mode if enabled
+      yAxis: percentageMode ? {
+        ...(options.yAxis || {}),
+        axisLabel: {
+          ...(options.yAxis?.axisLabel || {}),
+          formatter: '{value}%'
+        },
+        max: 100
+      } : options.yAxis
+    };
+  }, [
     props.options, 
     showStackLabels,
     stackLabelPosition,

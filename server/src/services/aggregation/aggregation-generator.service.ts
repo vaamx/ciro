@@ -1,31 +1,30 @@
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../utils/logger-factory';
-import { OpenAIService } from '../../services/ai/openai.service';
-import { QdrantSearchService } from '../../services/vector/search.service';
-import { QdrantCollectionService } from '../../services/vector/collection-manager.service';
-import { DataSourceType } from '../../types/data-source';
+import { createServiceLogger } from '../../common/utils/logger-factory';
+import { OpenAIService } from '../ai/openai.service';
+import { QdrantClientService } from '../vector/qdrant-client.service';
+import { QdrantCollectionService } from '../vector/collection-manager.service';
+import { QdrantSearchService } from '../vector/search.service';
+import { SnowflakeService } from '../datasources/connectors/snowflake/snowflake.service';
 import { db } from '../../config/database';
-import { SnowflakeService } from '../../services/data-processing/snowflake/snowflake.service';
+import { EmbeddingService } from '../ai/embedding.service';
 
 const logger = createServiceLogger('AggregationGeneratorService');
 
+/**
+ * Service for generating aggregations from data sources
+ */
 @Injectable()
 export class AggregationGeneratorService {
-  
-  
-  private constructor(
+  constructor(
     private readonly snowflakeService: SnowflakeService,
     private readonly qdrantClientService: QdrantClientService,
-    private readonly aggregationGeneratorService: AggregationGeneratorService,
-    
-    private qdrantSearchService: QdrantSearchService,
-    private qdrantCollectionService: QdrantCollectionService,
-    private openaiService: OpenAIService,
-    private database = db,
-    private snowflakeService: SnowflakeService = this.snowflakeService,
-  ) {}
-  
-  
+    private readonly qdrantSearchService: QdrantSearchService,
+    private readonly qdrantCollectionService: QdrantCollectionService,
+    private readonly openaiService: EmbeddingService,
+    private readonly database = db,
+  ) {
+    logger.info('AggregationGeneratorService initialized via DI');
+  }
   
   // Common aggregation types to generate
   readonly AGGREGATION_TYPES = [
@@ -152,7 +151,7 @@ export class AggregationGeneratorService {
         );
         
         // Generate embedding
-        const vector = await this.openaiService.createEmbeddings(description);
+        const vector = await this.openaiService.createEmbedding(description);
         
         aggregations.push({
           type: 'total_sales_by_product',
@@ -160,7 +159,7 @@ export class AggregationGeneratorService {
           subjectId: product.id,
           value: totalSales,
           description,
-          vector: vector[0],
+          vector: vector,
           metadata: {
             dataSourceId,
             product: product.name,
@@ -221,7 +220,7 @@ export class AggregationGeneratorService {
           );
           
           // Generate embedding
-          const vector = await this.openaiService.createEmbeddings(description);
+          const vector = await this.openaiService.createEmbedding(description);
           
           aggregations.push({
             type: 'total_quantity_by_product',
@@ -229,7 +228,7 @@ export class AggregationGeneratorService {
             subjectId: product.id,
             value: totalQuantity,
             description,
-            vector: vector[0],
+            vector: vector,
             metadata: {
               dataSourceId,
               product: product.name,
@@ -535,7 +534,7 @@ export class AggregationGeneratorService {
           );
           
           // Generate embedding
-          const vector = await this.openaiService.createEmbeddings(description);
+          const vector = await this.openaiService.createEmbedding(description);
           
           aggregations.push({
             type: 'average_price_by_product',
@@ -543,7 +542,7 @@ export class AggregationGeneratorService {
             subjectId: product.id,
             value: averagePrice,
             description,
-            vector: vector[0],
+            vector: vector,
             metadata: {
               dataSourceId,
               product: product.name,
@@ -1002,6 +1001,7 @@ export class AggregationGeneratorService {
     
     if (!collectionExists) {
       await this.qdrantCollectionService.createCollection(collectionName, {
+        dimension: 1536, // Required parameter (OpenAI embedding dimension)
         vectors: {
           size: 1536, // OpenAI embedding dimension
           distance: 'Cosine'
@@ -1009,8 +1009,7 @@ export class AggregationGeneratorService {
       });
     }
     
-    // Upsert to collection - need to import QdrantClientService for this
-    const { QdrantClientService } = await import('../../services/vector/qdrant-client.service');
+    // Upsert to collection - using injected QdrantClientService
     const client = this.qdrantClientService.getClient();
     await client.upsert(collectionName, {
       points
@@ -1521,7 +1520,4 @@ interface Product {
   id: number | string;
   name: string;
   category?: string;
-}
-
-// Export singleton instance
-export const aggregationGeneratorService = this.aggregationGeneratorService; 
+} 

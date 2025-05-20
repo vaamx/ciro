@@ -14,13 +14,15 @@ const visualizationCache = new Cache<any>({
 });
 
 /**
- * Hook for processing visualization data using a web worker
+ * Custom hook for visualization data processing
  * Handles caching, data sampling, and worker lifecycle
  */
 export function useVisualizationWorker() {
-  const [isProcessing, setIsProcessing] = useState(false);
   const workerRef = useRef<ReturnType<typeof createWorker> | null>(null);
-  const workerTimeoutRef = useRef<number | null>(null);
+  const workerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any | null>(null);
   
   // Initialize worker on first use
   useEffect(() => {
@@ -85,7 +87,7 @@ export function useVisualizationWorker() {
     }
     
     try {
-      setIsProcessing(true);
+      setIsLoading(true);
       
       // Create a promise that will reject after timeout
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -114,12 +116,14 @@ export function useVisualizationWorker() {
         visualizationCache.set(data, enhancedConfig, result);
       }
       
+      setResult(result);
       return result;
     } catch (error) {
       console.error('Error processing visualization data:', error);
+      setError(error instanceof Error ? error.message : String(error));
       return data; // Return original data on error
     } finally {
-      setIsProcessing(false);
+      setIsLoading(false);
     }
   };
   
@@ -236,6 +240,8 @@ export function useVisualizationWorker() {
     calculateStatistics,
     sampleData,
     clearCache,
-    isProcessing
+    isLoading,
+    error,
+    result
   };
 } 

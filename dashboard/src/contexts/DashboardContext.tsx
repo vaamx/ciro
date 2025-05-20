@@ -8,13 +8,14 @@ import { useOrganization } from './OrganizationContext';
 // Extend Window interface to include dashboardContext
 declare global {
   interface Window {
-    dashboardContext?: DashboardContextType;
+    dashboardContext?: any; // Match the type in echarts.d.ts exactly
   }
 }
 
 // Re-export the Dashboard type from the types file
 export type Dashboard = DashboardType;
 
+// DashboardContextType interface definition
 export interface DashboardContextType {
   dashboards: Dashboard[];
   currentDashboard: Dashboard | null;
@@ -82,16 +83,29 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       if (dashboardData && Array.isArray(dashboardData)) {
         console.log(`Loaded ${dashboardData.length} dashboards for organization ${currentOrganization.id}`);
-        setDashboards(dashboardData);
+        
+        // Ensure all dashboards have a valid organization_id
+        const validatedDashboards = dashboardData.map(dashboard => {
+          if (dashboard.organization_id === undefined) {
+            console.warn(`Dashboard ${dashboard.id} (${dashboard.name}) has undefined organization_id, setting to current organization`);
+            return {
+              ...dashboard,
+              organization_id: currentOrganization.id
+            };
+          }
+          return dashboard;
+        });
+        
+        setDashboards(validatedDashboards);
         
         // Try to restore last active dashboard
-        const restored = restoreLastActiveDashboard(dashboardData);
+        const restored = restoreLastActiveDashboard(validatedDashboards);
         
         // If not restored and we have dashboards, set the first one as current
-        if (!restored && dashboardData.length > 0 && !currentDashboard) {
-          console.log(`Setting first dashboard as current: ${dashboardData[0].name}`);
-          setCurrentDashboard(dashboardData[0]);
-        } else if (dashboardData.length === 0) {
+        if (!restored && validatedDashboards.length > 0 && !currentDashboard) {
+          console.log(`Setting first dashboard as current: ${validatedDashboards[0].name}`);
+          setCurrentDashboard(validatedDashboards[0]);
+        } else if (validatedDashboards.length === 0) {
           // If no dashboards, clear current dashboard
           setCurrentDashboard(null);
         }
@@ -150,18 +164,35 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     try {
       setError(null);
-      const newDashboard = await dashboardApiService.createDashboard({
+      
+      // Ensure organization_id is explicitly set for the new dashboard
+      const dashboardWithOrg = {
         ...dashboard,
         organization_id: currentOrganization.id,
         createdBy: user?.id || 0,
-        widgets: [],
-        metrics: []
-      });
+        widgets: dashboard.widgets || [],
+        metrics: dashboard.metrics || []
+      };
+      
+      console.log(`Creating new dashboard with organization_id: ${dashboardWithOrg.organization_id}`);
+      
+      const newDashboard = await dashboardApiService.createDashboard(dashboardWithOrg);
+      
+      // Double-check organization_id came back properly from the API
+      if (newDashboard.organization_id === undefined) {
+        console.warn('API returned dashboard with undefined organization_id, fixing locally');
+        newDashboard.organization_id = currentOrganization.id;
+      }
       
       // Only add the dashboard if it belongs to the current organization
       if (newDashboard.organization_id === currentOrganization.id) {
+        console.log(`Created new dashboard: ${newDashboard.name} (ID: ${newDashboard.id})`);
         setDashboards([...dashboards, newDashboard]);
         setCurrentDashboard(newDashboard);
+        // Save the new dashboard as the last active dashboard
+        localStorage.setItem('last_active_dashboard_id', newDashboard.id);
+      } else {
+        console.warn(`Dashboard created with mismatched organization ID: ${newDashboard.organization_id}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create dashboard');
@@ -175,7 +206,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       d.organization_id === currentOrganization?.id
     );
     if (dashboard) {
+      console.log(`Switching to dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
       setCurrentDashboard(dashboard);
+      // Save the last active dashboard ID to localStorage
+      localStorage.setItem('last_active_dashboard_id', dashboard.id);
     }
   };
 
@@ -202,19 +236,53 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const deleteDashboard = async (dashboardId: string) => {
-    const dashboardToDelete = dashboards.find(d => d.id === dashboardId);
-    if (!dashboardToDelete || dashboardToDelete.organization_id !== currentOrganization?.id) {
-      throw new Error('Cannot delete dashboard from different organization');
-    }
-
     try {
+      const dashboardToDelete = dashboards.find(d => d.id === dashboardId);
+      
+      if (!dashboardToDelete) {
+        console.error(`Dashboard not found with ID: ${dashboardId}`);
+        throw new Error(`Dashboard not found with ID: ${dashboardId}`);
+      }
+      
+      if (!currentOrganization) {
+        console.error('No organization selected');
+        throw new Error('No organization selected');
+      }
+      
+      console.log(`Attempting to delete dashboard: ${dashboardToDelete.name} (ID: ${dashboardId})`);
+      console.log(`Dashboard org ID: ${dashboardToDelete.organization_id}, Current org ID: ${currentOrganization.id}`);
+      
+      // Fix for dashboards with undefined organization_id
+      if (dashboardToDelete.organization_id === undefined) {
+        console.log('Dashboard has undefined organization_id, updating to current organization before deletion');
+        dashboardToDelete.organization_id = currentOrganization.id;
+      }
+
+      // Now check if organization matches (after potential fix)
+      if (dashboardToDelete.organization_id !== currentOrganization.id) {
+        console.error(`Organization mismatch: Dashboard belongs to org ${dashboardToDelete.organization_id}, but current org is ${currentOrganization.id}`);
+        throw new Error('Cannot delete dashboard from different organization');
+      }
+
       setError(null);
       await dashboardApiService.deleteDashboard(dashboardId);
+      
+      console.log(`Successfully deleted dashboard: ${dashboardId}`);
       setDashboards(dashboards.filter(d => d.id !== dashboardId));
+      
       if (currentDashboard?.id === dashboardId) {
-        setCurrentDashboard(dashboards.find(d => d.id !== dashboardId) || null);
+        const newCurrentDashboard = dashboards.find(d => d.id !== dashboardId) || null;
+        console.log(`Setting new current dashboard: ${newCurrentDashboard?.name || 'None'}`);
+        setCurrentDashboard(newCurrentDashboard);
+        
+        if (newCurrentDashboard) {
+          localStorage.setItem('last_active_dashboard_id', newCurrentDashboard.id);
+        } else {
+          localStorage.removeItem('last_active_dashboard_id');
+        }
       }
     } catch (err) {
+      console.error('Error deleting dashboard:', err);
       setError(err instanceof Error ? err.message : 'Failed to delete dashboard');
       throw err;
     }

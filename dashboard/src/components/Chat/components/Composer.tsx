@@ -13,6 +13,7 @@ export interface ComposerProps {
     name: string;
     avatar?: string;
   }[];
+  allowAttachments?: boolean;
   allowVoiceInput?: boolean;
   maxAttachmentSize?: number;
   supportedFileTypes?: string[];
@@ -28,6 +29,7 @@ export const Composer: React.FC<ComposerProps> = ({
   streaming = false,
   suggestions = [],
   mentionableUsers = [],
+  allowAttachments = false,
   allowVoiceInput = false,
   maxAttachmentSize = 5 * 1024 * 1024,
   supportedFileTypes = ['image/*', 'application/pdf'],
@@ -185,6 +187,52 @@ export const Composer: React.FC<ComposerProps> = ({
               <div className={`w-${isMobile ? '1.5' : '2'} h-${isMobile ? '1.5' : '2'} bg-indigo-500 rounded-full animate-bounce`} style={{ animationDelay: '300ms' }} />
             </div>
           )}
+          
+          {/* File attachment button */}
+          {allowAttachments && (
+            <motion.label
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`
+                ${isMobile ? 'p-1.5' : 'p-2'} rounded-lg transition-colors cursor-pointer
+                text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300
+                hover:bg-gray-100 dark:hover:bg-gray-700
+              `}
+              htmlFor="file-upload"
+              aria-label="Attach file"
+              title="Attach file"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className={`${isMobile ? 'h-5 w-5' : 'h-4 w-4'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+              <input
+                id="file-upload"
+                type="file"
+                className="sr-only"
+                multiple
+                accept={supportedFileTypes?.join(',')}
+                onChange={(e) => {
+                  if (e.target.files) {
+                    const files = Array.from(e.target.files);
+                    const validFiles = files.filter(file => {
+                      const isValidType = supportedFileTypes.some(type => {
+                        if (type.endsWith('/*')) {
+                          return file.type.startsWith(type.replace('/*', ''));
+                        }
+                        return file.type === type;
+                      });
+                      const isValidSize = file.size <= maxAttachmentSize;
+                      return isValidType && isValidSize;
+                    });
+                    setAttachments(prev => [...prev, ...validFiles]);
+                    e.target.value = ''; // Reset input
+                  }
+                }}
+                disabled={disabled || isGenerating}
+              />
+            </motion.label>
+          )}
+          
           {allowVoiceInput && (
             <motion.button
               type="button"

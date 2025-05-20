@@ -4,7 +4,7 @@ export type MessageRole = 'user' | 'assistant' | 'error' | 'system';
 
 export interface BaseMetadata {
   model?: string;
-  tokens?: number;
+  tokens?: number | { prompt: number; completion: number; total: number; };
   time?: number;
   visualization?: {
     type: string;

@@ -93,9 +93,19 @@ function normalizeContext(context?: LegacyChatContext | ChatContext): ChatContex
   };
 }
 
+export interface DualPathResponse {
+  result: any;
+  routing: {
+    path: string;
+    confidence: number;
+    explanation: string;
+    processingTime: number;
+  };
+}
+
 export interface ApiService {
   getChatSessions: (context?: ChatContext) => Promise<ChatSession[]>;
-  createChatSession: (title?: string, context?: ChatContext) => Promise<ChatSession>;
+  createChatSession: (params: { title: string; organization_id?: number; dashboard_id?: string }) => Promise<ChatSession>;
   updateChatSession: (sessionId: string, title: string, lastMessage?: string, messageCount?: number, context?: ChatContext) => Promise<ChatSession>;
   deleteChatSession: (sessionId: string, context?: ChatContext) => Promise<void>;
   getChatHistory: (sessionId: string, context?: ChatContext) => Promise<ChatMessage[]>;
@@ -111,6 +121,8 @@ export interface ApiService {
   updateDashboard: (id: string, dashboard: Partial<Dashboard>) => Promise<Dashboard>;
   deleteDashboard: (id: string) => Promise<void>;
   updateDashboardWidgets: (dashboardId: string, widgets: Partial<Widget>[]) => Promise<Widget[]>;
+  processDualPathQuery: (query: string, dataSourceIds: string[], options?: any) => Promise<DualPathResponse>;
+  streamDualPathQuery: (query: string, dataSourceIds: string[], options?: any) => Promise<Response>;
 }
 
 // Global rate limiting state
@@ -118,10 +130,10 @@ const globalRateLimitState = {
   isRateLimited: false,
   rateLimitedUntil: 0,
   retryCount: 0,
-  maxRetries: 3,
-  baseDelay: 2000, // 2 seconds base delay
-  absoluteMaxRetries: 10, // After this many retries, we'll back off completely for a longer time
-  backoffComplete: false, // Whether we've backed off completely
+  maxRetries: 5,
+  baseDelay: 1000,
+  absoluteMaxRetries: 15,
+  backoffComplete: false,
   requestQueue: [] as {
     url: string;
     options: RequestInit;
@@ -152,9 +164,9 @@ function setGlobalRateLimit(endpoint: string, retryAfterMs?: number): void {
   globalRateLimitState.isRateLimited = true;
   globalRateLimitState.retryCount++;
   
-  // Calculate delay with exponential backoff
+  // Calculate delay with exponential backoff, but cap it lower
   const delay = retryAfterMs || 
-    Math.min(30000, globalRateLimitState.baseDelay * Math.pow(2, globalRateLimitState.retryCount - 1));
+    Math.min(15000, globalRateLimitState.baseDelay * Math.pow(1.5, globalRateLimitState.retryCount - 1));
   
   globalRateLimitState.rateLimitedUntil = Date.now() + delay;
   
@@ -163,9 +175,9 @@ function setGlobalRateLimit(endpoint: string, retryAfterMs?: number): void {
   // Emit event for other components to react
   emitApiRateLimit(endpoint, delay);
   
-  // If we've hit the absolute max retries, back off completely for a longer time
+  // If we've hit the absolute max retries, back off completely for a shorter time
   if (globalRateLimitState.retryCount >= globalRateLimitState.absoluteMaxRetries && !globalRateLimitState.backoffComplete) {
-    const longBackoffTime = 60000; // 1 minute
+    const longBackoffTime = 30000; // 30 seconds
     logger.warn(COMPONENT_NAME, `Hit absolute maximum retries (${globalRateLimitState.absoluteMaxRetries}), backing off for ${longBackoffTime / 1000} seconds`);
     globalRateLimitState.rateLimitedUntil = Date.now() + longBackoffTime;
     globalRateLimitState.backoffComplete = true;
@@ -602,15 +614,17 @@ class ApiServiceImpl implements ApiService {
     }
   }
 
-  async createChatSession(title?: string, context?: ChatContext): Promise<ChatSession> {
-    const defaultTitle = title || `Chat ${new Date().toLocaleString()}`;
+  async createChatSession(params: { title: string; organization_id?: number; dashboard_id?: string }): Promise<ChatSession> {
+    const defaultTitle = params.title || `Chat ${new Date().toLocaleString()}`;
     
     try {
       console.log(`Creating chat session with title "${defaultTitle}"`);
+      
+      // Use the params directly as the payload
       const payload = {
         title: defaultTitle,
-        ...(context?.organization_id && { organization_id: context.organization_id }),
-        ...(context?.dashboard_id && { dashboard_id: context.dashboard_id })
+        ...(params.organization_id && { organization_id: params.organization_id }),
+        ...(params.dashboard_id && { dashboard_id: params.dashboard_id })
       };
       
       console.log('Session create payload:', payload);
@@ -623,7 +637,10 @@ class ApiServiceImpl implements ApiService {
       if (!response.ok) {
         console.error(`Failed to create session: ${response.status} ${response.statusText}`);
         // Fall back to creating a local-only session if the server fails
-        return this.createLocalFallbackSession(defaultTitle, context);
+        return this.createLocalFallbackSession(defaultTitle, {
+          organization_id: params.organization_id,
+          dashboard_id: params.dashboard_id
+        });
       }
       
       const session = await this.handleResponse<ChatSession>(response);
@@ -632,7 +649,10 @@ class ApiServiceImpl implements ApiService {
     } catch (error) {
       console.error('Error creating chat session:', error);
       // Fall back to creating a local-only session if there's an error
-      return this.createLocalFallbackSession(defaultTitle, context);
+      return this.createLocalFallbackSession(defaultTitle, {
+        organization_id: params.organization_id,
+        dashboard_id: params.dashboard_id
+      });
     }
   }
   
@@ -1241,6 +1261,80 @@ class ApiServiceImpl implements ApiService {
     
     console.log(`Validated ${validMessages.length} of ${messages.length} messages`);
     return validMessages;
+  }
+
+  // New dual-path methods
+  async processDualPathQuery(query: string, dataSourceIds: string[], options: any = {}): Promise<DualPathResponse> {
+    const endpoint = 'api/dual-path/query';
+    
+    const payload = {
+      query,
+      dataSourceIds,
+      options
+    };
+    
+    try {
+      const response = await this.fetchWithCredentials(
+        `${this.baseUrl}/${endpoint}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.getAuthHeaders()
+          },
+          body: JSON.stringify(payload)
+        },
+        {
+          handleAuth: true,
+          logRequest: true,
+          retryCount: 1,
+          retryDelay: 1000,
+          priority: 3 // Higher priority for interactive queries
+        }
+      );
+      
+      return this.handleResponse<DualPathResponse>(response);
+    } catch (error) {
+      logger.error(COMPONENT_NAME, `Error processing dual-path query: ${error}`);
+      throw error;
+    }
+  }
+  
+  async streamDualPathQuery(query: string, dataSourceIds: string[], options: any = {}): Promise<Response> {
+    const endpoint = 'api/dual-path/query/stream';
+    
+    const payload = {
+      query,
+      dataSourceIds,
+      options: {
+        ...options,
+        streaming: true
+      }
+    };
+    
+    try {
+      return await this.fetchWithCredentials(
+        `${this.baseUrl}/${endpoint}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.getAuthHeaders()
+          },
+          body: JSON.stringify(payload)
+        },
+        {
+          handleAuth: true,
+          logRequest: true,
+          retryCount: 1,
+          retryDelay: 1000,
+          priority: 3 // Higher priority for streaming
+        }
+      );
+    } catch (error) {
+      logger.error(COMPONENT_NAME, `Error streaming dual-path query: ${error}`);
+      throw error;
+    }
   }
 }
 

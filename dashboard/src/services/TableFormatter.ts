@@ -507,7 +507,6 @@ export class TableFormatter {
     let markdown = '';
     const tableData: any[] = [];
     
-    let index = 1;
     for (const [type, typeRecords] of Object.entries(recordsByType)) {
       markdown += `### ${type} Records\n\n`;
       
@@ -537,8 +536,6 @@ export class TableFormatter {
         type,
         records: typeRecords
       });
-      
-      index++;
     }
     
     return { markdown, tableData };
@@ -592,5 +589,83 @@ export class TableFormatter {
     
     // Handle general JSON data
     return this.formatJsonToTable(data);
+  }
+
+  pivot(data: any[], keysColumn: string, valuesColumn: string, operation: string = 'sum'): any[] {
+    // Early return for empty data
+    if (!data || data.length === 0) return [];
+
+    // Validate required columns exist in the data
+    const sample = data[0];
+    if (!sample || !(keysColumn in sample) || !(valuesColumn in sample)) {
+      console.error('Invalid columns for pivot operation:', { keysColumn, valuesColumn });
+      return data;
+    }
+
+    // Get unique values for the keys column
+    const uniqueKeys = Array.from(new Set(data.map(row => row[keysColumn])));
+    
+    // Group data by all the other columns
+    const groups: { [key: string]: any[] } = {};
+    
+    // Find all columns except the keys and values columns for grouping
+    const groupColumns = Object.keys(sample).filter(col => col !== keysColumn && col !== valuesColumn);
+    
+    // Generate groups
+    data.forEach(row => {
+      const groupKey = groupColumns.map(col => String(row[col])).join('|');
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+      groups[groupKey].push(row);
+    });
+    
+    // For each group, create a new pivoted row
+    const result = Object.entries(groups).map(([_, rows]) => {
+      // Create a new row with the group columns
+      const newRow: any = {};
+      
+      if (groupColumns.length > 0) {
+        // Extract group column values from the first row in the group
+        groupColumns.forEach(col => {
+          newRow[col] = rows[0][col];
+        });
+      }
+      
+      // Compute the aggregated value for each unique key
+      uniqueKeys.forEach(key => {
+        const matchingRows = rows.filter(row => row[keysColumn] === key);
+        const values = matchingRows.map(row => Number(row[valuesColumn]) || 0);
+        
+        // Perform the requested operation
+        let value;
+        switch (operation.toLowerCase()) {
+          case 'sum':
+            value = values.reduce((a, b) => a + b, 0);
+            break;
+          case 'avg':
+            value = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+            break;
+          case 'min':
+            value = values.length > 0 ? Math.min(...values) : 0;
+            break;
+          case 'max':
+            value = values.length > 0 ? Math.max(...values) : 0;
+            break;
+          case 'count':
+            value = matchingRows.length;
+            break;
+          default:
+            value = values.reduce((a, b) => a + b, 0);
+        }
+        
+        // Add the pivoted value to the new row
+        newRow[String(key)] = value;
+      });
+      
+      return newRow;
+    });
+    
+    return result;
   }
 } 

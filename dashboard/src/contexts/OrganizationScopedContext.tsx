@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { useOrganization } from './OrganizationContext';
 
@@ -25,7 +25,7 @@ interface OrganizationScopedContextValue<T extends OrganizationScoped> extends O
 
 interface ApiService<T extends OrganizationScoped> {
   getItems: (organizationId: number) => Promise<T[]>;
-  createItem: (item: Partial<T>) => Promise<T>;
+  createItem: (item: Omit<T, 'id' | 'createdAt' | 'updatedAt'> & { organization_id: number }) => Promise<T>;
   updateItem: (id: string, item: Partial<T>) => Promise<T>;
   deleteItem: (id: string) => Promise<void>;
 }

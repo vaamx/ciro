@@ -533,61 +533,61 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
     } 
     // For databases
     else if (source.type === 'database') {
-      const dbType = source.metadata && 'databaseType' in source.metadata 
-        ? (source.metadata.databaseType as string)?.toLowerCase() 
+      const dbTypeValue = source.metadata && 
+        typeof source.metadata === 'object' && 
+        'databaseType' in source.metadata && 
+        (source.metadata as {databaseType?: string}).databaseType
+        ? ((source.metadata as {databaseType?: string}).databaseType as string)?.toLowerCase() 
         : undefined;
       
-      // Removed log: console.log('Database type:', dbType);
-      
-      if (dbType && DATABASE_LOGOS[dbType as keyof typeof DATABASE_LOGOS]) {
-        const logoUrl = DATABASE_LOGOS[dbType as keyof typeof DATABASE_LOGOS];
-        // Removed log: console.log(`Database icon for ${dbType}:`, logoUrl);
-        return <img src={logoUrl} alt={dbType} className="w-8 h-8" />;
+      if (dbTypeValue && DATABASE_LOGOS[dbTypeValue as keyof typeof DATABASE_LOGOS]) {
+        const logoUrl = DATABASE_LOGOS[dbTypeValue as keyof typeof DATABASE_LOGOS];
+        return <img src={logoUrl} alt={dbTypeValue} className="w-8 h-8" />;
       }
       return <Database className="w-8 h-8" />;
     }
     // For data warehouses
     else if (source.type === 'warehouse' || source.type === 'analytics') {
-      const warehouseType = source.metadata && 'warehouseType' in source.metadata 
-        ? (source.metadata.warehouseType as string)?.toLowerCase() 
+      const warehouseTypeValue = source.metadata && 
+        typeof source.metadata === 'object' && 
+        'warehouseType' in source.metadata && 
+        (source.metadata as {warehouseType?: string}).warehouseType
+        ? ((source.metadata as {warehouseType?: string}).warehouseType as string)?.toLowerCase() 
         : undefined;
       
-      // Removed log: console.log('Warehouse type:', warehouseType);
-      
-      if (warehouseType && DATABASE_LOGOS[warehouseType as keyof typeof DATABASE_LOGOS]) {
-        const logoUrl = DATABASE_LOGOS[warehouseType as keyof typeof DATABASE_LOGOS];
-        // Removed log: console.log(`Warehouse icon for ${warehouseType}:`, logoUrl);
-        return <img src={logoUrl} alt={warehouseType} className="w-8 h-8" />;
+      if (warehouseTypeValue && DATABASE_LOGOS[warehouseTypeValue as keyof typeof DATABASE_LOGOS]) {
+        const logoUrl = DATABASE_LOGOS[warehouseTypeValue as keyof typeof DATABASE_LOGOS];
+        return <img src={logoUrl} alt={warehouseTypeValue} className="w-8 h-8" />;
       }
       return <Cloud className="w-8 h-8" />;
     }
     // For streaming services
     else if (source.type === 'storage') {
-      const streamingType = source.metadata && 'streamingType' in source.metadata 
-        ? (source.metadata.streamingType as string)?.toLowerCase() 
+      const streamingTypeValue = source.metadata && 
+        typeof source.metadata === 'object' && 
+        'streamingType' in source.metadata && 
+        (source.metadata as {streamingType?: string}).streamingType
+        ? ((source.metadata as {streamingType?: string}).streamingType as string)?.toLowerCase() 
         : undefined;
       
-      // Removed log: console.log('Streaming type:', streamingType);
-      
-      if (streamingType && DATABASE_LOGOS[streamingType as keyof typeof DATABASE_LOGOS]) {
-        const logoUrl = DATABASE_LOGOS[streamingType as keyof typeof DATABASE_LOGOS];
-        // Removed log: console.log(`Streaming icon for ${streamingType}:`, logoUrl);
-        return <img src={logoUrl} alt={streamingType} className="w-8 h-8" />;
+      if (streamingTypeValue && DATABASE_LOGOS[streamingTypeValue as keyof typeof DATABASE_LOGOS]) {
+        const logoUrl = DATABASE_LOGOS[streamingTypeValue as keyof typeof DATABASE_LOGOS];
+        return <img src={logoUrl} alt={streamingTypeValue} className="w-8 h-8" />;
       }
       return <MessageSquare className="w-8 h-8" />;
     }
     // For business applications
     else if (source.type === 'crm' || source.type === 'crm-hubspot' || source.type === 'sap') {
-      const appType = source.metadata && 'appType' in source.metadata 
-        ? (source.metadata.appType as string)?.toLowerCase() 
+      const appTypeValue = source.metadata && 
+        typeof source.metadata === 'object' && 
+        'appType' in source.metadata && 
+        (source.metadata as {appType?: string}).appType
+        ? ((source.metadata as {appType?: string}).appType as string)?.toLowerCase() 
         : undefined;
       
-      // Removed log: console.log('Business app type:', appType);
-      
-      if (appType && DATABASE_LOGOS[appType as keyof typeof DATABASE_LOGOS]) {
-        const logoUrl = DATABASE_LOGOS[appType as keyof typeof DATABASE_LOGOS];
-        // Removed log: console.log(`Business app icon for ${appType}:`, logoUrl);
-        return <img src={logoUrl} alt={appType} className="w-8 h-8" />;
+      if (appTypeValue && DATABASE_LOGOS[appTypeValue as keyof typeof DATABASE_LOGOS]) {
+        const logoUrl = DATABASE_LOGOS[appTypeValue as keyof typeof DATABASE_LOGOS];
+        return <img src={logoUrl} alt={appTypeValue} className="w-8 h-8" />;
       }
       return <Briefcase className="w-8 h-8" />;
     }

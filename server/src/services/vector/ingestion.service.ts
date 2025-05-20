@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { QdrantClientService } from './qdrant-client.service';
 import { QdrantCollectionService } from './collection-manager.service';
 import { 
   IQdrantVectorService,
   VectorPoint, 
-  CollectionCreateOptions 
-} from './interfaces';
+  CollectionCreateOptions,
+  SearchResultItem
+} from '../vector/vector.interfaces';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -18,8 +19,7 @@ export class QdrantIngestionService implements IQdrantVectorService {
   private readonly clientService: QdrantClientService;
   private readonly collectionService: QdrantCollectionService;
   
-
-  private constructor(
+  public constructor(
     private readonly qdrantClientService: QdrantClientService,
     private readonly qdrantCollectionService: QdrantCollectionService,
     ) {
@@ -29,17 +29,149 @@ export class QdrantIngestionService implements IQdrantVectorService {
   }
 
   /**
-   * Get the singleton instance of QdrantIngestionService
+   * Implement the createCollection method required by IQdrantVectorService
    */
-  
+  async createCollection(collectionName: string, dimension: number): Promise<void> {
+    try {
+      const options: CollectionCreateOptions = {
+        dimension,
+        vectors: {
+          size: dimension,
+          distance: 'Cosine'
+        },
+        on_disk: true
+      };
+      
+      await this.collectionService.createCollection(collectionName, options);
+    } catch (error) {
+      this.logger.error(`Error creating collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Implement the upsertPoints method required by IQdrantVectorService
+   */
+  async upsertPoints(collectionName: string, points: VectorPoint[]): Promise<void> {
+    if (!collectionName) {
+      throw new Error('Collection name is required');
+    }
+
+    if (!points || points.length === 0) {
+      throw new Error('Points are required');
+    }
+
+    try {
+      // Check if collection exists
+      const exists = await this.collectionService.collectionExists(collectionName);
+      
+      if (!exists) {
+        throw new Error(`Collection ${collectionName} does not exist`);
+      }
+      
+      const client = this.clientService.getClient();
+      if (!client) {
+        this.logger.error(`QdrantClient is not available for upserting points to collection ${collectionName}`);
+        throw new Error('QdrantClient is not available');
+      }
+      
+      // Process in batches of 100
+      const batchSize = 100;
+      const batches = Math.ceil(points.length / batchSize);
+      
+      for (let i = 0; i < batches; i++) {
+        const batchPoints = points.slice(i * batchSize, (i + 1) * batchSize);
+        
+        await client.upsert(collectionName, {
+          points: batchPoints
+        });
+        
+        this.logger.info(`Upserted batch ${i + 1}/${batches} (${batchPoints.length} points) in collection ${collectionName}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error upserting vectors in collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Implement the search method required by IQdrantVectorService
+   */
+  async search(collectionName: string, vector: number[], limit: number = 10): Promise<SearchResultItem[]> {
+    if (!collectionName) {
+      throw new Error('Collection name is required');
+    }
+
+    if (!vector || vector.length === 0) {
+      throw new Error('Vector is required');
+    }
+
+    try {
+      const client = this.clientService.getClient();
+      if (!client) {
+        this.logger.error(`QdrantClient is not available for searching in collection ${collectionName}`);
+        return [];
+      }
+      
+      // Pass search parameters as a single object (vector and limit)
+      const searchParams = { vector, limit };
+      const result = await client.search(collectionName, searchParams);
+      
+      return result.map(item => ({
+        id: item.id.toString(),
+        score: item.score,
+        payload: item.payload || {}
+      })) as SearchResultItem[];
+    } catch (error) {
+      this.logger.error(`Error searching vectors in collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  }
+
+  /**
+   * Implement the delete method required by IQdrantVectorService
+   */
+  async delete(collectionName: string, filter: any): Promise<void> {
+    if (!collectionName) {
+      throw new Error('Collection name is required');
+    }
+
+    if (!filter) {
+      throw new Error('Filter is required');
+    }
+
+    try {
+      // Check if collection exists
+      const exists = await this.collectionService.collectionExists(collectionName);
+      
+      if (!exists) {
+        throw new Error(`Collection ${collectionName} does not exist`);
+      }
+      
+      const client = this.clientService.getClient();
+      if (!client) {
+        this.logger.error(`QdrantClient is not available for deleting from collection ${collectionName}`);
+        throw new Error('QdrantClient is not available');
+      }
+      
+      await client.delete(collectionName, {
+        filter
+      });
+      
+      this.logger.info(`Deleted vectors by filter from collection ${collectionName}`);
+    } catch (error) {
+      this.logger.error(`Error deleting vectors by filter from collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
 
   /**
    * Store vectors in a collection
    * @param collectionName Collection name
    * @param vectors Array of vectors to store
    * @param payloads Array of payloads to store with vectors
-   * @param ids Optional array of IDs to use for the vectors
-   * @returns Array of IDs for the stored vectors
+   * @param ids Optional array of IDs for vectors
+   * @returns Array of stored vector IDs
    */
   async storeVectors(
     collectionName: string,
@@ -58,20 +190,20 @@ export class QdrantIngestionService implements IQdrantVectorService {
     }
 
     if (!payloads || payloads.length !== vectors.length) {
-      this.logger.error('Payloads must match vectors length');
+      this.logger.error('Payloads must be provided and match vectors length');
       return [];
     }
 
     try {
-      // Create collection if it doesn't exist
+      // Ensure collection exists
       await this.ensureCollectionExists(collectionName, vectors[0].length);
       
-      // Generate IDs if not provided
-      const pointIds = ids || vectors.map(() => uuidv4());
+      // Generate point IDs if not provided
+      const pointIds = ids || vectors.map(() => Date.now() + Math.floor(Math.random() * 1000000));
       
       // Create points
-      const points: VectorPoint[] = vectors.map((vector, index) => ({
-        id: pointIds[index],
+      const points = vectors.map((vector, index) => ({
+        id: pointIds[index].toString(),
         vector,
         payload: payloads[index] || {}
       }));
@@ -118,6 +250,10 @@ export class QdrantIngestionService implements IQdrantVectorService {
       }
       
       const client = this.clientService.getClient();
+      if (!client) {
+        this.logger.error(`QdrantClient is not available for upserting vectors to collection ${collectionName}`);
+        return false;
+      }
       
       // Process in batches of 100
       const batchSize = 100;
@@ -170,6 +306,10 @@ export class QdrantIngestionService implements IQdrantVectorService {
       }
       
       const client = this.clientService.getClient();
+      if (!client) {
+        this.logger.error(`QdrantClient is not available for deleting vectors from collection ${collectionName}`);
+        return false;
+      }
       
       // Process in batches of 100
       const batchSize = 100;
@@ -222,6 +362,10 @@ export class QdrantIngestionService implements IQdrantVectorService {
       }
       
       const client = this.clientService.getClient();
+      if (!client) {
+        this.logger.error(`QdrantClient is not available for deleting vectors by filter from collection ${collectionName}`);
+        return false;
+      }
       
       await client.delete(collectionName, {
         filter
@@ -256,14 +400,12 @@ export class QdrantIngestionService implements IQdrantVectorService {
       
       // Create collection
       const options: CollectionCreateOptions = {
+        dimension: vectorSize,
         vectors: {
           size: vectorSize,
           distance: 'Cosine'
         },
-        optimizers_config: {
-          default_segment_number: 2
-        },
-        on_disk_payload: true
+        on_disk: true
       };
       
       return this.collectionService.createCollection(collectionName, options);

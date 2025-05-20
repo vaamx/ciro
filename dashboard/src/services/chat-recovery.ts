@@ -294,4 +294,308 @@ function findLastSavedMessages(): any[] | null {
     console.error('Error finding last saved messages:', error);
     return null;
   }
+}
+
+/**
+ * Clean up old chat sessions to free up storage space
+ * @param maxAgeMs Maximum age of session data to keep (default: 30 days)
+ * @param preserveLatest Number of recent sessions to preserve regardless of age (default: 5)
+ * @param forceCleanup If true, will aggressively clean sessions even if they're not old
+ * @returns Number of items cleaned up
+ */
+export function cleanupOldChatSessions(maxAgeMs = 30 * 24 * 60 * 60 * 1000, preserveLatest = 5, forceCleanup = false): number {
+  console.log(`Cleaning up chat sessions older than ${maxAgeMs / (24 * 60 * 60 * 1000)} days...`);
+  
+  try {
+    // Collect all chat session keys and their last access time
+    const sessionData: {key: string, lastAccess: number, isBackup: boolean, size: number}[] = [];
+    const now = Date.now();
+    
+    // First pass: collect all chat-related keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      
+      // Only process chat message data
+      if (key.startsWith('chat_messages_') || 
+          key.startsWith('chat_compact_') || 
+          key.startsWith('chat_messages_backup_') ||
+          key.startsWith('chat_session_')) {
+        
+        // Try to extract session ID and timestamp from key
+        let timestamp = 0;
+        const isBackup = key.includes('backup_');
+        
+        // Extract embedded timestamp from backup keys if available
+        if (isBackup && key.includes('_backup_')) {
+          const parts = key.split('_backup_');
+          if (parts.length > 1) {
+            const possibleTimestamp = parseInt(parts[1], 10);
+            if (!isNaN(possibleTimestamp)) {
+              timestamp = possibleTimestamp;
+            }
+          }
+        }
+        
+        // If no embedded timestamp, try to get access time from messages
+        if (timestamp === 0) {
+          try {
+            const data = localStorage.getItem(key);
+            if (data) {
+              // Calculate size of this item
+              const size = data.length * 2; // Approximate size in bytes
+              
+              // Try to parse for timestamp if it's message data
+              if (key.includes('messages')) {
+                const messages = JSON.parse(data);
+                if (Array.isArray(messages) && messages.length > 0) {
+                  // Find the newest message timestamp
+                  const newestTimestamp = Math.max(...messages
+                    .filter(m => m && typeof m.timestamp === 'number')
+                    .map(m => m.timestamp));
+                  
+                  if (newestTimestamp > 0) {
+                    timestamp = newestTimestamp;
+                  }
+                }
+              }
+              
+              sessionData.push({
+                key,
+                lastAccess: timestamp || now - maxAgeMs - 1, // Default to eligible for cleanup if no timestamp
+                isBackup,
+                size
+              });
+            }
+          } catch (e) {
+            // If parsing fails, use current time minus max age
+            sessionData.push({
+              key,
+              lastAccess: now - maxAgeMs - 1, // Ensure it's eligible for cleanup
+              isBackup,
+              size: 0
+            });
+          }
+        } else {
+          // We already have a timestamp from the key name
+          const data = localStorage.getItem(key) || '';
+          sessionData.push({
+            key,
+            lastAccess: timestamp,
+            isBackup,
+            size: data.length * 2
+          });
+        }
+      }
+    }
+    
+    // Sort by access time (newest first)
+    sessionData.sort((a, b) => b.lastAccess - a.lastAccess);
+    
+    // Preserve the latest N sessions
+    const preservedKeys = new Set<string>();
+    let preservedCount = 0;
+    
+    for (const item of sessionData) {
+      // Skip backups when preserving latest
+      if (!item.isBackup) {
+        // Extract session ID from key
+        const match = item.key.match(/chat_(?:messages|compact|session)_([^_]+)/);
+        if (match && match[1]) {
+          const sessionId = match[1];
+          
+          // Add all keys for this session to preserved set
+          if (preservedCount < preserveLatest) {
+            sessionData.forEach(sd => {
+              if (sd.key.includes(sessionId)) {
+                preservedKeys.add(sd.key);
+              }
+            });
+            preservedCount++;
+          }
+        }
+      }
+    }
+    
+    // Identify items to remove:
+    // 1. Old items (beyond maxAgeMs) and not preserved
+    // 2. If forceCleanup is true, all non-preserved items ordered by size (largest first)
+    let keysToRemove: string[];
+    
+    if (forceCleanup) {
+      // In forced cleanup mode, we'll remove non-preserved items starting with largest
+      const nonPreserved = sessionData
+        .filter(item => !preservedKeys.has(item.key))
+        .sort((a, b) => b.size - a.size);  // Sort by size, largest first
+      
+      keysToRemove = nonPreserved.map(item => item.key);
+      console.log(`FORCED CLEANUP: Will remove ${keysToRemove.length} items to free up space`);
+    } else {
+      // Normal mode - just remove old items
+      keysToRemove = sessionData
+        .filter(item => !preservedKeys.has(item.key) && (now - item.lastAccess > maxAgeMs))
+        .map(item => item.key);
+    }
+    
+    // If we still don't have anything to remove but need forced cleanup
+    if (keysToRemove.length === 0 && forceCleanup) {
+      // As a last resort, remove older preserved items except the very latest
+      preservedCount = 0;
+      preservedKeys.clear();
+      
+      // Only preserve the single most recent session
+      for (const item of sessionData) {
+        if (!item.isBackup) {
+          const match = item.key.match(/chat_(?:messages|compact|session)_([^_]+)/);
+          if (match && match[1]) {
+            const sessionId = match[1];
+            
+            if (preservedCount < 1) {  // Only preserve 1 session in emergency mode
+              sessionData.forEach(sd => {
+                if (sd.key.includes(sessionId)) {
+                  preservedKeys.add(sd.key);
+                }
+              });
+              preservedCount++;
+            }
+          }
+        }
+      }
+      
+      // Get all non-preserved keys
+      keysToRemove = sessionData
+        .filter(item => !preservedKeys.has(item.key))
+        .map(item => item.key);
+      
+      console.log(`EMERGENCY CLEANUP: Preserving only the most recent session, will remove ${keysToRemove.length} items`);
+    }
+    
+    // Remove the identified items
+    let removedCount = 0;
+    let removedBytes = 0;
+    
+    keysToRemove.forEach(key => {
+      try {
+        // Find the item to get its size for reporting
+        const item = sessionData.find(sd => sd.key === key);
+        const size = item ? item.size : 0;
+        
+        localStorage.removeItem(key);
+        removedCount++;
+        removedBytes += size;
+      } catch (error) {
+        console.error(`Failed to remove key ${key}:`, error);
+      }
+    });
+    
+    console.log(`Cleaned up ${removedCount} chat items (${(removedBytes/1024).toFixed(2)} KB) from localStorage`);
+    return removedCount;
+  } catch (error) {
+    console.error('Error cleaning up chat sessions:', error);
+    return 0;
+  }
+}
+
+/**
+ * Performs an emergency cleanup of localStorage when quota is exceeded
+ * This aggressively removes older items to make space for critical operations
+ * @returns Number of items cleaned up
+ */
+export function emergencyStorageCleanup(): number {
+  console.log('Performing emergency storage cleanup...');
+  
+  try {
+    // First try normal cleanup with a shorter retention period and more aggressive settings
+    let cleanedItems = cleanupOldChatSessions(7 * 24 * 60 * 60 * 1000, 2, true);
+    
+    // If that wasn't enough, get even more aggressive
+    if (cleanedItems === 0) {
+      console.warn('Normal cleanup insufficient, performing aggressive cleanup...');
+      
+      // Get all localStorage keys
+      const allKeys = Object.keys(localStorage);
+      const chatKeys = allKeys.filter(key => 
+        key.startsWith('chat_') || 
+        key.includes('session') || 
+        key.includes('message')
+      );
+      
+      // Sort chat keys by estimated priority (keep active session, remove others)
+      const activeSessionId = localStorage.getItem('active_session_id');
+      
+      // First remove all non-active session message history
+      for (const key of chatKeys) {
+        // Skip the active session
+        if (activeSessionId && key.includes(activeSessionId)) {
+          continue;
+        }
+        
+        // Remove message history first as it's typically larger
+        if (key.startsWith('chat_messages_')) {
+          try {
+            localStorage.removeItem(key);
+            cleanedItems++;
+          } catch (e) {
+            console.error(`Failed to remove item ${key}:`, e);
+          }
+        }
+      }
+      
+      // If we still need more space, remove session metadata except active session
+      if (cleanedItems === 0) {
+        for (const key of chatKeys) {
+          // Skip the active session
+          if (activeSessionId && key.includes(activeSessionId)) {
+            continue;
+          }
+          
+          // Remove session metadata
+          if (key.startsWith('chat_session_')) {
+            try {
+              localStorage.removeItem(key);
+              cleanedItems++;
+            } catch (e) {
+              console.error(`Failed to remove item ${key}:`, e);
+            }
+          }
+        }
+      }
+      
+      // Last resort - clear all localStorage except critical items
+      if (cleanedItems === 0) {
+        console.warn('Extreme cleanup needed - clearing most localStorage items');
+        const criticalKeys = [
+          'active_session_id', 
+          'user_data', 
+          'current_organization_id',
+          'auth_token'
+        ];
+        
+        // Preserve critical values
+        const preserved: Record<string, string> = {};
+        for (const key of criticalKeys) {
+          const value = localStorage.getItem(key);
+          if (value) {
+            preserved[key] = value;
+          }
+        }
+        
+        // Clear localStorage
+        localStorage.clear();
+        cleanedItems = allKeys.length;
+        
+        // Restore critical values
+        for (const [key, value] of Object.entries(preserved)) {
+          localStorage.setItem(key, value);
+        }
+        
+        console.log('Emergency cleanup complete - cleared localStorage and preserved critical data');
+      }
+    }
+    
+    return cleanedItems;
+  } catch (error) {
+    console.error('Failed during emergency cleanup:', error);
+    return 0;
+  }
 } 

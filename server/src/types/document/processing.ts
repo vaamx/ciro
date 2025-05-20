@@ -118,6 +118,13 @@ export interface ProcessingOptions {
   progressCallback?: (progress: ProcessingProgress) => void;
   sanitizationRules?: SanitizationRule[];
   validationRules?: ValidationRule[];
+  chunkSize?: number;
+  chunkOverlap?: number;
+  useSemanticChunking?: boolean;
+  dataSourceId?: number;
+  collectionName?: string;
+  organizationId?: number;
+  [key: string]: any;
 }
 
 export interface SanitizationRule {

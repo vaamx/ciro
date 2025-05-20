@@ -1,4 +1,4 @@
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { injectable } from 'inversify';
 
 /**

@@ -1,0 +1,204 @@
+// server/src/infrastructure/database/prisma/schema/schema.prisma
+
+// 1. Define the database connection
+datasource db {
+  provider = "***REMOVED***ql" // CHANGE THIS if you use MySQL, SQLite, etc.
+  url      = env("DATABASE_URL") // Make sure DATABASE_URL is set in your .env file
+}
+
+// 2. Define the Prisma Client generator
+generator client {
+  provider = "prisma-client-js"
+  // Optionally specify binary targets if needed, e.g.:
+  // binaryTargets = ["native", "debian-openssl-3.0.x"] 
+}
+
+// --- Core Models ---
+
+model User {
+  id              Int              @id @default(autoincrement())
+  email           String           @unique
+  hashedPassword  String?          // Store hashed passwords, null if using OAuth only
+  name            String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  role            Role             @default(USER) // Example: User role
+
+  // Example Relations
+  organizations   OrganizationMember[] // User can belong to multiple orgs
+  workspaces      Workspace[]      // Workspaces created by the user
+  chatSessions    ChatSession[]    // Chat sessions initiated by the user
+  files           File[]           // Files uploaded by the user
+  dataSources     DataSource[]     // Data sources created by the user
+  ownedOrganization Organization? @relation("OrganizationOwner") // If a user owns an org
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model Organization {
+  id          Int       @id @default(autoincrement())
+  name        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Example Relations
+  ownerId     Int?      @unique // Optional: If one user owns the org
+  owner       User?     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members     OrganizationMember[]
+  workspaces  Workspace[]
+}
+
+// Join table for many-to-many relationship between User and Organization
+model OrganizationMember {
+  userId          Int
+  organizationId  Int
+  assignedAt      DateTime @default(now())
+  assignedBy      String   // Optional: Track who added the member
+
+  user          User          @relation(fields: [userId], references: [id])
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+
+  @@id([userId, organizationId]) // Composite primary key
+}
+
+model Workspace {
+  id            Int       @id @default(autoincrement())
+  name          String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  organizationId Int
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  creatorId     Int
+  creator       User      @relation(fields: [creatorId], references: [id])
+
+  files         File[]
+  dataSources   DataSource[]
+}
+
+// --- File & Data Source Models ---
+
+model File {
+  id          Int         @id @default(autoincrement())
+  name        String
+  storagePath String      // Path in local storage or S3 key
+  mimeType    String
+  size        Int         // Size in bytes
+  status      FileStatus  @default(UPLOADED)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  uploaderId  Int
+  uploader    User        @relation(fields: [uploaderId], references: [id])
+  workspaceId Int
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id])
+
+  // Relations to processing outputs
+  processingJobs ProcessingJob[]
+  chunks         DocumentChunk[]
+}
+
+enum FileStatus {
+  UPLOADED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model DataSource {
+  id            Int             @id @default(autoincrement())
+  name          String
+  type          DataSourceType  // e.g., SNOWFLAKE, FILE_UPLOAD, HUBSPOT
+  config        Json?           // Store connection details, credentials etc. (encrypt sensitive parts!)
+  status        FileStatus      @default(UPLOADED) // Reusing FileStatus, maybe rename/create specific one
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  creatorId     Int
+  creator       User            @relation(fields: [creatorId], references: [id])
+  workspaceId   Int
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id])
+
+  processingJobs ProcessingJob[]
+}
+
+enum DataSourceType {
+  FILE_UPLOAD
+  SNOWFLAKE
+  HUBSPOT
+  // Add other types as needed
+}
+
+// --- Processing & Chunking Models ---
+
+model ProcessingJob {
+  id            Int       @id @default(autoincrement())
+  jobType       String    // e.g., "chunking", "embedding", "analysis"
+  status        JobStatus @default(PENDING)
+  statusMessage String?   // For storing error messages or progress
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relation to the source (could be File or DataSource)
+  fileId        Int?
+  file          File?     @relation(fields: [fileId], references: [id])
+  dataSourceId  Int?
+  dataSource    DataSource? @relation(fields: [dataSourceId], references: [id])
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model DocumentChunk {
+  id          Int       @id @default(autoincrement())
+  content     String    @db.Text // Use Text type for potentially long content
+  metadata    Json?     // Store page numbers, headings, etc.
+  // embedding   Unsupported("vector")? // If using pgvector or similar, define appropriately
+  createdAt   DateTime  @default(now())
+
+  // Relation to the source file
+  fileId      Int
+  file        File      @relation(fields: [fileId], references: [id])
+
+  // Example index (if you plan to search chunks directly)
+  // @@index([fileId]) 
+}
+
+// --- Chat Models ---
+
+model ChatSession {
+  id          Int       @id @default(autoincrement())
+  name        String?   // Optional name for the session
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relation to User
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+
+  messages    ChatMessage[]
+}
+
+model ChatMessage {
+  id          Int       @id @default(autoincrement())
+  role        String    // 'USER' or 'AI'
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+
+  // Relation to Session
+  sessionId   Int
+  session     ChatSession @relation(fields: [sessionId], references: [id])
+
+  // Index for faster retrieval of messages per session
+  @@index([sessionId])
+} 

@@ -15,8 +15,8 @@ export * from './vector';
 // RAG services
 export * from './rag';
 
-// Data processing services
-export * from './data-processing';
+// Data processing services (Removed as directory doesn't exist at this level)
+// export * from './data-processing';
 
 // Exclude VisualizationType from data-processing to avoid naming conflicts
 // export * from './document-processors';
@@ -37,7 +37,7 @@ export {
   EnhancedMetadata, 
   EnhancedMetadataOptions, 
   SourceData 
-} from './metadata-extraction/enhanced-metadata-service';
+} from './shared/metadata/enhanced-metadata.service';
 
 // Embedding services will be added later when implemented
 // export * from './embedding';

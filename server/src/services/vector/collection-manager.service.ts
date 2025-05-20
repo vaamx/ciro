@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { QdrantClient } from '@qdrant/js-client-rest';
-import { createServiceLogger } from '../../utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { QdrantClientService } from './qdrant-client.service';
 import { 
   IQdrantCollectionService, 
   CollectionCreateOptions, 
   CollectionInfo 
-} from './interfaces';
+} from '../vector/vector.interfaces';
 
 /**
  * Service for managing Qdrant collections
@@ -14,20 +13,28 @@ import {
 @Injectable()
 export class QdrantCollectionService implements IQdrantCollectionService {
   private readonly logger = createServiceLogger('QdrantCollectionService');
-  private readonly clientService: QdrantClientService;
   
-
-  private constructor(
+  // Remove static instance for singleton pattern
+  // private static instance: QdrantCollectionService | null = null;
+  
+  // Constructor already uses NestJS DI for QdrantClientService
+  public constructor(
     private readonly qdrantClientService: QdrantClientService,
-    ) {
-    this.logger.info('QdrantCollectionService initialized');
-    this.clientService = this.qdrantClientService;
+  ) {
+    this.logger.info('QdrantCollectionService initialized via NestJS DI');
   }
-
-  /**
-   * Get the singleton instance of QdrantCollectionService
-   */
   
+  // Remove static getInstance method
+  /*
+  public static getInstance(): QdrantCollectionService {
+    if (!QdrantCollectionService.instance) {
+      // This call caused the compilation error because QdrantClientService.getInstance was removed
+      const qdrantClientService = QdrantClientService.getInstance(); 
+      QdrantCollectionService.instance = new QdrantCollectionService(qdrantClientService);
+    }
+    return QdrantCollectionService.instance;
+  }
+  */
 
   /**
    * Check if a collection exists
@@ -41,15 +48,16 @@ export class QdrantCollectionService implements IQdrantCollectionService {
     }
 
     try {
-      const client = this.clientService.getClient();
-      // List all collections
-      const collections = await client.getCollections();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return false;
+      }
       
-      // Check if our collection exists
+      const collections = await client.getCollections();
       const found = collections.collections.some(
         (collection) => collection.name === collectionName
       );
-      
       this.logger.info(`Collection ${collectionName} exists: ${found}`);
       return found;
     } catch (error) {
@@ -83,10 +91,15 @@ export class QdrantCollectionService implements IQdrantCollectionService {
       }
       
       // Create the collection
-      const client = this.clientService.getClient();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return false;
+      }
+      
       await client.createCollection(collectionName, options);
       
-      this.logger.info(`Collection ${collectionName} created with dimension ${options.vectors.size}`);
+      this.logger.info(`Collection ${collectionName} created with dimension ${options.dimension || (options.vectors?.size || 'unknown')}`);
       return true;
     } catch (error) {
       this.logger.error(`Error creating collection: ${error instanceof Error ? error.message : String(error)}`);
@@ -106,7 +119,12 @@ export class QdrantCollectionService implements IQdrantCollectionService {
     }
 
     try {
-      const client = this.clientService.getClient();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return -1;
+      }
+      
       const exists = await this.collectionExists(collectionName);
       
       if (!exists) {
@@ -142,7 +160,12 @@ export class QdrantCollectionService implements IQdrantCollectionService {
     }
 
     try {
-      const client = this.clientService.getClient();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return null;
+      }
+      
       const exists = await this.collectionExists(collectionName);
       
       if (!exists) {
@@ -184,7 +207,12 @@ export class QdrantCollectionService implements IQdrantCollectionService {
     }
 
     try {
-      const client = this.clientService.getClient();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return false;
+      }
+      
       const exists = await this.collectionExists(collectionName);
       
       if (!exists) {
@@ -209,15 +237,18 @@ export class QdrantCollectionService implements IQdrantCollectionService {
    */
   async listCollections(): Promise<string[]> {
     try {
-      const client = this.clientService.getClient();
-      const collections = await client.getCollections();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return [];
+      }
       
-      const collectionNames = collections.collections.map(
-        (collection) => collection.name
-      );
+      const response = await client.getCollections();
       
-      this.logger.info(`Found ${collectionNames.length} collections`);
-      return collectionNames;
+      const collections = response.collections?.map(collection => collection.name) || [];
+      
+      this.logger.debug(`Found ${collections.length} collections`);
+      return collections;
     } catch (error) {
       this.logger.error(`Error listing collections: ${error instanceof Error ? error.message : String(error)}`);
       return [];
@@ -236,7 +267,12 @@ export class QdrantCollectionService implements IQdrantCollectionService {
     }
 
     try {
-      const client = this.clientService.getClient();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return false;
+      }
+      
       const exists = await this.collectionExists(collectionName);
       
       if (!exists) {
@@ -278,7 +314,12 @@ export class QdrantCollectionService implements IQdrantCollectionService {
     }
 
     try {
-      const client = this.clientService.getClient();
+      const client = this.qdrantClientService.getClient();
+      if (!client) {
+        this.logger.warn('QdrantClient is not available');
+        return false;
+      }
+      
       const exists = await this.collectionExists(collectionName);
       
       if (!exists) {
@@ -295,6 +336,42 @@ export class QdrantCollectionService implements IQdrantCollectionService {
       return true;
     } catch (error) {
       this.logger.error(`Error updating collection: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
+  /**
+   * Reindex all collections to improve search performance
+   * @returns True if all collections were successfully reindexed
+   */
+  async reindexAllCollections(): Promise<boolean> {
+    try {
+      const collections = await this.listCollections();
+      this.logger.info(`Reindexing ${collections.length} collections`);
+      
+      if (collections.length === 0) {
+        this.logger.info('No collections to reindex');
+        return true;
+      }
+      
+      let success = true;
+      for (const collectionName of collections) {
+        try {
+          this.logger.info(`Reindexing collection: ${collectionName}`);
+          const optimized = await this.optimizeCollection(collectionName);
+          if (!optimized) {
+            this.logger.warn(`Failed to optimize collection: ${collectionName}`);
+            success = false;
+          }
+        } catch (error) {
+          this.logger.error(`Error reindexing collection ${collectionName}: ${error instanceof Error ? error.message : String(error)}`);
+          success = false;
+        }
+      }
+      
+      return success;
+    } catch (error) {
+      this.logger.error(`Error reindexing collections: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }

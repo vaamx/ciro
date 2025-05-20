@@ -15,9 +15,27 @@ interface User {
 @Injectable()
 export class SocketService {
   private io: Server | null = null;
+  private static instance: SocketService | null = null;
 
   constructor() {
     // Server will be passed in initialize() method
+  }
+
+  /**
+   * Get the singleton instance of SocketService
+   * @param server HTTP server instance (optional if already initialized)
+   * @returns SocketService instance
+   */
+  public static getInstance(server?: HttpServer): SocketService {
+    if (!SocketService.instance) {
+      SocketService.instance = new SocketService();
+    }
+    
+    if (server && !SocketService.instance.io) {
+      SocketService.instance.initialize(server);
+    }
+    
+    return SocketService.instance;
   }
 
   private async authMiddleware(socket: Socket, next: (err?: Error) => void) {
@@ -78,7 +96,7 @@ export class SocketService {
     // Initialize Server with server
     this.io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        origin: process.env.FRONTEND_URL || 'http://localhost:5173',
         methods: ['GET', 'POST'],
         credentials: true
       }

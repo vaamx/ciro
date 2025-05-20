@@ -85,7 +85,7 @@ export interface DataSourceMetricsWithProgress extends DataSourceMetrics {
 
 // Type guard for checking if metrics include progress information
 export function hasProgressInfo(metrics: DataSourceMetrics): metrics is DataSourceMetricsWithProgress {
-  return 'progress' in metrics && !!metrics.progress;
+  return 'progress' in metrics && !!(metrics as DataSourceMetricsWithProgress).progress;
 }
 
 // Type guard for error info

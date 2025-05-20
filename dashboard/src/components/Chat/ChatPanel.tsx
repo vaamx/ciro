@@ -1,18 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { type ChatSettings, type ChatUIConfig, type ChatMessage } from './types';
 import { Thread } from './components/Thread';
 import { useChat } from './providers/ChatProvider';
-// Remove unused import
-// import { useRag } from '../../hooks/useRag';
 import { KnowledgeSidebar } from '../knowledge/KnowledgeSidebar';
 import { useKnowledge } from '../../providers/KnowledgeProvider';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useDashboard } from '../../contexts/DashboardContext';
-import { MessageSquareIcon, ArrowRightIcon, Building2 } from 'lucide-react';
-import { recoverFromBlankChatScreen } from '../../services/chat-recovery';
+import { MessageSquareIcon, ArrowRightIcon, Building2, Trash2Icon } from 'lucide-react';
+import { Composer } from './components/Composer';
+import { emergencyStorageCleanup } from '../../services/chat-recovery';
+import { Button } from '@/components/ui/button';
 
 // Redesigned WelcomeScreen component to be more responsive and compact
 const WelcomeScreen: React.FC<{
@@ -240,130 +240,281 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
   const { currentDashboard } = useDashboard();
   const [isKnowledgeBaseVisible, setIsKnowledgeBaseVisible] = useState(true);
   const [localError, setError] = useState<string | null>(null);
-  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [hasMoreMessages] = useState(false);
   const [isTitleUpdated, setIsTitleUpdated] = useState(false);
+  const [isLoading] = useState(false);
   
-  // Track chat titles locally since we don't have direct API access
-  const [chatTitles, setChatTitles] = useState<Record<string, string>>({});
-
-  // Error handling and recovery
-  const [recoveryAttempted, setRecoveryAttempted] = useState(false);
+  // Add state for processing mode preference
+  const [processingPreference, setProcessingPreference] = useState<'auto' | 'rag' | 'code'>('auto');
   
-  // Debug logs for sessions and active session ID
-  useEffect(() => {
-    console.log('ChatPanel - Available Sessions:', sessions);
-    console.log('ChatPanel - Active Session ID:', activeSessionId);
-    console.log('ChatPanel - Messages Count:', messages?.length || 0);
-    console.log('ChatPanel - Loading States:', {
-      isLoadingSessions,
-      isLoadingMessages: isGenerating
-    });
-  }, [sessions, activeSessionId, messages, isLoadingSessions, isGenerating]);
-
-  // Reset state when switching between chats
-  useEffect(() => {
-    if (activeSessionId) {
-      console.log('Active session changed to:', activeSessionId);
-      
-      // Reset title updated flag
-      setIsTitleUpdated(false);
-      
-      // Reset error state
-      setError(null);
-      
-      // Reset local state
-      setHasMoreMessages(false);
-    }
-  }, [activeSessionId]);
-
-  // Force session reload if sessions are empty
-  useEffect(() => {
-    if (!isLoadingSessions && (!sessions || sessions.length === 0)) {
-      console.log('No sessions available. Attempting to reload...');
-      // Try to reload sessions if we have a retry function
-      if (retryLoad) {
-        retryLoad();
-      }
-    }
-  }, [sessions, isLoadingSessions, retryLoad]);
-
-  // Update session title function
-  const updateSessionTitle = (
-    sessionId: string, 
-    title: string, 
-    lastMessage?: string, 
-    messageCount?: number
-  ) => {
-    // Update local state to track titles
-    setChatTitles(prev => ({
-      ...prev,
-      [sessionId]: title
-    }));
+  // Mock participants for mentions (can be replaced with real data)
+  const participants = useMemo(() => [], []);
+  
+  // Add a ref to track if we've already tried to create a session
+  const sessionCreationAttempted = React.useRef(false);
+  
+  // Function to handle processing preference change
+  const handleProcessingPreferenceChange = (newPreference: 'auto' | 'rag' | 'code') => {
+    setProcessingPreference(newPreference);
     
-    console.log(`Updating title for session ${sessionId} to "${title}"`);
-    
-    // Call the API to update the title
-    if (sessionId && title && currentOrganization?.id) {
-      try {
-        // Create context object
-        const context = {
-          organization_id: currentOrganization.id,
-          dashboard_id: currentDashboard?.id
-        };
-        
-        console.log(`Sending update for session ${sessionId} with context:`, context);
-        
-        apiService.updateChatSession(
-          sessionId, 
-          title, 
-          lastMessage, 
-          messageCount, 
-          context
-        )
-          .then((updatedSession) => {
-            console.log(`Successfully updated session ${sessionId}:`, updatedSession);
-            
-            // Show success notification
-            if (window.notificationContext) {
-              window.notificationContext.showNotification({
-                type: 'success',
-                message: 'Chat title has been updated'
-              });
-            }
-            
-            // Update the session in the sessions list
-            if (sessions) {
-              const updatedSessions = sessions.map(session => 
-                session.id === sessionId ? { 
-                  ...session, 
-                  title,
-                  last_message: lastMessage !== undefined ? lastMessage : session.last_message,
-                  message_count: messageCount !== undefined ? messageCount : session.message_count
-                } : session
-              );
-              console.log(`Updating sessions list with updated session ${sessionId}`);
-              _emergency.setSessions(updatedSessions);
-            }
-          }).catch(error => {
-            console.error(`Error updating chat title for session ${sessionId}:`, error);
-            if (window.notificationContext) {
-              window.notificationContext.showNotification({
-                type: 'error',
-                message: 'Failed to update chat title'
-              });
-            }
-          });
-      } catch (error) {
-        console.error(`Error in updateSessionTitle for session ${sessionId}:`, error);
-      }
-    } else {
-      console.error('Missing required parameters for updateSessionTitle:', {
-        sessionId,
-        title,
-        organizationId: currentOrganization?.id
+    // Show feedback to user
+    if (window.notificationContext) {
+      const modeLabels = {
+        auto: 'Automatic (Smart Routing)',
+        rag: 'Information Retrieval (RAG)',
+        code: 'Code Execution & Analysis'
+      };
+      
+      window.notificationContext.showNotification({
+        type: 'info',
+        message: `Processing mode set to: ${modeLabels[newPreference]}`
       });
     }
   };
+  
+  // Original handleSendMessage function with processing preference added
+  const handleSendMessage = async (message: string, attachments?: File[]) => {
+    try {
+      // Update the chat title if this is the first user message in a new chat
+      // and the title hasn't been updated yet
+      if (
+        activeSessionId && 
+        messages && 
+        // Only count user messages, not welcome or system messages
+        messages.filter(m => m.role === 'user').length === 0 && 
+        !isTitleUpdated
+      ) {
+        const generatedTitle = generateTitleFromMessage(message);
+        
+        // Only update if we have a proper title
+        if (generatedTitle && generatedTitle.length > 0) {
+          // Update with the title, last message, and message count
+          updateSessionTitle(
+            activeSessionId, 
+            generatedTitle, 
+            message, // Use the current message as the last message
+            1 // Set message count to 1 for the first message
+          );
+          setIsTitleUpdated(true);
+        }
+      } else if (activeSessionId && sessions) {
+        // For subsequent messages, update the session metadata
+        const currentSession = sessions.find(s => s.id === activeSessionId);
+        if (currentSession) {
+          // Update just the last message and message count
+          const newMessageCount = (currentSession.message_count || 0) + 1;
+          
+          // Create context object
+          const context = {
+            organization_id: currentOrganization?.id,
+            dashboard_id: currentDashboard?.id
+          };
+          
+          apiService.updateChatSession(
+            activeSessionId,
+            currentSession.title,
+            message, // Use the current message as the last message
+            newMessageCount,
+            context
+          ).then(() => {
+            // Update the sessions list
+            const updatedSessions = sessions.map(session => 
+              session.id === activeSessionId ? { 
+                ...session, 
+                last_message: message,
+                message_count: newMessageCount
+              } : session
+            );
+            _emergency.setSessions(updatedSessions);
+          }).catch(error => {
+            console.error('Error updating session metadata:', error);
+          });
+        }
+      }
+      
+      if (!message || message.trim() === '') {
+        console.error('Cannot send empty message');
+        return;
+      }
+      
+      if (!activeSource) {
+        setError('Please select a data source from the Knowledge Base sidebar');
+        return;
+      }
+
+      // Store the active source ID in localStorage for the API service to use
+      localStorage.setItem('selectedDataSources', JSON.stringify([activeSource.id]));
+      
+      // Log collection info for debugging
+      const collectionName = `datasource_${activeSource.id}`;
+      console.log('Using data source:', activeSource.name, 'ID:', activeSource.id);
+      console.log('Querying Qdrant collection:', collectionName);
+      
+      // Determine data source type from file name if not explicitly provided
+      let dataSourceType = (activeSource as any).dataSourceType;
+      
+      // If we don't have a datasource type, try to detect it from the filename
+      if (!dataSourceType && activeSource.name) {
+        const fileName = activeSource.name.toLowerCase();
+        // Use our enhanced Excel detection function
+        if (isExcelDataSource(fileName)) {
+          dataSourceType = 'excel';
+          console.log('Detected Excel data source from filename:', fileName);
+        } else if (fileName.endsWith('.pdf')) {
+          dataSourceType = 'pdf';
+        } else if (fileName.endsWith('.csv')) {
+          dataSourceType = 'csv';
+        } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+          dataSourceType = 'docx';
+        } else {
+          // Default to qdrant collection if can't detect
+          dataSourceType = 'qdrant';
+        }
+      }
+      
+      // Make sure we have a default data source type
+      if (!dataSourceType) {
+        dataSourceType = 'qdrant';
+      }
+      
+      // Enhanced metadata for better visualization
+      const enhancedMetadata = {
+        dataSourceId: activeSource.id,
+        dataSourceName: activeSource.name,
+        dataSourceType: dataSourceType,
+        collectionName: collectionName,
+        collectionId: activeSource.id,
+        useEnhancedVisualization: true,
+        streamResponse: true, // Enable streaming response mode
+        // Add processing preference options
+        preferCodeExecution: processingPreference === 'code',
+        preferRAG: processingPreference === 'rag',
+        // Add attachments if provided
+        attachments: attachments ? attachments.map(file => ({
+          type: 'file' as const,
+          url: URL.createObjectURL(file),
+          name: file.name,
+          size: file.size
+        })) : []
+      };
+      
+      console.log('Data source type:', dataSourceType || 'unknown');
+      console.log('Processing preference:', processingPreference);
+      
+      // Create user message object for immediate display
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: message,
+        timestamp: Date.now(),
+        status: 'complete',
+        metadata: enhancedMetadata
+      };
+      
+      // Generate unique ID for the assistant message
+      const assistantMessageId = `assistant-${Date.now()}`;
+      
+      // Show typing indicator with enhanced thinking process
+      const typingMessage: ChatMessage = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: 'Thinking...',
+        timestamp: Date.now(),
+        status: 'loading',
+        metadata: {
+          ...enhancedMetadata,
+          isTyping: true,
+          showThinking: true, // Enable thinking process visualization
+          useStreamingResponse: true // Use new streamed response mode
+        }
+      };
+      
+      // Add the user message to the messages array
+      const updatedMessages = [...messages, userMessage];
+      _emergency.setMessages(updatedMessages);
+      
+      // Add the typing message after a short delay
+      setTimeout(() => {
+        const messagesWithTyping = [...updatedMessages, typingMessage];
+        _emergency.setMessages(messagesWithTyping);
+
+        // Set up a simple manual streaming effect
+        // This is a temporary solution until the backend supports real streaming
+        let streamedContent = '';
+        let streamCounter = 0;
+        const fullResponse = 'I\'m analyzing your data and preparing a response...';
+        
+        // Simulate streaming at character level
+        const streamInterval = setInterval(() => {
+          if (streamCounter < fullResponse.length) {
+            streamedContent += fullResponse.charAt(streamCounter);
+            streamCounter++;
+            
+            // Update the message with the current streamed content
+            const updatedTypingMessage: ChatMessage = {
+              ...typingMessage,
+              content: streamedContent,
+            metadata: {
+                ...typingMessage.metadata,
+                streamingContent: streamedContent,
+                partialResponse: true,
+                streamTimestamp: Date.now()
+              }
+            };
+            
+            // Find the typing message and update it
+            const updatedStreamingMessages = messagesWithTyping.map(msg => 
+              msg.id === assistantMessageId ? updatedTypingMessage : msg
+            );
+        
+          // Update the messages state
+            _emergency.setMessages(updatedStreamingMessages);
+          } else {
+            // Once streaming is done, clear the interval
+            clearInterval(streamInterval);
+        }
+        }, 50); // Stream a character every 50ms for a natural effect
+      }, 300);
+
+      // Call the standard sendMessage function from the provider with processing preference
+      await sendMessage(message);
+        
+      } catch (error) {
+       console.error('Error sending message:', error);
+       setError(`Error processing your message: ${error instanceof Error ? error.message : 'Unknown error'}`);
+     }
+   };
+   
+  // Function to handle canceling ongoing generation
+  const handleCancelGeneration = useCallback(() => {
+    if (isGenerating) {
+      try {
+        // Signal cancellation to stop the response stream
+        // Use any type assertion to access the dynamically added abortController property
+        const controller = (window as any).abortController;
+        if (controller) {
+          console.log('Canceling AI response generation...');
+          controller.abort();
+          (window as any).abortController = null;
+        }
+        
+        // Add a system message indicating cancellation
+        const systemMessage: ChatMessage = {
+          id: `cancel-${Date.now()}`,
+          role: 'system',
+          content: 'Response generation was canceled.',
+          timestamp: Date.now(),
+          status: 'complete',
+          metadata: { isSystemMessage: true }
+        };
+        
+        // Update the messages
+        _emergency.setMessages([...messages, systemMessage]);
+      } catch (error) {
+        console.error('Error canceling generation:', error);
+      }
+    }
+  }, [isGenerating, messages, _emergency]);
 
   // Check if user is authenticated
   if (!isAuthenticated || !user) {
@@ -455,33 +606,41 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
     );
   }
 
-  // Update the code in the useEffect that handles case with no sessions
-  useEffect(() => {
-    // If we have sessions but no active session, select the first one
-    if (sessions && sessions.length > 0 && !activeSessionId) {
-      console.log('No active session but we have sessions, selecting the first one');
-      selectSession(sessions[0].id).catch(err => {
-        console.error('Failed to select first session:', err);
-      });
-    }
-    
-    // Only create a new session if we have no sessions at all
-    if (sessions.length === 0) {
-      createNewSessionImmediately(true, true).catch(err => {
-        console.error('Failed to create session:', err);
-      });
-    }
-  }, [sessions, activeSessionId, createNewSessionImmediately, selectSession]);
-
-  // Handle new chat button click - simplified
+  // Fix handleNewChat to prevent re-renders and double creation
   const handleNewChat = () => {
     try {
+      console.log('Manually creating new chat via button');
+      // Set the creation flag to true to prevent other effects from creating sessions
+      sessionCreationAttempted.current = true;
+      
       // Use createNewSessionImmediately instead of createSession
-      createNewSessionImmediately(true, true)
-        .then(() => {
-          console.log('Created new chat session successfully');
+      createNewSessionImmediately(true, false)
+        .then((newSession) => {
+          console.log('Created new chat session successfully', newSession);
+          
           // Clear any error messages
           setError(null);
+          
+          if (newSession) {
+            // Instead of reloading the page, explicitly set the active session
+            // and reset the messages state to show the welcome message
+            _emergency.setMessages([]);
+            _emergency.setActiveSessionId(newSession.id);
+            
+            // Add the new session to the session list without causing re-renders
+            if (newSession && sessions) {
+              // Check if session already exists
+              const sessionExists = sessions.some(s => s.id === newSession.id);
+              if (!sessionExists) {
+                // Create a new array with the new session added
+                const updatedSessions = [newSession, ...sessions];
+                _emergency.setSessions(updatedSessions);
+              }
+            }
+            
+            // Reset the title updated flag for the new session
+            setIsTitleUpdated(false);
+          }
         })
         .catch((error) => {
           console.error("Error creating new chat:", error);
@@ -492,6 +651,66 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
       setError(`Failed to create new chat: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
+
+  // Add back the critical useEffect for initial session creation
+  useEffect(() => {
+    // Create a new chat session when component mounts if needed, but only once
+    const initializeChat = async () => {
+      // Skip if we've already tried to create a session or if a session exists or if loading
+      if (sessionCreationAttempted.current || activeSessionId || isLoadingSessions) {
+        console.log('Skipping chat initialization: already attempted, session exists, or loading');
+        return;
+      }
+      
+      try {
+        console.log('Initial chat session creation attempt');
+        // Mark as attempted BEFORE the async operation to prevent race conditions
+        sessionCreationAttempted.current = true;
+        await createNewSessionImmediately(true, false);
+      } catch (error) {
+        console.error('Error initializing chat:', error);
+        
+        // Handle localStorage errors specially
+        if (error instanceof DOMException && 
+            (error.name === 'QuotaExceededError' || error.code === 22)) {
+          // Try emergency cleanup
+          console.warn('Storage full when initializing chat. Attempting cleanup...');
+          try {
+            emergencyStorageCleanup();
+            
+            // Show user-friendly error
+            showStorageWarning();
+          } catch (cleanupError) {
+            console.error('Failed to clean up storage:', cleanupError);
+          }
+        }
+      }
+    };
+    
+    // Add a small delay to let other initialization happen first
+    const timer = setTimeout(() => {
+      initializeChat();
+    }, 100);
+    
+    // Clean up timer on unmount
+    return () => clearTimeout(timer);
+  }, [activeSessionId, createNewSessionImmediately, isLoadingSessions]);
+
+  // Add useEffect to handle existing sessions but no active session
+  useEffect(() => {
+    // Skip if loading sessions or no sessions
+    if (isLoadingSessions || !sessions || sessions.length === 0) {
+      return;
+    }
+    
+    // If we have sessions but no active session, select the first one
+    if (!activeSessionId) {
+      console.log('No active session but we have sessions, selecting the first one');
+      selectSession(sessions[0].id).catch(err => {
+        console.error('Failed to select first session:', err);
+      });
+    }
+  }, [sessions, activeSessionId, selectSession, isLoadingSessions]);
 
   // Handle knowledge item selection - now adapted for data sources
   const handleKnowledgeItemSelect = (dataSource: any) => {
@@ -613,486 +832,6 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
     }
   };
 
-  const handleSendMessage = async (message: string) => {
-    try {
-      // Update the chat title if this is the first user message in a new chat
-      // and the title hasn't been updated yet
-      if (
-        activeSessionId && 
-        messages && 
-        // Only count user messages, not welcome or system messages
-        messages.filter(m => m.role === 'user').length === 0 && 
-        !isTitleUpdated
-      ) {
-        const generatedTitle = generateTitleFromMessage(message);
-        
-        // Only update if we have a proper title
-        if (generatedTitle && generatedTitle.length > 0) {
-          // Update with the title, last message, and message count
-          updateSessionTitle(
-            activeSessionId, 
-            generatedTitle, 
-            message, // Use the current message as the last message
-            1 // Set message count to 1 for the first message
-          );
-          setIsTitleUpdated(true);
-        }
-      } else if (activeSessionId && sessions) {
-        // For subsequent messages, update the session metadata
-        const currentSession = sessions.find(s => s.id === activeSessionId);
-        if (currentSession) {
-          // Update just the last message and message count
-          const newMessageCount = (currentSession.message_count || 0) + 1;
-          
-          // Create context object
-          const context = {
-            organization_id: currentOrganization?.id,
-            dashboard_id: currentDashboard?.id
-          };
-          
-          apiService.updateChatSession(
-            activeSessionId,
-            currentSession.title,
-            message, // Use the current message as the last message
-            newMessageCount,
-            context
-          ).then(() => {
-            // Update the sessions list
-            const updatedSessions = sessions.map(session => 
-              session.id === activeSessionId ? { 
-                ...session, 
-                last_message: message,
-                message_count: newMessageCount
-              } : session
-            );
-            _emergency.setSessions(updatedSessions);
-          }).catch(error => {
-            console.error('Error updating session metadata:', error);
-          });
-        }
-      }
-      
-      if (!message || message.trim() === '') {
-        console.error('Cannot send empty message');
-        return;
-      }
-      
-      if (!activeSource) {
-        setError('Please select a data source from the Knowledge Base sidebar');
-        return;
-      }
-
-      // Store the active source ID in localStorage for the API service to use
-      localStorage.setItem('selectedDataSources', JSON.stringify([activeSource.id]));
-      
-      // Log collection info for debugging
-      const collectionName = `datasource_${activeSource.id}`;
-      console.log('Using data source:', activeSource.name, 'ID:', activeSource.id);
-      console.log('Querying Qdrant collection:', collectionName);
-      
-      // Determine data source type from file name if not explicitly provided
-      let dataSourceType = (activeSource as any).dataSourceType;
-      
-      // If we don't have a datasource type, try to detect it from the filename
-      if (!dataSourceType && activeSource.name) {
-        const fileName = activeSource.name.toLowerCase();
-        // Use our enhanced Excel detection function
-        if (isExcelDataSource(fileName)) {
-          dataSourceType = 'excel';
-          console.log('Detected Excel data source from filename:', fileName);
-        } else if (fileName.endsWith('.pdf')) {
-          dataSourceType = 'pdf';
-        } else if (fileName.endsWith('.csv')) {
-          dataSourceType = 'csv';
-        } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-          dataSourceType = 'docx';
-        } else {
-          // Default to qdrant collection if can't detect
-          dataSourceType = 'qdrant';
-        }
-      }
-      
-      // Make sure we have a default data source type
-      if (!dataSourceType) {
-        dataSourceType = 'qdrant';
-      }
-      
-      // Enhanced metadata for better visualization
-      const enhancedMetadata = {
-        dataSourceId: activeSource.id,
-        dataSourceName: activeSource.name,
-        dataSourceType: dataSourceType,
-        collectionName: collectionName,
-        collectionId: activeSource.id,
-        useEnhancedVisualization: true,
-        streamResponse: true // Enable streaming response mode
-      };
-      
-      console.log('Data source type:', dataSourceType || 'unknown');
-      
-      // Create user message object for immediate display
-      const userMessage: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: message,
-        timestamp: Date.now(),
-        status: 'complete',
-        metadata: enhancedMetadata
-      };
-      
-      // Generate unique ID for the assistant message
-      const assistantMessageId = `assistant-${Date.now()}`;
-      
-      // Show typing indicator with enhanced thinking process
-      const typingMessage: ChatMessage = {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: 'Thinking...',
-        timestamp: Date.now(),
-        status: 'loading',
-        metadata: {
-          ...enhancedMetadata,
-          isTyping: true,
-          showThinking: true, // Enable thinking process visualization
-          useStreamingResponse: true // Use new streamed response mode
-        }
-      };
-      
-      // Add the user message to the messages array
-      const updatedMessages = [...messages, userMessage];
-      _emergency.setMessages(updatedMessages);
-      
-      // Add the typing message after a short delay
-      setTimeout(() => {
-        const messagesWithTyping = [...updatedMessages, typingMessage];
-        _emergency.setMessages(messagesWithTyping);
-
-        // Set up a simple manual streaming effect
-        // This is a temporary solution until the backend supports real streaming
-        let streamedContent = '';
-        let streamCounter = 0;
-        const fullResponse = 'I\'m analyzing your data and preparing a response...';
-        
-        // Simulate streaming at character level
-        const streamInterval = setInterval(() => {
-          if (streamCounter < fullResponse.length) {
-            streamedContent += fullResponse.charAt(streamCounter);
-            streamCounter++;
-            
-            // Update the message with the current streamed content
-            const updatedTypingMessage: ChatMessage = {
-              ...typingMessage,
-              content: streamedContent,
-            metadata: {
-                ...typingMessage.metadata,
-                streamingContent: streamedContent,
-                partialResponse: true,
-                streamTimestamp: Date.now()
-              }
-            };
-            
-            // Find the typing message and update it
-            const updatedStreamingMessages = messagesWithTyping.map(msg => 
-              msg.id === assistantMessageId ? updatedTypingMessage : msg
-            );
-        
-          // Update the messages state
-            _emergency.setMessages(updatedStreamingMessages);
-          } else {
-            // Once streaming is done, clear the interval
-            clearInterval(streamInterval);
-        }
-        }, 50); // Stream a character every 50ms for a natural effect
-      }, 300);
-
-      // Call the standard sendMessage function from the provider
-        await sendMessage(message);
-        
-      } catch (error) {
-      console.error('Error sending message:', error);
-      setError(`Error processing your message: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  // Reset the isTitleUpdated flag when switching to a new chat
-  useEffect(() => {
-    if (activeSessionId && (!messages || messages.length === 0)) {
-      setIsTitleUpdated(false);
-    }
-  }, [activeSessionId, messages]);
-
-  // Add handle load more messages function
-  const handleLoadMoreMessages = async () => {
-    if (!activeSessionId) return;
-    
-    try {
-      const session = sessions.find(s => s.id === activeSessionId);
-      const context = {
-        organization_id: session?.organization_id,
-        dashboard_id: session?.dashboard_id
-      };
-      
-      // Use the existing apiService instance
-      const fullHistory = await apiService.getChatHistoryComplete(activeSessionId, context);
-      
-      // Update messages in Chat context if we got more
-      if (fullHistory.length > messages.length) {
-        _emergency.setMessages(fullHistory);
-        console.log(`Loaded ${fullHistory.length} messages (added ${fullHistory.length - messages.length} more)`);
-        
-        // Hide the load more button if we've loaded all messages
-        if (fullHistory.length >= (session?.message_count || 0)) {
-          setHasMoreMessages(false);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading more messages:', error);
-      setError('Failed to load more messages');
-    }
-  };
-
-  // Check if we should show the load more button when messages change
-  useEffect(() => {
-    if (activeSessionId && sessions.length > 0 && messages.length > 0) {
-      const currentSession = sessions.find(s => s.id === activeSessionId);
-      if (currentSession && currentSession.message_count) {
-        // Show load more button if we have fewer messages than the session's message count
-        const shouldShowLoadMore = messages.length < currentSession.message_count;
-        setHasMoreMessages(shouldShowLoadMore);
-        
-        if (shouldShowLoadMore) {
-          console.log(`Showing load more button: ${messages.length} of ${currentSession.message_count} messages loaded`);
-        }
-      }
-    }
-  }, [activeSessionId, sessions, messages]);
-
-  // Check if we should show the welcome screen
-  const showWelcomeScreen = useMemo(() => {
-    // Always show welcome screen if there are no messages and we're not loading sessions
-    if (!isLoadingSessions && (!messages || messages.length === 0)) {
-      return true;
-    }
-    
-    // Check if we're preserving the welcome screen during data source switching
-    const preserveWelcomeScreen = localStorage.getItem('preserve_welcome_screen') === 'true';
-    if (preserveWelcomeScreen) {
-      console.log('Preserving welcome screen during data source switch');
-      return true;
-    }
-    
-    return false;
-  }, [isLoadingSessions, messages]);
-
-  // Ensure the sessions data is properly processed
-  const processedSessions = useMemo(() => {
-    if (!sessions) return [];
-    
-    return sessions.map(session => {
-      // Override session titles with our locally tracked ones
-      if (chatTitles[session.id]) {
-        return { ...session, title: chatTitles[session.id] };
-      }
-      
-      // If this is a new chat with no title, try to generate one from the first message
-      // BUT only if there are actual messages in the chat
-      if (session.id === activeSessionId && 
-          (!session.title || session.title === 'New Chat' || session.title.startsWith('Chat ')) && 
-          messages && messages.length > 0 && 
-          messages.some(msg => msg.role === 'user') && // Only if there's at least one user message
-          !isTitleUpdated) {
-        
-        // Find the first user message
-        const firstUserMessage = messages.find(msg => msg.role === 'user');
-        
-        if (firstUserMessage && typeof firstUserMessage.content === 'string') {
-          // Generate a title from the first user message
-          const generatedTitle = generateTitleFromMessage(firstUserMessage.content);
-          
-          // Only update if we have a meaningful title
-          if (generatedTitle && generatedTitle.length > 3) {
-            console.log(`Generating title "${generatedTitle}" from first message`);
-            
-            // Update the title via API
-            updateSessionTitle(session.id, generatedTitle);
-            setIsTitleUpdated(true);
-            return { ...session, title: generatedTitle };
-          }
-        }
-      }
-      
-      return session;
-    });
-  }, [sessions, activeSessionId, chatTitles, messages, isTitleUpdated]);
-
-  useEffect(() => {
-    // Add event listener for handling follow-up questions
-    const handleFollowUpQuestion = (event: CustomEvent) => {
-      if (event.detail && event.detail.message) {
-        handleSendMessage(event.detail.message);
-      }
-    };
-    
-    // Add listener for the custom event
-    document.addEventListener('send-message', handleFollowUpQuestion as EventListener);
-    
-    // Add listener for visualization enhancement
-    const handleEnhanceVisualization = (event: CustomEvent) => {
-      if (!event.detail || !event.detail.messageId || !event.detail.visualization) return;
-      
-      // Find the message to enhance
-      const messageIndex = messages.findIndex(m => m.id === event.detail.messageId);
-      if (messageIndex === -1) return;
-      
-      // Clone messages and update the one that needs enhancement
-      const updatedMessages = [...messages];
-      const message = { ...updatedMessages[messageIndex] };
-      
-      // Add or update visualization metadata
-      message.metadata = message.metadata || {};
-      
-      // Get document type from metadata or detect it
-      const dataSourceType = message.metadata.dataSourceType || 
-                            message.metadata.content_type || 
-                            (message.metadata.filename && message.metadata.filename.toLowerCase().endsWith('.pdf') ? 'pdf' : 
-                            (message.metadata.filename && message.metadata.filename.toLowerCase().endsWith('.csv') ? 'csv' : 
-                            (message.metadata.filename && message.metadata.filename.toLowerCase().endsWith('.xlsx') ? 'excel' : 
-                            (message.metadata.collectionName ? 'qdrant' : 'unknown'))));
-                            
-      // Create the visualization data
-      const visualizationData = {
-        type: event.detail.visualization.type || 'bar',
-        data: event.detail.visualization.data || [],
-        xKey: event.detail.visualization.xKey,
-        yKey: event.detail.visualization.yKey,
-        series: event.detail.visualization.series,
-        title: event.detail.visualization.title,
-        xAxisLabel: event.detail.visualization.xAxisLabel,
-        yAxisLabel: event.detail.visualization.yAxisLabel,
-        preserveType: true  // Add explicit flag to preserve the visualization type
-      };
-      
-      // Update message metadata for better visualization
-      message.metadata.visualization = event.detail.visualization;
-      message.metadata.visualizationData = visualizationData;
-      message.metadata.dataSourceType = dataSourceType;
-      message.metadata.hasVisualization = true;
-      message.metadata.useEnhancedVisualization = true;
-      
-      // Store the original requested visualization type to ensure it's respected
-      if (event.detail.visualization.type) {
-        message.metadata.requestedVisualizationType = event.detail.visualization.type;
-        
-        // Log the requested visualization type for debugging
-        console.log(`[DEBUG] Setting requested visualization type: ${event.detail.visualization.type}`);
-      }
-      
-      // Update the message
-      updatedMessages[messageIndex] = message;
-      
-      // Update messages state using the emergency method
-      if (_emergency && _emergency.setMessages) {
-        _emergency.setMessages(updatedMessages);
-      }
-    };
-    
-    // Add listener for the visualization enhancement event
-    document.addEventListener('enhance-visualization', handleEnhanceVisualization as EventListener);
-    
-    // Clean up the event listeners when component unmounts
-    return () => {
-      document.removeEventListener('send-message', handleFollowUpQuestion as EventListener);
-      document.removeEventListener('enhance-visualization', handleEnhanceVisualization as EventListener);
-    };
-  }, [messages, handleSendMessage, _emergency]);
-
-  // Check for blank screen issue on component mount
-  useEffect(() => {
-    // Only try recovery once
-    if (!recoveryAttempted) {
-      setRecoveryAttempted(true);
-      
-      // Skip recovery if we're changing data sources
-      const changingDataSource = localStorage.getItem('changing_data_source') === 'true';
-      if (changingDataSource) {
-        console.log('Data source change in progress, skipping blank chat detection');
-        return;
-      }
-      
-      // Check if this is happening shortly after a data source change
-      const lastDataSourceChange = localStorage.getItem('last_data_source_change');
-      if (lastDataSourceChange) {
-        const changeTime = parseInt(lastDataSourceChange, 10);
-        const timeSinceChange = Date.now() - changeTime;
-        
-        // If a data source was changed in the last 3 seconds, ignore recovery
-        if (timeSinceChange < 3000) {
-          console.log('Data source was recently changed, skipping blank chat detection');
-          return;
-        }
-      }
-      
-      // If there are no messages displayed but we should have some, try recovery
-      const needsRecovery = messages.length > 0 && 
-        document.querySelectorAll('.chat-message').length === 0;
-        
-      if (needsRecovery) {
-        console.warn('Detected possible blank chat screen, attempting recovery...');
-        
-        // Try to recover using our recovery service
-        const recovered = recoverFromBlankChatScreen();
-        if (!recovered) {
-          // If automatic recovery failed, try emergency reset of chat state
-          console.warn('Automatic recovery failed, trying emergency reset...');
-          
-          // Mark this as a non-reload recovery to prevent page refresh
-          localStorage.setItem('non_reload_recovery', 'true');
-          
-          // Use emergency message setter as a last resort
-          _emergency.setMessages([...messages]);
-        }
-      }
-    }
-  }, [messages, recoveryAttempted, _emergency]);
-
-  // Simplified check for stuck messages
-  useEffect(() => {
-    if (messages.length > 0) {
-      // Handle stuck loading messages after a reasonable timeout
-      const stuckMessagesTimer = setTimeout(() => {
-        // Look for messages that have been in loading state too long
-        const stuckMessages = messages.filter(msg =>
-          msg.status === 'loading' && 
-          Date.now() - (msg.timestamp || 0) > 15000 // 15 seconds is enough time for response
-        );
-        
-        if (stuckMessages.length > 0) {
-          console.log('Found stuck loading messages, transitioning to complete state');
-          
-          // Update stuck messages to complete state
-          const updatedMessages = messages.map(msg => {
-            if (stuckMessages.some(stuck => stuck.id === msg.id)) {
-              return {
-                ...msg,
-                status: 'complete' as const,
-                // Update content if it's just "Thinking..."
-                content: msg.content === 'Thinking...' ? 
-                  'The system processed your request. Please see the information below.' : 
-                  msg.content
-              };
-            }
-            return msg;
-          });
-          
-          // Update messages with fixed status
-          _emergency.setMessages(updatedMessages);
-        }
-      }, 15000); // Check after 15 seconds
-      
-      return () => clearTimeout(stuckMessagesTimer);
-    }
-  }, [messages, _emergency]);
-
   // Handle data source changes
   useEffect(() => {
     // If we have an active source but no messages, ensure welcome screen is preserved
@@ -1113,6 +852,87 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
       }
     }
   }, [activeSource, messages]);
+
+  // Add this function to handle session title updates
+  const updateSessionTitle = async (
+    sessionId: string,
+    title: string,
+    lastMessage: string,
+    messageCount: number
+  ) => {
+    try {
+      // Create context object for API call with correct types
+      const context = {
+        // Organization ID should be a number
+        organization_id: localStorage.getItem('currentOrganizationId') ? 
+          Number(localStorage.getItem('currentOrganizationId')) : undefined,
+        // Dashboard ID should be a string
+        dashboard_id: localStorage.getItem('currentDashboardId') || undefined
+      };
+      
+      // Call the API service to update the session
+      await apiService.updateChatSession(
+        sessionId,
+        title,
+        lastMessage,
+        messageCount,
+        context
+      );
+    } catch (error) {
+      console.error('Error updating session title:', error);
+    }
+  };
+
+  // Show storage warning once per session
+  const showStorageWarning = () => {
+    // Set error state with a user-friendly message about storage limitations
+    setError(
+      "Your browser's storage is full. Old chat history has been cleared to make room for new conversations. " +
+      "If this happens frequently, consider exporting important chats or clearing more history manually."
+    );
+
+    // Optionally show a more visible alert (you can customize this based on your UI components)
+    alert(
+      "Storage Limit Reached\n\n" +
+      "Your browser's storage is full. Some old chat history has been automatically cleared.\n\n" +
+      "To prevent this in the future:\n" +
+      "- Clear more chat history manually\n" +
+      "- Export important conversations\n" +
+      "- Use fewer/smaller attachments in chats"
+    );
+  };
+
+  // Add a new function to clear all chat history
+  const handleClearAllChatHistory = useCallback(() => {
+    if (window.confirm('This will delete ALL chat history from your browser. This cannot be undone. Continue?')) {
+      try {
+        // Get all localStorage keys
+        const allKeys = Object.keys(localStorage);
+        
+        // Filter keys related to chat
+        const chatKeys = allKeys.filter(key => 
+          key.startsWith('chat_') || 
+          key.includes('session')
+        );
+        
+        // Delete each chat key
+        chatKeys.forEach(key => {
+          localStorage.removeItem(key);
+        });
+        
+        console.log(`Cleared ${chatKeys.length} chat items from localStorage`);
+        
+        // Show success message
+        alert(`Successfully cleared ${chatKeys.length} chat items from your browser storage.`);
+        
+        // Reload the page to refresh everything
+        window.location.reload();
+      } catch (error) {
+        console.error('Error clearing chat history:', error);
+        alert('Failed to clear chat history: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      }
+    }
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
@@ -1143,47 +963,131 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
         )}
         
         <div className="flex-1 overflow-hidden h-full flex flex-col">
-          <Thread
-            messages={messages || []}
-            onMessageRegenerate={() => {}}
-            onMessageCopy={() => {}}
-            onClose={onClose}
-            onClearChat={() => {}}
-            isGenerating={false}
-            isLoading={isGenerating}
-            error={localError}
+          <div className="flex-1 overflow-y-auto">
+            <Thread
+              messages={messages || []}
+              onMessageRegenerate={() => {}}
+              onMessageCopy={() => {}}
+              onClose={onClose}
+              onClearChat={() => {}}
+              isGenerating={false}
+              isLoading={isGenerating}
+              error={localError}
+              onSubmit={handleSendMessage}
+              uiConfig={{
+                showAvatars: true,
+                showMetadata: true,
+                showReactions: true,
+                enableFileAttachments: true,
+                messageSpacing: 'comfortable',
+                theme: 'system',
+                accentColor: 'purple',
+                messageAlignment: 'left',
+                enableMarkdownSupport: true,
+                enableCodeHighlighting: true,
+                isMobile: isMobile
+              }}
+              activeSessionId={activeSessionId}
+              sessions={sessions}
+              onSessionSelect={selectSession}
+              isLoadingSessions={isLoadingSessions}
+              onRetry={retryLoad}
+              onNewChat={handleNewChat}
+              onKnowledgeItemSelect={handleKnowledgeItemSelect}
+              isKnowledgeBaseVisible={isKnowledgeBaseVisible}
+              onKnowledgeBaseToggle={toggleKnowledgeBase}
+              onLoadMoreMessages={() => {}}
+              hasMoreMessages={hasMoreMessages}
+              showWelcomeScreen={messages.length === 0}
+              welcomeScreenRenderer={() => (
+                <WelcomeScreen onSendMessage={handleSendMessage} />
+              )}
+              onDeleteSession={deleteSession}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="flex-none border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        <div className={`${isMobile ? 'p-2' : 'p-4'}`}>
+          {/* Add processing preference toggle */}
+          <div className="flex items-center justify-center mb-2">
+            <div className="bg-gray-100 dark:bg-gray-800 p-1 rounded-lg flex items-center text-xs font-medium">
+              <button
+                onClick={() => handleProcessingPreferenceChange('auto')}
+                className={`px-3 py-1 rounded-md transition-colors ${
+                  processingPreference === 'auto'
+                    ? 'bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                Auto
+              </button>
+              <button
+                onClick={() => handleProcessingPreferenceChange('rag')}
+                className={`px-3 py-1 rounded-md transition-colors ${
+                  processingPreference === 'rag'
+                    ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                RAG
+              </button>
+              <button
+                onClick={() => handleProcessingPreferenceChange('code')}
+                className={`px-3 py-1 rounded-md transition-colors ${
+                  processingPreference === 'code'
+                    ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                Code
+              </button>
+            </div>
+          </div>
+          
+          <Composer
             onSubmit={handleSendMessage}
-            uiConfig={{
-              showAvatars: true,
-              showMetadata: true,
-              showReactions: true,
-              enableFileAttachments: true,
-              messageSpacing: 'comfortable',
-              theme: 'system',
-              accentColor: 'purple',
-              messageAlignment: 'left',
-              enableMarkdownSupport: true,
-              enableCodeHighlighting: true,
-              isMobile: isMobile
-            }}
-            activeSessionId={activeSessionId}
-            sessions={processedSessions}
-            onSessionSelect={selectSession}
-            isLoadingSessions={isLoadingSessions}
-            onRetry={retryLoad}
-            onNewChat={handleNewChat}
-            onKnowledgeItemSelect={handleKnowledgeItemSelect}
-            isKnowledgeBaseVisible={isKnowledgeBaseVisible}
-            onKnowledgeBaseToggle={toggleKnowledgeBase}
-            onLoadMoreMessages={handleLoadMoreMessages}
-            hasMoreMessages={hasMoreMessages}
-            showWelcomeScreen={showWelcomeScreen}
-            welcomeScreenRenderer={() => (
-              <WelcomeScreen onSendMessage={handleSendMessage} />
-            )}
-            onDeleteSession={deleteSession}
+            isGenerating={isGenerating}
+            disabled={isGenerating || isLoading}
+            placeholder="Type your message..."
+            suggestions={messages[messages.length - 1]?.metadata?.suggestions}
+            mentionableUsers={participants}
+            className={`${isMobile ? 'min-h-[50px] max-h-[150px]' : 'min-h-[60px] max-h-[200px]'}`}
             isMobile={isMobile}
           />
+          
+          <div className="flex items-center justify-between mt-2">
+            {isGenerating ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <div className="animate-pulse">
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+                <span>Generating response...</span>
+                {<button
+                  onClick={handleCancelGeneration}
+                  className="text-sm text-purple-500 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300"
+                >
+                  Cancel
+                </button>}
+              </div>
+            ) : (
+              <div></div>
+            )}
+            
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleClearAllChatHistory} 
+              className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+            >
+              <Trash2Icon className="h-3 w-3 mr-1" />
+              Clear Cache
+            </Button>
+          </div>
         </div>
       </div>
     </div>

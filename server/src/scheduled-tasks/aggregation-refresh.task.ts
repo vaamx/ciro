@@ -1,17 +1,32 @@
-import { createServiceLogger } from '../utils/logger-factory';
-import { AggregationGeneratorService, aggregationGeneratorService } from '../services/aggregation/aggregation-generator.service';
+import { createServiceLogger } from '../common/utils/logger-factory';
+import { AggregationGeneratorService } from '../services/aggregation/aggregation-generator.service';
 import { db } from '../config/database';
 
 const logger = createServiceLogger('AggregationRefreshTask');
+
+// Create a mock version of AggregationGeneratorService for standalone use
+class MockAggregationGeneratorService {
+  async generateAggregations(dataSourceId: number, options: any = {}) {
+    logger.info(`[MOCK] Generate aggregations for data source ${dataSourceId}`, { options });
+    return {
+      dataSourceId,
+      aggregationsGenerated: 0,
+      aggregationsByType: {},
+      errors: []
+    };
+  }
+}
 
 /**
  * Task for periodically refreshing aggregations for all data sources
  */
 export class AggregationRefreshTask {
   constructor(
-    private aggregationGenerator: AggregationGeneratorService = aggregationGeneratorService,
+    private aggregationGenerator: { generateAggregations: (id: number, options: any) => Promise<any> } = new MockAggregationGeneratorService(),
     private database = db
-  ) {}
+  ) {
+    logger.info('AggregationRefreshTask initialized');
+  }
   
   /**
    * Run the aggregation refresh task

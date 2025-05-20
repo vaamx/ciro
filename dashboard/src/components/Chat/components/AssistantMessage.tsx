@@ -12,8 +12,9 @@ import {
 } from '../utils/documentTypeHandlers';
 import { TableVisualization } from './TableVisualization';
 import { DocumentRenderer } from './DocumentRenderer';
-import { VisualizationAdapter } from './VisualizationAdapter';
-import { ThinkingProcess, ThinkingStep } from './ThinkingProcess';
+import { ModernVisualizationAdapter } from './visualization/ModernVisualizationAdapter';
+import { ThinkingStep } from './ThinkingProcess';
+import { DualPathResponse } from './DualPathResponse';
 // Removing unused imports
 // import ReactMarkdown from 'react-markdown';
 // import remarkGfm from 'remark-gfm';
@@ -21,6 +22,40 @@ import { ThinkingProcess, ThinkingStep } from './ThinkingProcess';
 // import rehypeKatex from 'rehype-katex';
 // Import from the correct location or remove if not used
 // import { CodeBlock } from '../../Code/CodeBlock';
+
+// Exporting thinking steps so they can be used in other components
+export const THINKING_STEPS: ThinkingStep[] = [
+  {
+    id: 'understand',
+    content: 'Understanding your question',
+    type: 'analyze',
+    completed: false
+  },
+  {
+    id: 'retrieve',
+    content: 'Retrieving relevant information',
+    type: 'lookup',
+    completed: false
+  },
+  {
+    id: 'analyze',
+    content: 'Analyzing data connections',
+    type: 'reason',
+    completed: false
+  },
+  {
+    id: 'formulate',
+    content: 'Formulating response',
+    type: 'calculate',
+    completed: false
+  },
+  {
+    id: 'visualize',
+    content: 'Preparing visualizations',
+    type: 'insight',
+    completed: false
+  }
+];
 
 // Simple Avatar component
 const Avatar = ({ size = 'md', name = '', src = '', className = '' }) => {
@@ -123,6 +158,52 @@ interface ExtractionRef {
   metadata: Record<string, any> | null;
 }
 
+// Define the VisualizationMessage type to match ModernVisualizationAdapter expectations
+// Commented out since it's only used by the commented out adaptMessageForVisualization function
+/* 
+interface VisualizationMessage {
+  id?: string;
+  content: string | any;
+  status?: 'loading' | 'complete' | 'error';
+  metadata?: any;
+}
+*/
+
+// Helper function to convert our ChatMessage to the format expected by ModernVisualizationAdapter
+// Commented out as it's not currently used
+/* 
+function adaptMessageForVisualization(message: ChatMessage): VisualizationMessage {
+  const { id, content, metadata } = message;
+  
+  // Convert status to the expected format - map our status values to the expected ones
+  let adaptedStatus: 'loading' | 'complete' | 'error' | undefined;
+  
+  switch (message.status) {
+    case 'loading':
+      adaptedStatus = 'loading';
+      break;
+    case 'complete':
+      adaptedStatus = 'complete';
+      break;
+    case 'error':
+      adaptedStatus = 'error';
+      break;
+    case 'streaming':
+      adaptedStatus = 'loading'; // Map streaming to loading
+      break;
+    default:
+      adaptedStatus = undefined;
+  }
+  
+  return {
+    id,
+    content,
+    status: adaptedStatus,
+    metadata
+  };
+}
+*/
+
 export const AssistantMessage: React.FC<AssistantMessageProps> = ({ 
   message, 
   onCopy, 
@@ -140,7 +221,6 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
 }: AssistantMessageProps) => {
   const [isContentReady, setIsContentReady] = useState<boolean>(false);
   const { showNotification } = useNotification();
-  const [streamingContent, setStreamingContent] = useState<string>('');
   
   // Get bubble style classes based on the bubbleStyle prop
   const getBubbleStyles = () => {
@@ -300,7 +380,8 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     }
   }
 
-  // Function to process Qdrant responses - simplified to avoid dependencies on removed components
+  // Process Qdrant responses - simplified to avoid dependencies on removed components
+  /* 
   function processQdrantResponse() {
     // Mark as processed to prevent repeated processing
     processedRef.current.qdrant = true;
@@ -315,8 +396,8 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
         );
       }
     
-      // Use VisualizationAdapter for Qdrant responses to get enhanced visualizations
-      console.log('Processing Qdrant response with VisualizationAdapter');
+      // Use ModernVisualizationAdapter for Qdrant responses to get enhanced visualizations
+      console.log('Processing Qdrant response with ModernVisualizationAdapter');
       
       // Always return the content, even if there's an error later
       const safeContent = message.content ? (
@@ -331,18 +412,22 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
             <p className="text-red-600 dark:text-red-400 text-sm">
               No analysis available. Please try a different query.
             </p>
-            {renderDiagnosticsButton()}
           </div>
         );
       }
       
+      // Use type assertion to avoid type mismatch
+      const adaptedMessage = {
+        id: message.id,
+        content: message.content,
+        status: message.status === 'streaming' ? 'loading' : message.status,
+        metadata: message.metadata
+      } as any;
+      
       // If we have content, render the visualization adapter
       return (
         <div className="rag-response-container">
-          <VisualizationAdapter 
-            message={message} 
-            messageId={message.id}
-          />
+          <ModernVisualizationAdapter message={adaptedMessage} />
         </div>
       );
     } catch (error) {
@@ -352,11 +437,11 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
       return (
         <>
           <MessageMarkdown content={stripJsonFromContent(message.content)} />
-          {renderDiagnosticsButton()}
         </>
       );
     }
   }
+  */
 
   // Process tabular data (Excel/CSV)
   function processTabularData() {
@@ -370,14 +455,19 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
         );
       }
       
+      // Use type assertion to avoid type mismatch
+      const adaptedMessage = {
+        id: message.id,
+        content: message.content,
+        status: message.status === 'streaming' ? 'loading' : message.status,
+        metadata: message.metadata
+      } as any;
+      
       // If we need visualization, try the visualization adapter first
       if (needsVisualization(message)) {
         try {
           return (
-            <VisualizationAdapter 
-              message={message} 
-              messageId={message.id}
-            />
+            <ModernVisualizationAdapter message={adaptedMessage} />
           );
         } catch (error) {
           console.error('Error rendering visualization adapter:', error);
@@ -425,13 +515,18 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
         );
       }
       
+      // Use type assertion to avoid type mismatch
+      const adaptedMessage = {
+        id: message.id,
+        content: message.content,
+        status: message.status === 'streaming' ? 'loading' : message.status,
+        metadata: message.metadata
+      } as any;
+      
       // For all document types, first check if we should use visualization adapter
       if (needsVisualization(message)) {
         return (
-          <VisualizationAdapter 
-            message={message} 
-            messageId={message.id}
-          />
+          <ModernVisualizationAdapter message={adaptedMessage} />
         );
       }
       
@@ -445,7 +540,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
         case DocumentType.DOCX:
           return <DocumentRenderer content={extractedContent} type="docx" messageId={message.id} />;
         case DocumentType.QDRANT:
-          return <VisualizationAdapter message={message} messageId={message.id} />;
+          return <ModernVisualizationAdapter message={adaptedMessage} />;
         default:
           return <MessageMarkdown content={extractedContent} />;
       }
@@ -462,7 +557,8 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   //   message.metadata?.collectionName ||
   //   message.metadata?.isQdrantResponse;
   
-  // Diagnostics button helper
+  // Diagnostics button helper - commented out since it's not being used
+  /* 
   const renderDiagnosticsButton = () => {
     // Always return null to remove the diagnostics button
     return null;
@@ -487,78 +583,75 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     //   </div>
     // );
   };
+  */
 
-  // Add steps for thinking process
-  const thinkingSteps: ThinkingStep[] = [
-    {
-      id: 'understand',
-      content: 'Understanding your question',
-      type: 'analyze',
-      completed: false
-    },
-    {
-      id: 'retrieve',
-      content: 'Retrieving relevant information',
-      type: 'lookup',
-      completed: false
-    },
-    {
-      id: 'analyze',
-      content: 'Analyzing data connections',
-      type: 'reason',
-      completed: false
-    },
-    {
-      id: 'formulate',
-      content: 'Formulating response',
-      type: 'calculate',
-      completed: false
-    },
-    {
-      id: 'visualize',
-      content: 'Preparing visualizations',
-      type: 'insight',
-      completed: false
-    }
-  ];
-
-  // Simulate streaming effect for loaded messages
-  useEffect(() => {
-    if (message.status === 'complete' && message.content && typeof message.content === 'string') {
-      // Immediately set streaming content for already loaded messages
-      setStreamingContent(message.content);
-    }
-  }, [message.status, message.content]);
-
-  // Handle the Message content rendering
-  const renderMessageContent = () => {
-    // For loading state, show thinking process
-    if (isLoading) {
+  // Process dual-path responses
+  function processDualPathResponse() {
+    try {
+      // For loading state, show appropriate indicator
+      if (message.status === 'loading') {
+        return (
+          <div className="flex items-center space-x-2 p-4 bg-white dark:bg-gray-800 rounded-lg animate-pulse">
+            <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          </div>
+        );
+      }
+      
+      // Parse the dual-path response from the message content
+      let dualPathData;
+      try {
+        dualPathData = JSON.parse(message.content);
+      } catch (parseError) {
+        console.error('Error parsing dual-path response:', parseError);
+        return (
+          <div className="text-red-500 p-2 rounded bg-red-50 dark:bg-red-900/20">
+            Error parsing dual-path response
+          </div>
+        );
+      }
+      
+      // Render the dual-path response
       return (
-        <ThinkingProcess 
-          isThinking={true}
-          steps={thinkingSteps}
-          displayStyle={isMobile ? 'minimal' : 'standard'}
-          streamingContent={streamingContent}
-        />
+        <DualPathResponse response={dualPathData} className="w-full" />
+      );
+    } catch (error) {
+      console.error('Error rendering dual-path response:', error);
+      return (
+        <div className="text-red-500 p-2 rounded bg-red-50 dark:bg-red-900/20">
+          Error rendering dual-path response
+        </div>
       );
     }
+  }
 
-    // For special document types, use specialized renderers
+  // Check if this is a dual-path response
+  const isDualPathResponse = message.metadata?.isDualPathResponse === true;
+
+  // Determine content to render based on message type
+  const renderContent = () => {
+    // If it's a dual-path response, use specialized renderer
+    if (isDualPathResponse) {
+      return processDualPathResponse();
+    }
+    
+    // Check for PDF response
     if (docType.type === DocumentType.PDF) {
       return processPdfResponse();
-    } else if (docType.type === DocumentType.QDRANT) {
-      return processQdrantResponse();
-    } else if (docType.type === DocumentType.EXCEL || docType.type === DocumentType.CSV) {
+    }
+    
+    // Check for tabular data
+    if (docType.type === DocumentType.EXCEL || docType.type === DocumentType.CSV) {
       return processTabularData();
-    } else if (docType.type === DocumentType.DOCX) {
+    }
+    
+    // Check for document response
+    if (docType.type !== DocumentType.UNKNOWN) {
       return processDocumentResponse();
     }
-
-    // For simple text responses
-    return (
-      <MessageMarkdown content={stripJsonFromContent(extractedContent)} />
-    );
+    
+    // Default to simple markdown rendering
+    return <MessageMarkdown content={stripJsonFromContent(extractedContent)} />;
   };
 
   // If content is not ready and message is complete, render a loading placeholder instead of null
@@ -671,43 +764,24 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
             transition-all duration-200
           `}>
             <div className="relative">
-              {renderMessageContent()}
+              <div className={`message-body ${getBubbleStyles()}`}>
+                {/* For dual-path responses, we want full width */}
+                <div className={`prose dark:prose-invert max-w-none ${isDualPathResponse ? 'w-full' : ''}`}>
+                  {renderContent()}
+                </div>
+              </div>
               
-              {/* Add diagnostics button for Qdrant responses */}
-              {renderDiagnosticsButton()}
-            </div>
-            
-            {/* Message Actions */}
-            <div className={`
-              absolute 
-              top-1.5 right-1.5
-              opacity-0 group-hover:opacity-100
-              transition-opacity duration-200
-              flex items-center space-x-1
-              z-10
-            `}>
-              <button
-                onClick={handleCopy}
-                className={`
-                  p-1 rounded-full 
-                  text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300
-                  bg-white/80 dark:bg-gray-800/80 
-                  hover:bg-white dark:hover:bg-gray-800
-                  shadow-sm
-                  transition-all duration-150
-                  ${isMobile ? 'p-1.5' : 'p-0.5'}
-                `}
-                aria-label="Copy content"
-                title="Copy content"
-              >
-                <svg className={`${isMobile ? 'h-4 w-4' : 'h-3.5 w-3.5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </button>
-              
-              {onReload && (
+              {/* Message Actions */}
+              <div className={`
+                absolute 
+                top-1.5 right-1.5
+                opacity-0 group-hover:opacity-100
+                transition-opacity duration-200
+                flex items-center space-x-1
+                z-10
+              `}>
                 <button
-                  onClick={onReload}
+                  onClick={handleCopy}
                   className={`
                     p-1 rounded-full 
                     text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300
@@ -717,17 +791,38 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
                     transition-all duration-150
                     ${isMobile ? 'p-1.5' : 'p-0.5'}
                   `}
-                  aria-label="Regenerate response"
-                  title="Regenerate response"
-                  disabled={isRunning}
+                  aria-label="Copy content"
+                  title="Copy content"
                 >
                   <svg className={`${isMobile ? 'h-4 w-4' : 'h-3.5 w-3.5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
-                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </button>
-              )}
+                
+                {onReload && (
+                  <button
+                    onClick={onReload}
+                    className={`
+                      p-1 rounded-full 
+                      text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300
+                      bg-white/80 dark:bg-gray-800/80 
+                      hover:bg-white dark:hover:bg-gray-800
+                      shadow-sm
+                      transition-all duration-150
+                      ${isMobile ? 'p-1.5' : 'p-0.5'}
+                    `}
+                    aria-label="Regenerate response"
+                    title="Regenerate response"
+                    disabled={isRunning}
+                  >
+                    <svg className={`${isMobile ? 'h-4 w-4' : 'h-3.5 w-3.5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           

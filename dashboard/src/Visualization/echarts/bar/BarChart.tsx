@@ -571,9 +571,13 @@ const BarChart: React.FC<EnhancedBarChartProps> = (props) => {
         data: (hasPreviousYearData || series?.length) ? 
           [
             // Only include Previous Year in legend if it exists as a series
-            ...(hasPreviousYearData && seriesData.some(s => s.name === 'Previous Year') ? ['Previous Year'] : []),
+            ...(hasPreviousYearData && Array.isArray(seriesData) && seriesData.some((s: any) => s.name === 'Previous Year') ? ['Previous Year'] : []),
             // Include actual series names from the series data
-            ...seriesData.filter(s => s.name !== 'Previous Year').map(s => s.name)
+            ...(Array.isArray(seriesData) ? 
+                seriesData
+                  .map((s: any) => (typeof s === 'object' && s !== null && s.name !== 'Previous Year') ? s.name : null)
+                  .filter((name): name is string => typeof name === 'string')
+                : [])
           ] : undefined
       }) : undefined,
       grid: {
