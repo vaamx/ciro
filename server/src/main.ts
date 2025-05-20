@@ -18,27 +18,96 @@ process.on('uncaughtException', (error) => {
 
 // Add global crypto polyfill for @nestjs/typeorm
 import * as nodeCrypto from 'crypto';
-global.crypto = {
-  // @ts-ignore - this is a polyfill
-  subtle: {}, // Add if needed for specific crypto operations
-  getRandomValues: function(buffer) {
-    return nodeCrypto.randomFillSync(buffer);
-  },
-  // @ts-ignore - TypeScript doesn't recognize our implementation
-  randomUUID: function() {
-    if (nodeCrypto.randomUUID) {
-      return nodeCrypto.randomUUID();
+
+if (typeof global.crypto === 'undefined') {
+  // Apply the polyfill only if global.crypto is not defined
+  global.crypto = {
+    // @ts-ignore - this is a polyfill
+    subtle: {}, // Add if needed for specific crypto operations
+    getRandomValues: function(buffer) {
+      return nodeCrypto.randomFillSync(buffer);
+    },
+    // @ts-ignore - TypeScript doesn't recognize our implementation
+    randomUUID: function() {
+      if (nodeCrypto.randomUUID) {
+        return nodeCrypto.randomUUID();
+      }
+      // Generate a v4 UUID if randomUUID is not available
+      const bytes = nodeCrypto.randomBytes(16);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+      bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+      
+      // Format UUID string
+      const hexBytes = bytes.toString('hex');
+      return `${hexBytes.slice(0, 8)}-${hexBytes.slice(8, 12)}-${hexBytes.slice(12, 16)}-${hexBytes.slice(16, 20)}-${hexBytes.slice(20)}`;
     }
-    // Generate a v4 UUID if randomUUID is not available
-    const bytes = nodeCrypto.randomBytes(16);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
-    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
-    
-    // Format UUID string
-    const hexBytes = bytes.toString('hex');
-    return `${hexBytes.slice(0, 8)}-${hexBytes.slice(8, 12)}-${hexBytes.slice(12, 16)}-${hexBytes.slice(16, 20)}-${hexBytes.slice(20)}`;
+  };
+} else {
+  // If global.crypto exists, check if specific methods like randomUUID are missing
+  if (typeof global.crypto.randomUUID === 'undefined') {
+    try {
+      Object.defineProperty(global.crypto, 'randomUUID', {
+        value: function() {
+          if (nodeCrypto.randomUUID) {
+            return nodeCrypto.randomUUID();
+          }
+          // Fallback UUID generation
+          const bytes = nodeCrypto.randomBytes(16);
+          bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+          bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+          const hexBytes = bytes.toString('hex');
+          return `${hexBytes.slice(0, 8)}-${hexBytes.slice(8, 12)}-${hexBytes.slice(12, 16)}-${hexBytes.slice(16, 20)}-${hexBytes.slice(20)}`;
+        },
+        writable: true, // Attempt to make it writable, though this might not always succeed
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (e) {
+      console.warn('Could not polyfill global.crypto.randomUUID due to existing property constraints:', e);
+    }
   }
-};
+  // Similarly, check for getRandomValues if it's also used by your dependencies
+  if (typeof global.crypto.getRandomValues === 'undefined') {
+    try {
+      Object.defineProperty(global.crypto, 'getRandomValues', {
+        value: function(buffer: Buffer) { // Explicitly type buffer
+          return nodeCrypto.randomFillSync(buffer);
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (e) {
+      console.warn('Could not polyfill global.crypto.getRandomValues due to existing property constraints:', e);
+    }
+  }
+  // Ensure subtle is an object if it's not already or is undefined
+  if (typeof global.crypto.subtle === 'undefined') {
+    try {
+      Object.defineProperty(global.crypto, 'subtle', {
+        value: {},
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (e) {
+      console.warn('Could not polyfill global.crypto.subtle due to existing property constraints:', e);
+    }
+  } else if (global.crypto.subtle === null || typeof global.crypto.subtle !== 'object') {
+     // If subtle exists but is not an object (e.g. null), try to overwrite
+     // This is risky and might fail if the property is not configurable
+    try {
+      Object.defineProperty(global.crypto, 'subtle', {
+        value: {},
+        writable: true,
+        configurable: true, // Must be true to allow redefining
+        enumerable: true,
+      });
+    } catch (e) {
+      console.warn('Could not re-polyfill global.crypto.subtle to be an object:', e);
+    }
+  }
+}
 
 import * as winston from 'winston';
 
@@ -235,9 +304,12 @@ async function bootstrap() {
     logger.log('Configuring middleware...');
     app.use(helmet());
     
+    const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
+    logger.log(`[Bootstrap] Configuring CORS with origin: ${corsOrigin}`); // Log the origin being used
+    
     // Update CORS configuration to handle credentials and specify frontend origin
     app.enableCors({
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: corsOrigin,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'cache-control']
