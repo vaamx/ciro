@@ -8,4 +8,5 @@ export const mockUser: User = {
   updatedAt: new Date(),
   role: 'USER',
   name: 'Test User',
+  settings: null,
 }; 

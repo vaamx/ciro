@@ -1,4 +1,7 @@
 export enum QueryProcessingPath {
+  DIRECT_RETRIEVAL = 'direct_retrieval',
+  ANALYTICAL_TASK = 'analytical_task',
+  CLARIFICATION_NEEDED = 'clarification_needed',
   RAG = 'rag',
   CODE_EXECUTION = 'code_execution',
   HYBRID = 'hybrid',

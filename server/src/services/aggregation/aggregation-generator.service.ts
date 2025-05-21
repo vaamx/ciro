@@ -1011,9 +1011,14 @@ export class AggregationGeneratorService {
     
     // Upsert to collection - using injected QdrantClientService
     const client = this.qdrantClientService.getClient();
-    await client.upsert(collectionName, {
-      points
-    });
+    if (client) {
+      await client.upsert(collectionName, {
+        points
+      });
+    } else {
+      logger.error(`Qdrant client is not available. Cannot upsert points to ${collectionName}.`);
+      // Optionally throw an error or handle this case as appropriate
+    }
     
     logger.info(`Successfully stored ${points.length} aggregation points in collection ${collectionName}`);
   }

@@ -182,37 +182,42 @@ export class DataSourceSearchService {
           const scrollLimit = isAnalyticalQuery ? 10000 : Math.max(limit * 5, 500);
           this.logger.info(`Scrolling collection ${collectionName} with text filter and limit ${scrollLimit}`);
           const client = this.qdrantClientService.getClient();
-          const response = await client.scroll(collectionName, {
-            filter: filter,
-            limit: scrollLimit,
-            with_payload: true,
-          });
+          if (client) {
+            const response = await client.scroll(collectionName, {
+              filter: filter,
+              limit: scrollLimit,
+              with_payload: true,
+            });
 
-          const points = response.points;
-          this.logger.info(`Retrieved ${points.length} pre-filtered points from collection ${collectionName}.`);
+            const points = response.points;
+            this.logger.info(`Retrieved ${points.length} pre-filtered points from collection ${collectionName}.`);
 
-          const formattedMatches = points.map((match: any) => {
-            const id = typeof match.id === 'string' ? match.id : String(match.id);
-            const metadata = match.payload?.metadata as Record<string, any> || {};
-            const content = match.payload?.text || ""; // Prioritize 'text' based on filter
+            const formattedMatches = points.map((match: any) => {
+              const id = typeof match.id === 'string' ? match.id : String(match.id);
+              const metadata = match.payload?.metadata as Record<string, any> || {};
+              const content = match.payload?.text || ""; // Prioritize 'text' based on filter
 
-            return {
-              id,
-              content: content,
-              pageContent: content, // Use same content for consistency
-              text: content, // Use same content
-              metadata: {
-                ...metadata,
-                similarity: 1.0, // Explicit text match = max similarity
-                source: metadata.source || 'unknown',
-                sourceId: metadata.sourceId || collectionName,
-                sourceType: metadata.sourceType || 'document',
-                timestamp: metadata.timestamp || new Date().toISOString(),
-              },
-            };
-          });
+              return {
+                id,
+                content: content,
+                pageContent: content, // Use same content for consistency
+                text: content, // Use same content
+                metadata: {
+                  ...metadata,
+                  similarity: 1.0, // Explicit text match = max similarity
+                  source: metadata.source || 'unknown',
+                  sourceId: metadata.sourceId || collectionName,
+                  sourceType: metadata.sourceType || 'document',
+                  timestamp: metadata.timestamp || new Date().toISOString(),
+                },
+              };
+            });
 
-          combinedResults = [...combinedResults, ...formattedMatches];
+            combinedResults = [...combinedResults, ...formattedMatches];
+          } else {
+            this.logger.error(`Qdrant client is not available. Cannot scroll collection ${collectionName}.`);
+            // Continue to next collection on error, or handle as appropriate
+          }
         } catch (error) {
           this.logger.error(`Error searching collection ${collectionName} for text:`, error);
           // Continue to next collection on error

@@ -3,9 +3,9 @@ import { BullModule } from '@nestjs/bull';
 import { OpenAIService } from './services/ai/openai.service';
 import { EmbeddingService } from './services/ai/embedding.service';
 import { SocketService } from './services/util/socket.service';
-import { QueryRouterService } from './services/code-execution/query-router.service';
 import { CodeExecutionService } from './services/code-execution/code-execution.service';
 import { CodeGenerationService } from './services/code-execution/code-generator.service';
+import { QueryAnalysisService } from './services/analysis/query-analysis.service';
 import { QueryAnalyzerService } from './services/rag/query-analyzer.service';
 import { BaseRetrievalService } from './services/rag/base-retrieval.service';
 import { RetrievalService } from './services/rag/retrieval.service';
@@ -35,6 +35,8 @@ import { PythonExecutorService } from './services/code-execution/python-executor
 import { ConfigModule } from '@nestjs/config';
 import { AiModule } from './services/ai/ai.module';
 import { DualPathModule } from './modules/dual-path/dual-path.module';
+import { CodeExecutionModule } from './services/code-execution/code-execution.module';
+import { AnalysisModule } from './services/analysis/analysis.module';
 
 // Check environment variables for Redis and Bull disabling
 const IS_REDIS_DISABLED = process.env.REDIS_DISABLED === 'true';
@@ -77,23 +79,18 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
 @Module({
   imports: [
     forwardRef(() => AiModule),
-    // Replace direct BullModule reference with conditional import
     ...conditionalImports,
     forwardRef(() => ProcessorsModule),
     forwardRef(() => IngestionModule),
     forwardRef(() => DualPathModule),
     ConfigModule,
+    CodeExecutionModule,
+    AnalysisModule,
   ],
   providers: [
     OpenAIService,
     EmbeddingService,
     SocketService,
-    {
-      provide: QueryRouterService,
-      useFactory: () => {
-        return new QueryRouterService();
-      }
-    },
     {
       provide: CodeExecutionService,
       useFactory: (
@@ -117,11 +114,11 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
       ]
     },
     CodeGenerationService,
-    QueryAnalyzerService,
     BaseRetrievalService,
     RetrievalService,
     EnhancedRetrievalService,
     GenerationService,
+    QueryAnalyzerService,
     {
       provide: RagIntegrationService,
       useFactory: (
@@ -185,15 +182,16 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     OpenAIService,
     EmbeddingService,
     SocketService,
-    QueryRouterService,
+    CodeExecutionModule,
+    AnalysisModule,
     CodeExecutionService,
     CodeGenerationService,
-    QueryAnalyzerService,
     BaseRetrievalService,
     RetrievalService,
     EnhancedRetrievalService,
     GenerationService,
     RagIntegrationService,
+    QueryAnalyzerService,
     DocumentChunkingService,
     ElementChunkingService,
     SemanticChunkingService,

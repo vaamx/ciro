@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService, ChatMessage } from '../ai/openai.service';
 import { AnalyticalOperationType } from '../../types/document/processing';
 import { v4 as uuidv4 } from 'uuid';
+import { HeuristicOutput, PreprocessedQuery } from '../../types/router.types';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export enum ChartType {
   BAR_CHART = 'enhanced-bar-chart',
@@ -14,17 +17,177 @@ export enum ChartType {
   NONE = 'none'
 }
 
+interface KeywordConfigItem {
+  keyword: string;
+  weight: number;
+}
+
+interface ScoringConfig {
+  defaultAnalyticalScore: number;
+  defaultRetrievalScore: number;
+  maxScore: number;
+  minScore: number;
+  weights: {
+    analyticalKeywordMatch: number; // General weight or multiplier for this category
+    retrievalKeywordMatch: number;  // General weight or multiplier for this category
+    visualizationRequest: number;
+    datasetMention: number;
+    codeMention: number;
+  };
+}
+
+interface QueryAnalysisConfig {
+  analyticalKeywords: KeywordConfigItem[];
+  retrievalKeywords: KeywordConfigItem[];
+  visualizationKeywords: KeywordConfigItem[];
+  datasetMentionPatterns: string[]; // Regex patterns
+  codeMentionPatterns: string[]; // Regex patterns
+  scoring: ScoringConfig; // Added scoring configuration
+}
+
 /**
  * Service for analyzing query text and extracting information.
  */
 @Injectable()
-export class QueryAnalysisService {
+export class QueryAnalysisService implements OnModuleInit {
   private logger = createServiceLogger('QueryAnalysisService');
+  private config!: QueryAnalysisConfig;
 
   constructor(
     private readonly openAIService: OpenAIService
   ) {
     this.logger.info('QueryAnalysisService initialized');
+  }
+
+  async onModuleInit() {
+    try {
+      const configPath = path.join(__dirname, '../../config/query-analysis.config.json');
+      const configFile = fs.readFileSync(configPath, 'utf-8');
+      this.config = JSON.parse(configFile) as QueryAnalysisConfig;
+      this.logger.info('QueryAnalysisService configuration loaded successfully.');
+    } catch (error) {
+      this.logger.error('Failed to load QueryAnalysisService configuration:', error);
+      // Fallback to empty config to prevent runtime errors if file is missing/corrupt
+      this.config = {
+        analyticalKeywords: [],
+        retrievalKeywords: [],
+        visualizationKeywords: [],
+        datasetMentionPatterns: [],
+        codeMentionPatterns: [],
+        scoring: {
+          defaultAnalyticalScore: 0,
+          defaultRetrievalScore: 0,
+          maxScore: 1,
+          minScore: 0,
+          weights: {
+            analyticalKeywordMatch: 1,
+            retrievalKeywordMatch: 1,
+            visualizationRequest: 0.5,
+            datasetMention: 0.6,
+            codeMention: 0.5,
+          },
+        },
+      };
+    }
+  }
+
+  /**
+   * Performs heuristic analysis on the preprocessed query.
+   * @param preprocessedQuery The preprocessed query object.
+   * @returns A HeuristicOutput object with flags and scores.
+   */
+  public async runHeuristics(preprocessedQuery: PreprocessedQuery): Promise<HeuristicOutput> {
+    const { normalizedQuery } = preprocessedQuery;
+    let analyticalScore = this.config.scoring.defaultAnalyticalScore;
+    let retrievalScore = this.config.scoring.defaultRetrievalScore;
+    let isAnalyticalIntent = false;
+    let isRetrievalIntent = false;
+    let requestsVisualization = false;
+    let mentionsDataset = false;
+    let mentionsCode = false;
+
+    if (!normalizedQuery) {
+      return {
+        isAnalyticalIntent,
+        isRetrievalIntent,
+        requestsVisualization,
+        mentionsDataset,
+        mentionsCode,
+        analyticalScore,
+        retrievalScore,
+      };
+    }
+
+    // 1. Keyword Matching & Scoring (Task 1.2.3 & 1.2.5 simplified)
+    this.config.analyticalKeywords.forEach(item => {
+      if (normalizedQuery.includes(item.keyword)) {
+        isAnalyticalIntent = true;
+        analyticalScore = Math.max(analyticalScore, item.weight);
+      }
+    });
+
+    this.config.retrievalKeywords.forEach(item => {
+      if (normalizedQuery.includes(item.keyword)) {
+        isRetrievalIntent = true;
+        retrievalScore = Math.max(retrievalScore, item.weight);
+      }
+    });
+
+    this.config.visualizationKeywords.forEach(item => {
+      if (normalizedQuery.includes(item.keyword)) {
+        requestsVisualization = true;
+        // Optionally boost analytical score if visualization is requested
+        analyticalScore = Math.max(analyticalScore, this.config.scoring.weights.visualizationRequest);
+      }
+    });
+
+    // 2. Pattern Matching (Task 1.2.4 simplified)
+    this.config.datasetMentionPatterns.forEach(patternStr => {
+      try {
+        const regex = new RegExp(patternStr, 'i');
+        if (regex.test(normalizedQuery)) {
+          mentionsDataset = true;
+          analyticalScore = Math.max(analyticalScore, this.config.scoring.weights.datasetMention); // Boost analytical score if dataset mentioned
+        }
+      } catch (e) {
+        this.logger.warn(`Invalid regex pattern in config: ${patternStr}`, e);
+      }
+    });
+
+    this.config.codeMentionPatterns.forEach(patternStr => {
+      try {
+        const regex = new RegExp(patternStr, 'i');
+        if (regex.test(normalizedQuery)) {
+          mentionsCode = true; // Set mentionsCode flag
+          analyticalScore = Math.max(analyticalScore, this.config.scoring.weights.codeMention); // Boost analytical score
+        }
+      } catch (e) {
+        this.logger.warn(`Invalid regex pattern in config: ${patternStr}`, e);
+      }
+    });
+    
+    // Basic normalization of scores (ensuring they are within configured min-max range)
+    // More sophisticated normalization can be added if needed
+    analyticalScore = Math.min(this.config.scoring.maxScore, Math.max(this.config.scoring.minScore, analyticalScore));
+    retrievalScore = Math.min(this.config.scoring.maxScore, Math.max(this.config.scoring.minScore, retrievalScore));
+
+    // Basic intent conflict resolution (Example: if both high, lean analytical or require clarification)
+    if (isAnalyticalIntent && isRetrievalIntent && analyticalScore > 0.7 && retrievalScore > 0.7) {
+        this.logger.debug(`Query "${normalizedQuery.substring(0,30)}..." has strong conflicting analytical and retrieval signals.`);
+        // Decision to prioritize or flag for clarification will be in QueryRouterService
+    }
+
+    const heuristicOutput: HeuristicOutput = {
+      isAnalyticalIntent,
+      isRetrievalIntent,
+      requestsVisualization,
+      mentionsDataset,
+      mentionsCode,
+      analyticalScore,
+      retrievalScore,
+    };
+    this.logger.debug(`Heuristic analysis for "${normalizedQuery.substring(0,30)}...": ${JSON.stringify(heuristicOutput)}`);
+    return heuristicOutput;
   }
 
   /**

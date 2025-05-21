@@ -1,0 +1,74 @@
+{
+  "analyticalKeywords": [
+    { "keyword": "analyze", "weight": 1.0 },
+    { "keyword": "plot", "weight": 0.9 },
+    { "keyword": "predict", "weight": 0.9 },
+    { "keyword": "calculate", "weight": 0.8 },
+    { "keyword": "compute", "weight": 0.8 },
+    { "keyword": "compare", "weight": 0.7 },
+    { "keyword": "trend", "weight": 0.7 },
+    { "keyword": "forecast", "weight": 0.9 },
+    { "keyword": "average", "weight": 0.6 },
+    { "keyword": "median", "weight": 0.6 },
+    { "keyword": "sum", "weight": 0.6 },
+    { "keyword": "total", "weight": 0.6 },
+    { "keyword": "count", "weight": 0.6 },
+    { "keyword": "max", "weight": 0.6 },
+    { "keyword": "min", "weight": 0.6 },
+    { "keyword": "correlation", "weight": 0.8 },
+    { "keyword": "regression", "weight": 0.8 },
+    { "keyword": "distribution", "weight": 0.7 },
+    { "keyword": "group by", "weight": 0.7 },
+    { "keyword": "segment", "weight": 0.7 },
+    { "keyword": "cluster", "weight": 0.8 },
+    { "keyword": "sql for", "weight": 1.0 }
+  ],
+  "retrievalKeywords": [
+    { "keyword": "what is", "weight": 1.0 },
+    { "keyword": "what are", "weight": 1.0 },
+    { "keyword": "explain", "weight": 0.9 },
+    { "keyword": "define", "weight": 0.9 },
+    { "keyword": "summarize", "weight": 0.8 },
+    { "keyword": "tell me about", "weight": 0.8 },
+    { "keyword": "find information on", "weight": 0.7 },
+    { "keyword": "who was", "weight": 0.9 },
+    { "keyword": "when did", "weight": 0.9 },
+    { "keyword": "how does", "weight": 0.8 },
+    { "keyword": "list all", "weight": 0.7 }
+  ],
+  "visualizationKeywords": [
+    { "keyword": "plot", "weight": 1.0 },
+    { "keyword": "graph", "weight": 1.0 },
+    { "keyword": "chart", "weight": 1.0 },
+    { "keyword": "visualize", "weight": 1.0 },
+    { "keyword": "draw", "weight": 0.8 },
+    { "keyword": "show me a diagram", "weight": 0.9 }
+  ],
+  "datasetMentionPatterns": [
+    "\\.csv", 
+    "\\.json",
+    "\\.xlsx",
+    "\\.parquet",
+    "\\b(table|dataset|database|source|dataframe|data frame|data source)\\b",
+    "data from [\\w_]+", 
+    "dataset [\\w_]+"
+  ],
+  "codeMentionPatterns": [
+    "python code",
+    "javascript snippet",
+    "sql query"
+  ],
+  "scoring": {
+    "defaultAnalyticalScore": 0.1,
+    "defaultRetrievalScore": 0.1,
+    "maxScore": 1.0,
+    "minScore": 0.0,
+    "weights": {
+      "analyticalKeywordMatch": 0.5,
+      "retrievalKeywordMatch": 0.5,
+      "visualizationRequest": 0.2, 
+      "datasetMention": 0.3,
+      "codeMention": 0.2 
+    }
+  }
+} 
