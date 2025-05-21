@@ -22,25 +22,6 @@ interface CSpellSuggestion {
 }
 
 /**
- * Enum for different query processing paths
- */
-export enum QueryProcessingPath {
-  DIRECT_RETRIEVAL = 'direct_retrieval',
-  ANALYTICAL_TASK = 'analytical_task',
-  CLARIFICATION_NEEDED = 'clarification_needed',
-}
-
-/**
- * Result of routing a query
- */
-export interface QueryRoutingResult {
-  path: QueryProcessingPath;
-  confidence: number;
-  explanation: string;
-  requiresVisualization: boolean;
-}
-
-/**
  * Service for routing queries to the appropriate processing path
  * This helps determine whether to use RAG, code execution, or a hybrid approach
  */
@@ -95,7 +76,218 @@ export class QueryRouterService implements OnModuleInit {
 
     let normalizedQuery = rawQuery.trim().toLowerCase();
 
-    // If the normalized query is empty (e.g., input was only spaces), return early.
+    // --- Start: Contraction Expansion ---
+    const contractionsMap: { [key: string]: string } = {
+      "ain't": "am not", // or "are not", "is not", "has not", "have not"
+      "aren't": "are not",
+      "can't": "cannot",
+      "can't've": "cannot have",
+      "'cause": "because",
+      "could've": "could have",
+      "couldn't": "could not",
+      "couldn't've": "could not have",
+      "didn't": "did not",
+      "doesn't": "does not",
+      "don't": "do not",
+      "hadn't": "had not",
+      "hadn't've": "had not have",
+      "hasn't": "has not",
+      "haven't": "have not",
+      "he'd": "he would", // or "he had"
+      "he'd've": "he would have",
+      "he'll": "he will",
+      "he'll've": "he will have",
+      "he's": "he is", // or "he has"
+      "how'd": "how did",
+      "how'd'y": "how do you",
+      "how'll": "how will",
+      "how's": "how is", // or "how has", "how does"
+      "i'd": "i would", // or "i had"
+      "i'd've": "i would have",
+      "i'll": "i will",
+      "i'll've": "i will have",
+      "i'm": "i am",
+      "i've": "i have",
+      "isn't": "is not",
+      "it'd": "it would", // or "it had"
+      "it'd've": "it would have",
+      "it'll": "it will",
+      "it'll've": "it will have",
+      "it's": "it is", // or "it has"
+      "let's": "let us",
+      "ma'am": "madam",
+      "mayn't": "may not",
+      "might've": "might have",
+      "mightn't": "might not",
+      "mightn't've": "might not have",
+      "must've": "must have",
+      "mustn't": "must not",
+      "mustn't've": "must not have",
+      "needn't": "need not",
+      "needn't've": "need not have",
+      "o'clock": "of the clock",
+      "shan't": "shall not",
+      "sha'n't": "shall not", // alternative spelling
+      "shan't've": "shall not have",
+      "she'd": "she would", // or "she had"
+      "she'd've": "she would have",
+      "she'll": "she will",
+      "she'll've": "she will have",
+      "she's": "she is", // or "she has"
+      "should've": "should have",
+      "shouldn't": "should not",
+      "shouldn't've": "should not have",
+      "so've": "so have",
+      "so's": "so is", // or "so as"
+      "that'd": "that would", // or "that had"
+      "that'd've": "that would have",
+      "that's": "that is", // or "that has"
+      "there'd": "there would", // or "there had"
+      "there'd've": "there would have",
+      "there's": "there is", // or "there has"
+      "they'd": "they would", // or "they had"
+      "they'd've": "they would have",
+      "they'll": "they will",
+      "they'll've": "they will have",
+      "they're": "they are",
+      "they've": "they have",
+      "to've": "to have",
+      "wasn't": "was not",
+      "we'd": "we would", // or "we had"
+      "we'd've": "we would have",
+      "we'll": "we will",
+      "we'll've": "we will have",
+      "we're": "we are",
+      "we've": "we have",
+      "weren't": "were not",
+      "what'll": "what will",
+      "what'll've": "what will have",
+      "what're": "what are",
+      "what's": "what is", // or "what has", "what does"
+      "what've": "what have",
+      "when's": "when is", // or "when has"
+      "when've": "when have",
+      "where'd": "where did",
+      "where's": "where is", // or "where has"
+      "where've": "where have",
+      "who'll": "who will",
+      "who'll've": "who will have",
+      "who's": "who is", // or "who has"
+      "who've": "who have",
+      "why's": "why is", // or "why has"
+      "why've": "why have",
+      "will've": "will have",
+      "won't": "will not",
+      "won't've": "will not have",
+      "would've": "would have",
+      "wouldn't": "would not",
+      "wouldn't've": "would not have",
+      "y'all": "you all",
+      "y'all'd": "you all would",
+      "y'all'd've": "you all would have",
+      "y'all're": "you all are",
+      "y'all've": "you all have",
+      "you'd": "you would", // or "you had"
+      "you'd've": "you would have",
+      "you'll": "you will",
+      "you'll've": "you will have",
+      "you're": "you are",
+      "you've": "you have"
+    };
+
+    // Create a regex to match all contractions
+    // Word boundaries are important to avoid matching parts of words
+    const contractionRegex = new RegExp(`\\b(${Object.keys(contractionsMap).sort((a, b) => b.length - a.length).join('|')})\\b`, 'g');
+    normalizedQuery = normalizedQuery.replace(contractionRegex, match => contractionsMap[match]);
+    // --- End: Contraction Expansion ---
+
+    // --- Start: Punctuation Normalization ---
+    // Replace multiple spaces with a single space (might occur after contraction expansion)
+    normalizedQuery = normalizedQuery.replace(/\s+/g, ' ').trim();
+
+    // Standardize ellipses to a single space, then trim if it results in trailing space
+    normalizedQuery = normalizedQuery.replace(/\.{2,}/g, ' ').trim();
+
+    // Reduce multiple consecutive identical sentence-ending punctuation marks (e.g., "!!!" to "!")
+    normalizedQuery = normalizedQuery.replace(/([!?])\1+/g, '$1');
+
+    // Reduce multiple commas, semicolons, colons
+    normalizedQuery = normalizedQuery.replace(/([,;:])\1+/g, '$1');
+
+    // Remove leading/trailing decorative punctuation from words, but try to preserve sentence structure.
+    // This is tricky. Let's focus on common wrappers and be less aggressive with general \p{P}\p{S}
+    normalizedQuery = normalizedQuery.split(' ').map(part => {
+      if (!part) return ''; // Handle empty parts if they occur
+
+      // Preserve URLs or paths by checking for common patterns.
+      if (part.match(/^(https?:\/\/|www\.|[a-zA-Z0-9._%+-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?)$/i)) {
+        return part;
+      }
+      // Preserve mentions or hashtags
+      if (part.match(/^[@#][a-zA-Z0-9_]+$/)) {
+        return part;
+      }
+
+      // More carefully remove leading/trailing punctuation. 
+      // This regex targets common wrapping punctuation like quotes, brackets, asterisks.
+      // It tries to be careful about not removing sentence-ending periods if they are part of the word itself (e.g. acronyms)
+      // but this is difficult to do perfectly with regex alone without more context.
+      
+      // Iteratively remove common leading/trailing pairs or single decorative characters
+      let oldPart;
+      do {
+        oldPart = part;
+        // Common pairs (quotes, brackets)
+        if ((part.startsWith('"') && part.endsWith('"')) || 
+            (part.startsWith("'") && part.endsWith("'")) || 
+            (part.startsWith('(') && part.endsWith(')')) || 
+            (part.startsWith('[') && part.endsWith(']')) || 
+            (part.startsWith('{') && part.endsWith('}'))) {
+          if (part.length > 1) part = part.substring(1, part.length - 1);
+        }
+        // Common leading/trailing single characters (e.g., asterisks for emphasis)
+        if ((part.startsWith('*') && part.endsWith('*')) && part.length > 1 && !part.substring(1, part.length-1).includes('*')) {
+            part = part.substring(1, part.length -1);
+        }
+        // Individual leading punctuation (be more selective)
+        if (part.match(/^[*_(\[{\"]/) && part.length > 0) part = part.substring(1);
+        // Individual trailing punctuation (be more selective) - crucial not to remove sentence enders like period from last word here
+        // This part is tricky: if a word ends with ',', ';', ':', '.', '?', '!', we might want to keep it for now
+        // and handle sentence-level punctuation later if needed. The current regex below is very aggressive.
+        // For now, we will rely on the earlier specific multiple punctuation reduction for !, ?
+        // and only trim very specific trailing characters if they are common wrappers and not likely sentence enders.
+        if (part.match(/[*_)\\]}\"]$/) && part.length > 0) part = part.substring(0, part.length -1);
+
+      } while (part !== oldPart && part.length > 0);
+
+      // Final check: if the part still ends with a single quote character after the loop,
+      // and it's not the only character in the part (to avoid turning "\"" into ""), remove it.
+      // This is a targeted fix for stubborn trailing quotes.
+      if (part.length > 1 && part.endsWith('"')) {
+        part = part.substring(0, part.length - 1);
+      }
+      // also for single quotes
+      if (part.length > 1 && part.endsWith("'")) {
+        part = part.substring(0, part.length - 1);
+      }
+
+      return part;
+    }).filter(p => p).join(' '); // filter(p=>p) removes empty strings from array before join
+    
+    // Final trim for any leading/trailing spaces that might have been introduced or left over.
+    normalizedQuery = normalizedQuery.trim();
+
+    // Special handling for sentence-final period if it got detached or to ensure it's there if appropriate.
+    // This is heuristic. If the original raw query ended with a period, and the normalized one doesn't, but is not empty,
+    // and doesn't end with another sentence terminator like ? or !, add a period.
+    // This step is commented out as it can be overly aggressive and might add periods where not intended.
+    // if (rawQuery.endsWith('.') && normalizedQuery && !normalizedQuery.match(/[.?!]$/)) {
+    //   normalizedQuery += '.';
+    // }
+
+    // --- End: Punctuation Normalization ---
+
+    // If the normalized query is empty after all processing, return early.
     if (!normalizedQuery) {
       this.logger.debug('Normalized query is empty, skipping spellcheck.');
       return {
@@ -544,138 +736,5 @@ Your JSON Output:
     });
     // No actual async operation here for now, so resolve immediately.
     return Promise.resolve();
-  }
-
-  /**
-   * Route a query to the appropriate processing path
-   * @param query The user's query
-   * @returns The routing result
-   */
-  async routeQuery(query: string): Promise<QueryRoutingResult> {
-    try {
-      this.logger.info(`Routing query: "${query}"`);
-      
-      // Check for analytical keywords
-      const analyticalKeywords = [
-        'calculate', 'compute', 'analyze', 'find', 'chart', 'graph', 'plot',
-        'average', 'mean', 'median', 'sum', 'total', 'count', 'max', 'min',
-        'correlate', 'correlation', 'regression', 'trend', 'compare', 'distribution',
-        'percentage', 'ratio', 'proportion', 'aggregate', 'group by', 'sort',
-        'filter', 'where', 'visualization', 'visualize', 'show me'
-      ];
-      
-      // Check for visualization keywords
-      const visualizationKeywords = [
-        'chart', 'graph', 'plot', 'visualize', 'visualization', 'show me',
-        'display', 'draw', 'bar chart', 'line chart', 'pie chart', 'scatter plot',
-        'histogram', 'heat map', 'table', 'dashboard'
-      ];
-      
-      // Simple heuristic approach
-      const queryLower = query.toLowerCase();
-      const containsAnalyticalKeywords = analyticalKeywords.some(keyword => 
-        queryLower.includes(keyword.toLowerCase()));
-      const containsVisualizationKeywords = visualizationKeywords.some(keyword => 
-        queryLower.includes(keyword.toLowerCase()));
-      
-      // For more accurate classification, use AI to analyze the query intent
-      if (this.openAIService) {
-        try {
-          const systemPrompt = `
-            You are a query router that determines how to process user queries.
-            Analyze the query and determine if it should be processed by:
-            1. RAG (Retrieval Augmented Generation) - for factual questions, explanations, or information retrieval
-            2. Code Execution - for data analysis, calculations, or generating visualizations
-            3. Hybrid - for complex queries that need both approaches
-            
-            Also determine if the query would benefit from a visualization.
-            
-            Respond in JSON format with:
-            {
-              "path": "rag" | "code_execution" | "hybrid",
-              "confidence": <number between 0 and 1>,
-              "explanation": "<explanation of routing decision>",
-              "requiresVisualization": <boolean>
-            }
-          `;
-          
-          // Convert messages to the format expected by OpenAIService
-          const messages: ChatMessage[] = [
-            { 
-              id: 'system-' + Date.now(),
-              role: 'system', 
-              content: systemPrompt,
-              timestamp: Date.now(),
-              status: 'complete'
-            },
-            { 
-              id: 'user-' + Date.now(),
-              role: 'user', 
-              content: query,
-              timestamp: Date.now(),
-              status: 'complete'
-            }
-          ];
-          
-          const response = await this.openAIService.generateChatCompletion(messages, {
-            temperature: 0.1,
-            systemPrompt
-          });
-          
-          // Parse the response content
-          const responseData = await response.json() as {
-            id: string;
-            role: string;
-            content: string;
-            timestamp: number;
-            status: string;
-          };
-          
-          if (responseData && responseData.content) {
-            try {
-              const result = JSON.parse(responseData.content);
-              
-              return {
-                path: result.path as QueryProcessingPath,
-                confidence: result.confidence,
-                explanation: result.explanation,
-                requiresVisualization: result.requiresVisualization
-              };
-            } catch (parseError) {
-              this.logger.error(`Error parsing AI response: ${parseError}`);
-            }
-          }
-        } catch (aiError) {
-          this.logger.error(`Error using AI for routing: ${aiError}`);
-        }
-      }
-      
-      // Fallback to simple heuristic if AI classification fails
-      if (containsAnalyticalKeywords) {
-        return {
-          path: QueryProcessingPath.ANALYTICAL_TASK,
-          confidence: 0.75,
-          explanation: 'Query contains analytical keywords that suggest code execution is needed',
-          requiresVisualization: containsVisualizationKeywords
-        };
-      } else {
-        return {
-          path: QueryProcessingPath.DIRECT_RETRIEVAL,
-          confidence: 0.8,
-          explanation: 'Query appears to be information-seeking, routing to direct retrieval',
-          requiresVisualization: containsVisualizationKeywords
-        };
-      }
-    } catch (error) {
-      this.logger.error(`Error routing query: ${error}`);
-      
-      // Default to direct retrieval as a fallback
-      return {
-        path: QueryProcessingPath.DIRECT_RETRIEVAL,
-        confidence: 0.5,
-        explanation: 'Error occurred during routing, defaulting to direct retrieval',
-        requiresVisualization: false
-      };
-    }
   }
 } 
