@@ -24,12 +24,15 @@ export interface LLMClassificationOutput {
 
 export type RouterPath = 'direct_vector_rag' | 'analytical_rag' | 'user_clarification_needed';
 
+/**
+ * Defines the final decision of the query router.
+ */
 export interface RouterDecision {
-  chosenPath: RouterPath;
-  confidence?: number;
-  reasoning: string;
+  chosenPath: 'direct_vector_rag' | 'analytical_rag' | 'user_clarification_needed';
+  confidence?: number; // Confidence score for the chosen path, if applicable
+  reasoning: string; // Explanation of why this path was chosen
   details?: {
     heuristics: HeuristicOutput;
-    llm_classification?: LLMClassificationOutput;
+    llm_classification?: LLMClassificationOutput | null; // LLM classification can be null if it failed or wasn't run
   };
 } 

@@ -2,7 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService, ChatMessage } from '../ai/openai.service';
-import { PreprocessedQuery, HeuristicOutput, LLMClassificationOutput, LLMClassification } from '../../types/router.types';
+import { PreprocessedQuery, HeuristicOutput, LLMClassificationOutput, LLMClassification, RouterDecision } from '../../types/router.types';
+import { QueryAnalysisService } from '../analysis/query-analysis.service';
 import {
   validateText,
   getDefaultSettings,
@@ -48,14 +49,22 @@ export class QueryRouterService implements OnModuleInit {
   private readonly logger = createServiceLogger(QueryRouterService.name);
   private readonly routerSpellcheck: boolean;
   private readonly routerModel: string;
+  private readonly routerConfHigh: number;
+  private readonly routerConfMid: number;
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly openAIService: OpenAIService, // Assuming this is for LLM classification later
+    private readonly openAIService: OpenAIService,
+    private readonly queryAnalysisService: QueryAnalysisService,
   ) {
     this.routerSpellcheck = this.configService.get<string>('ROUTER_SPELLCHECK') === 'true';
-    this.routerModel = this.configService.get<string>('ROUTER_MODEL') || 'o4-mini-2025-04-16'; // Changed default
-    this.logger.log({ level: 'info', message: `QueryRouterService initialized. Spellcheck enabled: ${this.routerSpellcheck}, Router Model: ${this.routerModel}` });
+    this.routerModel = this.configService.get<string>('ROUTER_MODEL') || 'o4-mini-2025-04-16';
+    this.routerConfHigh = parseFloat(this.configService.get<string>('ROUTER_CONF_HIGH') || '0.85');
+    this.routerConfMid = parseFloat(this.configService.get<string>('ROUTER_CONF_MID') || '0.65');
+    this.logger.log({
+      level: 'info',
+      message: `QueryRouterService initialized. Spellcheck: ${this.routerSpellcheck}, Model: ${this.routerModel}, HighConf: ${this.routerConfHigh}, MidConf: ${this.routerConfMid}`,
+    });
   }
 
   async onModuleInit() {
@@ -347,6 +356,194 @@ Your JSON Output:
       this.logger.error('Error during LLM classification API call:', { error });
       return null;
     }
+  }
+
+  /**
+   * Orchestrates the entire query routing process.
+   * @param rawQuery The original user query.
+   * @returns A Promise resolving to the RouterDecision.
+   */
+  public async determineRoute(rawQuery: string): Promise<RouterDecision> {
+    this.logger.info('Starting query routing process for:', { rawQuery });
+
+    const preprocessedQuery = await this.preprocess(rawQuery);
+    this.logger.debug('Query preprocessed:', { preprocessedQuery });
+
+    const heuristicOutput = await this.queryAnalysisService.runHeuristics(
+      preprocessedQuery,
+    );
+    this.logger.debug('Heuristic analysis complete:', { heuristicOutput });
+
+    let llmOutput: LLMClassificationOutput | null = null;
+
+    // Determine if LLM classification is needed
+    const { analyticalScore, retrievalScore } = heuristicOutput;
+    const scoreDifference = Math.abs(analyticalScore - retrievalScore);
+    const maxScore = Math.max(analyticalScore, retrievalScore);
+
+    // Conditions to trigger LLM classification:
+    // 1. Heuristic scores are too close (ambiguous).
+    // 2. The highest heuristic score is below a mid-confidence threshold.
+    // 3. Both scores are very low.
+    const isAmbiguous = scoreDifference < 0.2; // Example: scores are 0.5 and 0.6
+    const isLowConfidence = maxScore < this.routerConfMid; // Example: highest score is 0.6, midConf is 0.65
+    const bothScoresLow = analyticalScore < 0.3 && retrievalScore < 0.3; // Example: 0.2 and 0.1
+
+    if (isAmbiguous || isLowConfidence || bothScoresLow) {
+      this.logger.info('Heuristics ambiguous or low confidence, proceeding with LLM classification.', {
+        isAmbiguous,
+        isLowConfidence,
+        bothScoresLow,
+        analyticalScore,
+        retrievalScore,
+      });
+      llmOutput = await this.llmClassify(preprocessedQuery, heuristicOutput);
+      this.logger.debug('LLM classification complete:', { llmOutput });
+    } else {
+      this.logger.info('Heuristics are sufficiently confident, skipping LLM classification.', {
+        analyticalScore,
+        retrievalScore,
+      });
+    }
+
+    const decision = await this.combineAndFinalizeDecision(
+      preprocessedQuery,
+      heuristicOutput,
+      llmOutput,
+    );
+    this.logger.info('Final routing decision:', { decision });
+
+    await this.persistLog(rawQuery, decision);
+
+    return decision;
+  }
+
+  /**
+   * Combines heuristic and LLM outputs to make a final routing decision.
+   * @param preprocessedQuery The preprocessed query.
+   * @param heuristicOutput The output from heuristic analysis.
+   * @param llmOutput The output from LLM classification (can be null).
+   * @returns A Promise resolving to the RouterDecision.
+   */
+  private async combineAndFinalizeDecision(
+    preprocessedQuery: PreprocessedQuery,
+    heuristicOutput: HeuristicOutput,
+    llmOutput: LLMClassificationOutput | null,
+  ): Promise<RouterDecision> {
+    this.logger.debug('Combining heuristic and LLM outputs...', { preprocessedQuery, heuristicOutput, llmOutput, routerConfHigh: this.routerConfHigh, routerConfMid: this.routerConfMid });
+
+    // Path determination logic
+    let chosenPath: RouterDecision['chosenPath'] = 'user_clarification_needed';
+    let confidence: number | undefined = undefined;
+    let reasoning = 'Defaulting to user clarification due to ambiguity or low confidence.';
+
+    if (llmOutput) {
+      // High confidence LLM decision
+      if (llmOutput.confidence >= this.routerConfHigh) {
+        reasoning = `High confidence LLM classification (${llmOutput.classification}). ` + (llmOutput.llmReasoning || 'LLM provided decisive classification.');
+        confidence = llmOutput.confidence;
+        if (llmOutput.classification === 'analytical_task') chosenPath = 'analytical_rag';
+        else if (llmOutput.classification === 'direct_retrieval') chosenPath = 'direct_vector_rag';
+        else chosenPath = 'user_clarification_needed'; // clarification_needed from LLM
+      } 
+      // Mid confidence LLM - consider heuristics
+      else if (llmOutput.confidence >= this.routerConfMid) {
+        reasoning = `Medium confidence LLM classification (${llmOutput.classification}), considering heuristics. ` + (llmOutput.llmReasoning || '');
+        confidence = llmOutput.confidence; 
+        // If LLM says analytical, and heuristics agree or are neutral
+        if (llmOutput.classification === 'analytical_task' && heuristicOutput.analyticalScore >= heuristicOutput.retrievalScore) {
+          chosenPath = 'analytical_rag';
+          reasoning += ' LLM analytical favored, heuristics align or neutral.';
+        }
+        // If LLM says retrieval, and heuristics agree or are neutral
+        else if (llmOutput.classification === 'direct_retrieval' && heuristicOutput.retrievalScore >= heuristicOutput.analyticalScore) {
+          chosenPath = 'direct_vector_rag';
+          reasoning += ' LLM retrieval favored, heuristics align or neutral.';
+        }
+        // If LLM says clarification, or heuristics strongly conflict, or LLM and heuristics point different ways with similar strength
+        else if (llmOutput.classification === 'clarification_needed' || 
+                 (llmOutput.classification === 'analytical_task' && heuristicOutput.retrievalScore > heuristicOutput.analyticalScore + 0.2) ||
+                 (llmOutput.classification === 'direct_retrieval' && heuristicOutput.analyticalScore > heuristicOutput.retrievalScore + 0.2) ){
+          chosenPath = 'user_clarification_needed';
+          reasoning += ' LLM/Heuristic conflict or LLM requests clarification.';
+        } else { // LLM is mid confidence, heuristics are not strongly conflicting but not perfectly aligned
+          if (llmOutput.classification === 'analytical_task') chosenPath = 'analytical_rag';
+          else if (llmOutput.classification === 'direct_retrieval') chosenPath = 'direct_vector_rag';
+          else chosenPath = 'user_clarification_needed';
+          reasoning += ' Defaulting to LLM mid-confidence path due to lack of strong heuristic counter-signal.';
+        }
+      } 
+      // Low confidence LLM - rely more on heuristics or clarify
+      else {
+        reasoning = `Low confidence LLM classification (${llmOutput.classification}), relying more on heuristics. ` + (llmOutput.llmReasoning || '');
+        // If heuristics are strong, use them
+        if (heuristicOutput.analyticalScore > this.routerConfHigh && heuristicOutput.analyticalScore > heuristicOutput.retrievalScore) {
+          chosenPath = 'analytical_rag';
+          confidence = heuristicOutput.analyticalScore;
+          reasoning += ' Strong heuristic analytical signal overrides low-confidence LLM.';
+        } else if (heuristicOutput.retrievalScore > this.routerConfHigh && heuristicOutput.retrievalScore > heuristicOutput.analyticalScore) {
+          chosenPath = 'direct_vector_rag';
+          confidence = heuristicOutput.retrievalScore;
+          reasoning += ' Strong heuristic retrieval signal overrides low-confidence LLM.';
+        } else {
+          chosenPath = 'user_clarification_needed';
+          reasoning += ' Neither LLM nor heuristics provide strong signal.';
+          confidence = Math.max(heuristicOutput.analyticalScore, heuristicOutput.retrievalScore, llmOutput.confidence); // Use max of weak signals
+        }
+      }
+    } 
+    // No LLM output - rely solely on heuristics
+    else if (heuristicOutput) {
+      reasoning = 'No LLM output available, decision based solely on heuristics.';
+      if (heuristicOutput.analyticalScore >= this.routerConfMid && heuristicOutput.analyticalScore > heuristicOutput.retrievalScore) {
+        chosenPath = 'analytical_rag';
+        confidence = heuristicOutput.analyticalScore;
+        reasoning += ' Heuristic analytical score is moderate to high.';
+      } else if (heuristicOutput.retrievalScore >= this.routerConfMid && heuristicOutput.retrievalScore > heuristicOutput.analyticalScore) {
+        chosenPath = 'direct_vector_rag';
+        confidence = heuristicOutput.retrievalScore;
+        reasoning += ' Heuristic retrieval score is moderate to high.';
+      } else {
+        chosenPath = 'user_clarification_needed';
+        reasoning += ' Heuristic scores are low or ambiguous.';
+        confidence = Math.max(heuristicOutput.analyticalScore, heuristicOutput.retrievalScore);
+      }
+    }
+    // No LLM and No Heuristic (should not happen if preprocess returns valid query for heuristics)
+    else {
+      reasoning = 'Critical error: No heuristic or LLM output available. Defaulting to user clarification.';
+      chosenPath = 'user_clarification_needed';
+      confidence = 0.1; // Very low confidence
+    }
+
+    return {
+      chosenPath,
+      confidence,
+      reasoning,
+      details: {
+        heuristics: heuristicOutput,
+        llm_classification: llmOutput,
+      },
+    };
+  }
+
+  /**
+   * Persists the routing decision and related details for logging/auditing.
+   * @param rawQuery The original raw query.
+   * @param decision The final router decision.
+   */
+  private async persistLog(rawQuery: string, decision: RouterDecision): Promise<void> {
+    // For now, we log to the standard service logger with a specific message.
+    // In a production system, this might write to a dedicated audit log, database, or a specialized logging service.
+    this.logger.log({
+      level: 'info', // Or 'debug' if it's too verbose for info in production
+      message: 'RoutingDecisionPersisted', // A specific keyword for easy filtering
+      rawQuery: rawQuery,
+      decision: decision, // The logger should handle object serialization
+      // decisionStringified: JSON.stringify(decision) // Optionally, stringify if preferred for certain log collectors
+    });
+    // No actual async operation here for now, so resolve immediately.
+    return Promise.resolve();
   }
 
   /**
