@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService, ChatMessage } from '../ai/openai.service';
-import { PreprocessedQuery, HeuristicOutput, LLMClassificationOutput, LLMClassification, RouterDecision } from '../../types/router.types';
+import { PreprocessedQuery, HeuristicOutput, LLMClassificationOutput, RouterDecision } from '../../types/router.types';
 import { QueryAnalysisService } from '../analysis/query-analysis.service';
 import {
   validateText,
