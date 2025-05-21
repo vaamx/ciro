@@ -100,4 +100,10 @@ tasks/
 knowledge/
 aws-deployment/
 scripts/
-server/debug/ 
+server/debug/
+
+# Virtual environment for git-filter-repo
+.venv-gfr/
+
+# Secrets file (should never be committed)
+secrests.txt 
