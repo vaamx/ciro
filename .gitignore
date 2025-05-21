@@ -94,4 +94,10 @@ dev-debug.log
 # OS specific
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# Added by user for cleanup
+knowledge/
+aws-deployment/
+scripts/
+server/debug/ 
