@@ -1,1 +1,0 @@
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"cloudfront.amazonaws.com"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::ciro-stack-frontend-1742157621/*","Condition":{"StringEquals":{"AWS:SourceArn":"arn:aws:cloudfront::794038226747:distribution/E1G2DAXIDHKMCQ"}}}]}
