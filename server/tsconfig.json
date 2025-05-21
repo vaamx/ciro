@@ -35,10 +35,16 @@
     "typeRoots": [
       "./node_modules/@types"
     ],
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
   "include": [
     "src/**/*"
   ],
-  "exclude": ["dist", "node_modules"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.test.js"
+  ]
 } 

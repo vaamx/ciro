@@ -1,14 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { PreprocessedQuery } from '../../types/router.types';
+import {
+  validateText,
+  getDefaultSettings,
+  combineTextAndLanguageSettings,
+  finalizeSettings,
+  type ValidationIssue,
+} from 'cspell-lib';
+
+// Import cspell-lib for its actual functions, which will be mocked by Jest for tests
+import * as cspellLib from 'cspell-lib';
+
+// Minimal local interface to represent cspell-lib's Suggestion structure
+interface CSpellSuggestion {
+  word: string;
+  isPreferred?: boolean;
+}
 
 /**
  * Enum for different query processing paths
  */
 export enum QueryProcessingPath {
-  RAG = 'rag',
-  CODE_EXECUTION = 'code_execution',
-  HYBRID = 'hybrid'
+  DIRECT_RETRIEVAL = 'direct_retrieval',
+  ANALYTICAL_TASK = 'analytical_task',
+  CLARIFICATION_NEEDED = 'clarification_needed',
 }
 
 /**
@@ -26,18 +44,103 @@ export interface QueryRoutingResult {
  * This helps determine whether to use RAG, code execution, or a hybrid approach
  */
 @Injectable()
-export class QueryRouterService {
-  private readonly logger = createServiceLogger('QueryRouterService');
-  private openAIService?: OpenAIService;
+export class QueryRouterService implements OnModuleInit {
+  private readonly logger = createServiceLogger(QueryRouterService.name);
+  private readonly routerSpellcheck: boolean;
 
-  constructor() {
-    try {
-      // Comment out ServiceRegistry usage - will be replaced by NestJS DI
-      // this.openAIService = ServiceRegistry.resolve(OpenAIService);
-      this.logger.info('QueryRouterService initialized (DI pending)');
-    } catch (error) {
-      this.logger.error(`Error during initial setup of QueryRouterService: ${error}`);
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly openAIService: OpenAIService, // Assuming this is for LLM classification later
+  ) {
+    this.routerSpellcheck = this.configService.get<string>('ROUTER_SPELLCHECK') === 'true';
+    this.logger.log({ level: 'info', message: `QueryRouterService initialized. Spellcheck enabled: ${this.routerSpellcheck}` });
+  }
+
+  async onModuleInit() {
+    this.logger.log({ level: 'info', message: 'QueryRouterService onModuleInit called.' });
+    if (this.routerSpellcheck) {
+      try {
+        const settings = await cspellLib.getDefaultSettings();
+        this.logger.debug('Successfully pre-loaded cspell default settings during init.', { settings });
+      } catch (error) {
+        this.logger.error('Failed to pre-load cspell default settings during init:', { error });
+      }
     }
+  }
+
+  /**
+   * Preprocesses the user query for consistent processing.
+   * Includes trimming, lowercasing, and optional spell-checking.
+   * @param rawQuery The original user query string.
+   * @returns A PreprocessedQuery object.
+   */
+  public async preprocess(rawQuery: string): Promise<PreprocessedQuery> {
+    if (!rawQuery) {
+      return {
+        originalQuery: '',
+        normalizedQuery: '',
+      };
+    }
+
+    let normalizedQuery = rawQuery.trim().toLowerCase();
+
+    // If the normalized query is empty (e.g., input was only spaces), return early.
+    if (!normalizedQuery) {
+      this.logger.debug('Normalized query is empty, skipping spellcheck.');
+      return {
+        originalQuery: rawQuery,
+        normalizedQuery,
+      };
+    }
+
+    if (this.routerSpellcheck) {
+      try {
+        const settings = await cspellLib.getDefaultSettings();
+        const languageSettings = cspellLib.combineTextAndLanguageSettings(settings, '', 'en');
+        const finalCSpellSettings = cspellLib.finalizeSettings(languageSettings);
+
+        this.logger.debug('CSpell settings loaded:', { finalCSpellSettings });
+
+        const issues: ValidationIssue[] = await cspellLib.validateText(normalizedQuery, finalCSpellSettings);
+
+        if (issues.length > 0) {
+          let correctedQuery = normalizedQuery;
+          // Apply corrections in reverse order to maintain correct offsets
+          for (let i = issues.length - 1; i >= 0; i--) {
+            const issue = issues[i];
+            if (issue.suggestions && issue.suggestions.length > 0) {
+              const firstSuggestion = issue.suggestions[0];
+              let firstSuggestionText: string;
+
+              if (typeof firstSuggestion === 'string') {
+                firstSuggestionText = firstSuggestion;
+              } else if (typeof firstSuggestion === 'object' && firstSuggestion !== null && 'word' in firstSuggestion) {
+                firstSuggestionText = (firstSuggestion as CSpellSuggestion).word;
+              } else {
+                this.logger.warn(`Unexpected suggestion format for "${issue.text}" at offset ${issue.offset}, skipping.`);
+                continue; // Skip this issue
+              }
+
+              if (issue.text.toLowerCase() !== firstSuggestionText.toLowerCase()) {
+                correctedQuery =
+                  correctedQuery.substring(0, issue.offset) +
+                  firstSuggestionText +
+                  correctedQuery.substring(issue.offset + issue.text.length);
+              }
+            }
+          }
+          normalizedQuery = correctedQuery;
+        }
+      } catch (error) {
+        this.logger.error('Error during spellchecking:', error);
+        // Fallback to original normalized query if spellcheck fails
+      }
+    }
+
+    return {
+      originalQuery: rawQuery,
+      normalizedQuery,
+    };
   }
 
   /**
@@ -147,27 +250,27 @@ export class QueryRouterService {
       // Fallback to simple heuristic if AI classification fails
       if (containsAnalyticalKeywords) {
         return {
-          path: QueryProcessingPath.CODE_EXECUTION,
+          path: QueryProcessingPath.ANALYTICAL_TASK,
           confidence: 0.75,
           explanation: 'Query contains analytical keywords that suggest code execution is needed',
           requiresVisualization: containsVisualizationKeywords
         };
       } else {
         return {
-          path: QueryProcessingPath.RAG,
+          path: QueryProcessingPath.DIRECT_RETRIEVAL,
           confidence: 0.8,
-          explanation: 'Query appears to be information-seeking, routing to RAG',
+          explanation: 'Query appears to be information-seeking, routing to direct retrieval',
           requiresVisualization: containsVisualizationKeywords
         };
       }
     } catch (error) {
       this.logger.error(`Error routing query: ${error}`);
       
-      // Default to RAG as a fallback
+      // Default to direct retrieval as a fallback
       return {
-        path: QueryProcessingPath.RAG,
+        path: QueryProcessingPath.DIRECT_RETRIEVAL,
         confidence: 0.5,
-        explanation: 'Error occurred during routing, defaulting to RAG',
+        explanation: 'Error occurred during routing, defaulting to direct retrieval',
         requiresVisualization: false
       };
     }
