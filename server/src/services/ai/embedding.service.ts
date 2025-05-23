@@ -46,22 +46,22 @@ export class EmbeddingService {
    */
   async createEmbedding(text: string, options: EmbeddingOptions = {}): Promise<number[]> {
     try {
-      const cacheKey = `${options.model || this.defaultModel}:${text}`;
+      const cacheKey = `${options.model || this.defaultEmbeddingModel}:${text}`;
       
-      // Return from cache if available and not skipped
-      if (!options.skipCache && this.cache.has(cacheKey)) {
+      // Return from cache if available and not skipped, and if global caching is enabled
+      if (this.cacheEmbeddings && !options.skipCache && this.cache.has(cacheKey)) {
         this.logger.debug('Returning embedding from cache');
         return this.cache.get(cacheKey)!;
       }
       
       const embeddings = await this.createEmbeddings(text, options);
       
-      if (!embeddings || embeddings.length === 0) {
+      if (!embeddings || embeddings.length === 0 || !embeddings[0] || embeddings[0].length === 0) {
         throw new Error('Failed to create embedding');
       }
       
-      // Add to cache for future use
-      if (!options.skipCache) {
+      // Add to cache for future use, if global caching enabled and not skipped for this call
+      if (this.cacheEmbeddings && !options.skipCache) {
         this.cache.set(cacheKey, embeddings[0]);
       }
       
@@ -84,7 +84,15 @@ export class EmbeddingService {
   ): Promise<number[][]> {
     const textsToEmbedArray = Array.isArray(texts) ? texts : [texts];
     if (textsToEmbedArray.length === 0) {
-      return [];
+      this.logger.warn('No texts provided for embedding creation.');
+      throw new Error('No texts provided for embedding creation');
+    }
+
+    // Check if all texts in the array are empty or whitespace
+    const allTextsEffectivelyEmpty = textsToEmbedArray.every(text => !text || text.trim() === '');
+    if (allTextsEffectivelyEmpty) {
+      this.logger.warn('All provided texts were empty or whitespace.');
+      throw new Error('All provided texts were empty'); // Match test assertion
     }
 
     const { skipCache = false, ...apiOptions } = options || {}; // Destructure skipCache, pass rest as apiOptions
@@ -118,7 +126,16 @@ export class EmbeddingService {
         `Cache miss for ${textsToFetch.length} texts. Fetching from OpenAI with model ${effectiveModel}. Options: ${JSON.stringify(apiOptions)}`,
       );
       // Pass only the apiOptions (model, dimensions) to openAIService
-      const newEmbeddings = await this.openAIService.createEmbeddings(textsToFetch, apiOptions);
+      // const newEmbeddings = await this.openAIService.createEmbeddings(textsToFetch, apiOptions);
+      // Correctly pass the effectiveModel and other relevant API options
+      const finalApiOptions: EmbeddingAPIOptions = { ...apiOptions };
+      if (effectiveModel) { // Ensure model is only added if it exists
+        finalApiOptions.model = effectiveModel;
+      }
+      // Dimensions might also be in apiOptions, so keep them if they are.
+      // If apiOptions.dimensions is not set, OpenAI client will use its default.
+
+      const newEmbeddings = await this.openAIService.createEmbeddings(textsToFetch, finalApiOptions);
       
       newEmbeddings.forEach((embedding, i) => {
         const originalIndex = originalIndices[i];

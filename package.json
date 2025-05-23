@@ -16,6 +16,7 @@
     "@nestjs/swagger": "^11.1.4",
     "@nestjs/terminus": "^11.0.0",
     "@prisma/client": "^6.5.0",
+    "@qdrant/js-client-rest": "^1.14.0",
     "@tailwindcss/typography": "^0.5.16",
     "@types/jsonwebtoken": "^9.0.8",
     "@types/papaparse": "^5.3.15",
@@ -100,9 +101,18 @@
     ],
     "rootDir": ".",
     "moduleDirectories": [
-      "node_modules"
+      "node_modules",
+      "server/src"
     ],
-    "testRegex": "server/src/services/code-execution/query-router\\.service\\.spec\\.ts",
+    "moduleNameMapper": {
+      "^@common/(.*)$": "<rootDir>/server/src/common/$1",
+      "^@services/(.*)$": "<rootDir>/server/src/services/$1",
+      "^@config/(.*)$": "<rootDir>/server/src/config/$1",
+      "^@core/(.*)$": "<rootDir>/server/src/core/$1",
+      "^@modules/(.*)$": "<rootDir>/server/src/modules/$1",
+      "^@app/(.*)$": "<rootDir>/server/src/$1"
+    },
+    "testRegex": "src/services/rag/query-orchestrator\\.service\\.spec\\.ts",
     "transform": {
       "^.+\\.(t|j)s$": [
         "ts-jest",

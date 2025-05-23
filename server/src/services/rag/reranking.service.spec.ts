@@ -77,6 +77,25 @@ describe('RerankingService', () => {
       { id: '3', text: 'document three' },
     ];
 
+    let globalFetchOriginal: any; // For storing and restoring original fetch
+
+    beforeAll(() => {
+      globalFetchOriginal = global.fetch;
+    });
+
+    afterAll(() => {
+      global.fetch = globalFetchOriginal;
+    });
+
+    beforeEach(() => {
+      // Mock fetch for all tests within 'rerankDocuments' describe block
+      global.fetch = jest.fn();
+      // Clear other mocks if necessary, e.g., logger mocks if they are used across tests and need resetting
+      // (mockLogger.warn as jest.Mock).mockClear(); 
+      // (mockLogger.error as jest.Mock).mockClear();
+      // (mockLogger.info as jest.Mock).mockClear();
+    });
+
     it('should return an empty array if no documents are provided', async () => {
       const result = await service.rerankDocuments(sampleQuery, []);
       expect(result).toEqual([]);
@@ -138,21 +157,6 @@ describe('RerankingService', () => {
 
     // ---- Tests for when API call is implemented ----
     describe('When Cohere API call is implemented', () => {
-      let globalFetch: any;
-
-      beforeAll(() => {
-        globalFetch = global.fetch;
-      });
-
-      afterAll(() => {
-        global.fetch = globalFetch;
-      });
-
-      beforeEach(() => {
-        // Reset the mock for each test to ensure clean state
-        global.fetch = jest.fn(); 
-      });
-
       it('should call Cohere API and return reranked documents on success', async () => {
         const mockCohereResponse = {
           results: [
@@ -265,6 +269,75 @@ describe('RerankingService', () => {
         expect(result.find(d => d.id === sampleDocs[1].id)).toBeDefined();
         expect(mockLogger.info).toHaveBeenCalledWith('Successfully reranked and mapped 2 documents.');
       });
+
+      it('should handle Cohere API 401 Unauthorized error and return docs with score -1', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+          statusText: 'Unauthorized',
+          json: async () => ({ message: 'Invalid API key' }), // Mock error body
+          text: async () => JSON.stringify({ message: 'Invalid API key' })
+        });
+
+        const result = await service.rerankDocuments(sampleQuery, sampleDocs);
+
+        expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Cohere API error: 401 Unauthorized'));
+        expect(mockLogger.error).toHaveBeenCalledWith('Error during reranking process.', expect.any(Object));
+        expect(result.length).toBe(sampleDocs.length);
+        result.forEach(doc => {
+          expect(doc.id).toBeDefined();
+          expect(doc.score).toBe(-1);
+        });
+      });
+
+      it('should handle Cohere API 500 Internal Server Error and return docs with score -1', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          json: async () => ({ message: 'Server issue' }),
+          text: async () => JSON.stringify({ message: 'Server issue' })
+        });
+
+        const result = await service.rerankDocuments(sampleQuery, sampleDocs);
+
+        expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Cohere API error: 500 Internal Server Error'));
+        expect(mockLogger.error).toHaveBeenCalledWith('Error during reranking process.', expect.any(Object));
+        expect(result.length).toBe(sampleDocs.length);
+        result.forEach(doc => {
+          expect(doc.score).toBe(-1);
+        });
+      });
+      
+      it('should handle network error during fetch and return docs with score -1', async () => {
+        const networkErrorMessage = 'Network request failed';
+        (global.fetch as jest.Mock).mockRejectedValueOnce(new Error(networkErrorMessage));
+
+        const result = await service.rerankDocuments(sampleQuery, sampleDocs);
+
+        expect(mockLogger.error).toHaveBeenCalledWith('Error during reranking process.', expect.objectContaining({ error: networkErrorMessage }));
+        expect(result.length).toBe(sampleDocs.length);
+        result.forEach(doc => {
+          expect(doc.score).toBe(-1);
+        });
+      });
+
+      it('should handle Cohere API response with ok:true but missing results field', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({ meta: { api_version: { version: '1'} } }), // No 'results' field
+            text: async () => JSON.stringify({ meta: { api_version: { version: '1'} } })
+        });
+
+        const result = await service.rerankDocuments(sampleQuery, sampleDocs);
+        expect(mockLogger.error).toHaveBeenCalledWith('Cohere API response missing results field.', expect.any(Object));
+        expect(mockLogger.error).toHaveBeenCalledWith('Error during reranking process.', expect.any(Object));
+        expect(result.length).toBe(sampleDocs.length);
+        result.forEach(doc => expect(doc.score).toBe(-1));
+      });
+
     });
   });
 }); 

@@ -59,7 +59,7 @@ export class GenerationService implements IGenerationService {
       
       // Parse the response
       const responseText = await response.text();
-      let parsedResponse = {};
+      let parsedResponse: Record<string, any> = {};
       
       try {
         parsedResponse = JSON.parse(responseText);
@@ -70,7 +70,10 @@ export class GenerationService implements IGenerationService {
       
       // Extract content from response
       let content = '';
-      if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
+      if (parsedResponse?.choices?.length > 0 && parsedResponse.choices[0].message) {
+        content = parsedResponse.choices[0].message.content || '';
+      } else if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
+        // Fallback for direct content or other less common structures
         content = (parsedResponse as any).content || '';
       }
       
@@ -136,7 +139,7 @@ export class GenerationService implements IGenerationService {
       
       // Parse the response
       const responseText = await response.text();
-      let parsedResponse = {};
+      let parsedResponse: Record<string, any> = {};
       
       try {
         parsedResponse = JSON.parse(responseText);
@@ -150,7 +153,10 @@ export class GenerationService implements IGenerationService {
       
       // Extract content from response
       let content = '';
-      if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
+      if (parsedResponse?.choices?.length > 0 && parsedResponse.choices[0].message) {
+        content = parsedResponse.choices[0].message.content || '';
+      } else if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
+        // Fallback for direct content or other less common structures
         content = (parsedResponse as any).content || '';
       }
       
@@ -376,9 +382,9 @@ export class GenerationService implements IGenerationService {
     
     // Length factor (longer queries tend to be more complex)
     const length = query.length;
-    if (length > 200) complexityScore += 0.3;
-    else if (length > 100) complexityScore += 0.2;
-    else if (length > 50) complexityScore += 0.1;
+    if (length > 200) complexityScore += 0.35;
+    else if (length > 100) complexityScore += 0.25;
+    else if (length > 50) complexityScore += 0.15;
     
     // Keyword factors
     const analyticalKeywords = [
@@ -419,7 +425,7 @@ export class GenerationService implements IGenerationService {
     }
     
     if (questionCount > 2) {
-      complexityScore += 0.2; // Multiple questions in one query
+      complexityScore += 0.25;
     } else if (questionCount > 0) {
       complexityScore += 0.1;
     }
@@ -435,5 +441,77 @@ export class GenerationService implements IGenerationService {
     
     // Limit to range 0-1
     return Math.min(1, complexityScore);
+  }
+
+  /**
+   * Generate content directly from a pre-formatted prompt string.
+   * This method is intended for scenarios where the calling service has already constructed the full prompt.
+   * @param fullPrompt The complete prompt string to send to the LLM.
+   * @param options Generation options (model, temperature, maxTokens).
+   * @returns Generated text content.
+   */
+  async generateFromPreformattedPrompt(
+    fullPrompt: string,
+    options?: GenerationOptions,
+  ): Promise<string> {
+    const startTime = Date.now();
+    this.logger.info(`Generating response from pre-formatted prompt (first 100 chars): "${fullPrompt.substring(0, 100)}..."`);
+
+    if (!fullPrompt) {
+      this.logger.warn('generateFromPreformattedPrompt called with an empty prompt.');
+      return "Error: Prompt cannot be empty.";
+    }
+
+    const model = options?.model || this.selectAppropriateModel(fullPrompt); // Can use selectAppropriateModel or a simpler default
+    const systemMessage = this.createSystemMessage(options?.systemPrompt); // Still use a system prompt wrapper if provided
+
+    try {
+      const messages: ChatMessage[] = [
+        systemMessage, // A base system message can still be useful
+        { role: 'user', content: fullPrompt, id: uuidv4(), timestamp: Date.now(), status: 'complete' },
+      ];
+
+      const response = await this.openaiService.generateChatCompletion(messages, {
+        model: model as any,
+        temperature: options?.temperature || 0.7,
+        ...(options?.maxTokens ? { maxTokens: options.maxTokens } : {}),
+      });
+
+      const responseText = await response.text();
+      let parsedResponse: Record<string, any> = {}; // Use any for parsedResponse as structure can vary
+
+      try {
+        parsedResponse = JSON.parse(responseText);
+      } catch (e) {
+        this.logger.error('Failed to parse JSON response from pre-formatted prompt', { response: responseText });
+        // Attempt to recover if it's a simple string response not in JSON format
+        if (typeof responseText === 'string' && !responseText.startsWith('{')) {
+            this.logger.info('Response appears to be a plain string, using as content.');
+            const durationPlain = Date.now() - startTime;
+            this.logger.info(`Generated plain string response from pre-formatted prompt in ${durationPlain}ms using model ${model}`);
+            return responseText; 
+        }
+        return "Error: Could not parse LLM response.";
+      }
+      
+      let content = '';
+      // Standard OpenAI chat completion structure
+      if (parsedResponse.choices && parsedResponse.choices.length > 0 && parsedResponse.choices[0].message) {
+        content = parsedResponse.choices[0].message.content || '';
+      } 
+      // Fallback for direct content or other structures if necessary (adjust as per your LLMService actual responses)
+      else if (parsedResponse.content) { 
+        content = parsedResponse.content;
+      }
+      // Add other parsing logic if your LLM returns different structures
+
+      const duration = Date.now() - startTime;
+      this.logger.info(`Generated response from pre-formatted prompt in ${duration}ms using model ${model}`);
+
+      return content;
+    } catch (error) {
+      this.logger.error('Error generating response from pre-formatted prompt:', error);
+      return "I encountered an error while generating a response. Please try again.";
+    }
   }
 } 

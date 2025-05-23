@@ -163,9 +163,11 @@ export class OpenAIService {
     // Convert our messages to OpenAI format
     const openAiMessages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
-      ...messages.map(msg => ({
-        role: msg.role === 'error' ? 'assistant' : msg.role,
-        content: msg.content
+      ...messages
+        .filter(msg => msg.role !== 'system') // Filter out system messages from input
+        .map(msg => ({
+          role: msg.role === 'error' ? 'assistant' : msg.role,
+          content: msg.content
       }))
     ];
 

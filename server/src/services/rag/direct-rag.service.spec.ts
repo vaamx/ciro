@@ -7,6 +7,7 @@ import { EmbeddingService } from '@services/ai/embedding.service'; // Added
 import { DirectRAGService, DirectRAGQueryResponse } from './direct-rag.service';
 import { createServiceLogger } from '@common/utils/logger-factory';
 import { SearchResultItem } from '@services/vector/vector.interfaces'; // Added
+import { GenerationService } from './generation.service';
 
 // Remove top-level mockLogger constant, it will be created inside jest.mock's factory
 // const mockLogger = { ... }; 
@@ -60,6 +61,7 @@ describe('DirectRAGService', () => {
   let mockSearchService: Partial<QdrantSearchService>;
   let mockRerankingService: Partial<RerankingService>;
   let mockEmbeddingService: Partial<EmbeddingService>; // Added
+  let mockGenerationService: Partial<GenerationService>;
   // let mockLlmService: Partial<LLMService>;
 
   const generationModel = 'o4-mini-2025-04-16';
@@ -104,6 +106,10 @@ describe('DirectRAGService', () => {
       createEmbeddings: jest.fn().mockResolvedValue([{ embedding: sampleEmbedding, index: 0 }]),
     };
 
+    mockGenerationService = {
+      generateFromPreformattedPrompt: jest.fn().mockResolvedValue('Generated LLM Answer'),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DirectRAGService,
@@ -111,6 +117,7 @@ describe('DirectRAGService', () => {
         { provide: QdrantSearchService, useValue: mockSearchService },
         { provide: RerankingService, useValue: mockRerankingService },
         { provide: EmbeddingService, useValue: mockEmbeddingService }, // Added
+        { provide: GenerationService, useValue: mockGenerationService },
         // { provide: LLMService, useValue: mockLlmService },
       ],
     }).compile();
@@ -216,15 +223,14 @@ describe('DirectRAGService', () => {
     it('should return placeholder answer and FINAL source documents (reranked if applicable)', async () => {
       (mockRerankingService.rerankDocuments as jest.Mock).mockResolvedValue(sampleRerankedDocs);
       const response = await service.answerQuery(sampleQuery, sampleCollectionName, 2, true);
-      expect(response.answer).toBe(`Placeholder answer for query "${sampleQuery}" (collection ${sampleCollectionName}) based on provided documents.`);
-      expect(currentTestLogger.warn).toHaveBeenCalledWith('LLMService.generateAnswer call is a placeholder.');
+      expect(response.answer).toBe('Generated LLM Answer');
       expect(response.sourceDocuments).toEqual(sampleRerankedDocs); 
     });
     
     it('should return placeholder answer and MAPPED source documents if reranker is NOT used', async () => {
         (mockSearchService.search as jest.Mock).mockResolvedValue(sampleSearchResults);
         const response = await service.answerQuery(sampleQuery, sampleCollectionName, 3, false); // useReranker = false
-        expect(response.answer).toBe(`Placeholder answer for query "${sampleQuery}" (collection ${sampleCollectionName}) based on provided documents.`);
+        expect(response.answer).toBe('Generated LLM Answer');
         expect(response.sourceDocuments).toEqual(mappedInitialDocs);
       });
 
@@ -252,7 +258,7 @@ describe('DirectRAGService', () => {
         
         expect(currentTestLogger.error).toHaveBeenCalledWith('Error during reranking:', expect.any(Error));
         expect(response.sourceDocuments).toEqual(mappedInitialDocs); 
-        expect(response.answer).toContain('Placeholder answer'); 
+        expect(response.answer).toBe('Generated LLM Answer');
     });
 
   });

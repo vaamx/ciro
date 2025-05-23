@@ -3,9 +3,10 @@ import { ConfigService } from '@services/core/config.service';
 import { QdrantSearchService } from '@services/vector/search.service';
 import { RerankingService } from './reranking.service';
 import { EmbeddingService } from '@services/ai/embedding.service';
+import { GenerationService } from './generation.service';
 import { createServiceLogger } from '@common/utils/logger-factory';
 import { RerankableDocument } from './reranking.service';
-import { SearchResultItem } from '@services/vector/vector.interfaces';
+import { SearchResultItem, GenerationOptions } from '@services/vector/vector.interfaces';
 
 export interface DirectRAGQueryResponse {
   answer: string;
@@ -25,6 +26,7 @@ export class DirectRAGService {
     private readonly searchService: QdrantSearchService,
     private readonly rerankingService: RerankingService,
     private readonly embeddingService: EmbeddingService,
+    private readonly generationService: GenerationService,
   ) {
     this.generationModel = this.configService.get('GENERATION_LLM_MODEL', 'o4-mini-2025-04-16') ?? 'o4-mini-2025-04-16';
     this.maxContextTokens = this.configService.getNumber('MAX_CONTEXT_TOKENS', 4096) ?? 4096;
@@ -107,8 +109,17 @@ export class DirectRAGService {
     const prompt = this.constructPrompt(query, contextForLLM);
     this.logger.debug(`Constructed prompt for LLM (collection ${targetCollection}): ${prompt.substring(0, 500)}...`);
 
-    this.logger.warn('LLMService.generateAnswer call is a placeholder.');
-    const answer = `Placeholder answer for query "${query}" (collection ${targetCollection}) based on provided documents.`;
+    let answer: string;
+    try {
+      const generationOptions: GenerationOptions = {
+        model: this.generationModel,
+      };
+      answer = await this.generationService.generateFromPreformattedPrompt(prompt, generationOptions);
+      this.logger.info(`Received answer from GenerationService for collection ${targetCollection}. Length: ${answer.length}`);
+    } catch (error) {
+      this.logger.error('Error calling GenerationService from DirectRAGService:', error);
+      answer = 'Error: Could not generate an answer at this time.';
+    }
 
     return {
       answer,
