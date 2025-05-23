@@ -11,7 +11,7 @@ import {
   PointItem
  } from '../vector/vector.interfaces';
 import { normalizeCollectionName, combineFilters } from './utils';
-import { Schemas as QdrantSchemas } from '@qdrant/js-client-rest';
+import { QdrantClient, Schemas as QdrantSchemas } from '@qdrant/js-client-rest';
 
 // Define the PointStruct type using the imported Schemas
 type QdrantPointStruct = QdrantSchemas['PointStruct'];
@@ -195,14 +195,15 @@ export class QdrantSearchService extends BaseSearchService {
     try {
       this.logger.debug(`Deleting ${pointIds.length} points from collection ${normalizedName}`);
       
-      const client = this.qdrantClientService.getClient();
+      const client: QdrantClient | null = this.qdrantClientService.getClient();
       if (!client) {
         this.logger.warn('QdrantClient is not available');
         throw new Error('Qdrant client is not available');
       }
       
+      // Try using client.delete() as seen in ingestion.service.ts
       await client.delete(normalizedName, {
-        points: pointIds, // Pass the array of string IDs
+        points: pointIds, 
       });
       this.logger.info(`Successfully deleted ${pointIds.length} points from ${normalizedName}`);
     } catch (error) {

@@ -4,6 +4,7 @@ import { ConfigService } from '../../../../core/config.service';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../ai/embedding.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,6 +31,7 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
         protected readonly qdrantCollectionService: QdrantCollectionService,
         protected readonly qdrantIngestionService: QdrantIngestionService,
         protected readonly openAIService: OpenAIService,
+        protected readonly embeddingService: EmbeddingService,
         protected readonly socketService: SocketService,
         private readonly documentChunkingService: DocumentChunkingService
     ) {
@@ -457,7 +459,7 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
             let embeddings: number[][] = [];
 
             try {
-                embeddings = await this.openAIService.createEmbeddings(textsToEmbed, { skipCache: false });
+                embeddings = await this.embeddingService.createEmbeddings(textsToEmbed, { skipCache: false });
                  if (embeddings.length !== batchChunks.length) {
                      this.logger.error(`Embedding count mismatch: Expected ${batchChunks.length}, got ${embeddings.length} for batch starting at index ${i}`);
                      failedEmbeddingCount += batchChunks.length;

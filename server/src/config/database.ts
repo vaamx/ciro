@@ -19,7 +19,7 @@ const environment = process.env.NODE_ENV || 'development';
 // Define Knex config directly using the imported 'config' object
 const knexConfigOptions: { [key: string]: Knex.Config } = {
   development: {
-    client: '***REMOVED***ql',
+    client: 'pg',
     connection: config.database,
     pool: { min: 2, max: 10 },
     migrations: { 
@@ -34,7 +34,7 @@ const knexConfigOptions: { [key: string]: Knex.Config } = {
     debug: process.env.DB_DEBUG === 'true'
   },
   test: {
-    client: '***REMOVED***ql',
+    client: 'pg',
     connection: { ...config.database, database: `${config.database.database}_test` },
     pool: { min: 2, max: 10 },
     migrations: { 
@@ -48,7 +48,7 @@ const knexConfigOptions: { [key: string]: Knex.Config } = {
     }
   },
   production: {
-    client: '***REMOVED***ql',
+    client: 'pg',
     connection: config.database,
     pool: { min: 5, max: 30 },
     migrations: { 

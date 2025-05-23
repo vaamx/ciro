@@ -20,7 +20,6 @@ export class QdrantClientService implements IQdrantClientService, OnModuleInit {
   constructor(private readonly configService: ConfigService) {
     this.apiUrl = this.configService.get<string>('QDRANT_API_URL', 'http://localhost:6333');
     this.apiKey = this.configService.get<string | undefined>('QDRANT_API_KEY');
-    // Get connection timeout from config if available
     this.connectionTimeout = this.configService.get<number>('QDRANT_CONNECTION_TIMEOUT', 5000);
     
     this.logger.info(`QdrantClientService constructor: API URL set to ${this.apiUrl}`);
@@ -30,14 +29,12 @@ export class QdrantClientService implements IQdrantClientService, OnModuleInit {
     if (!this.initializationPromise) {
       this.initializationPromise = this._initializeClient().catch(error => {
         this.logger.warn(`Qdrant initialization failed, but continuing: ${error.message}`);
-        // Don't re-throw - let the app continue without Qdrant
         this.isInitialized = false;
         this.client = null;
       });
     }
     
     try {
-      // Add timeout to prevent hanging
       await Promise.race([
         this.initializationPromise,
         new Promise((_, reject) => 
@@ -45,47 +42,34 @@ export class QdrantClientService implements IQdrantClientService, OnModuleInit {
         )
       ]);
     } catch (error: any) {
-      this.logger.warn(`Qdrant client initialization timed out: ${error.message}`);
-      // Don't re-throw - let the app continue without Qdrant
+      this.logger.warn(`Qdrant client initialization process failed or timed out: ${error.message}`);
+      this.client = null;
+      this.isInitialized = false; 
     }
   }
 
   private async _initializeClient(): Promise<void> {
     if (this.isInitialized) {
+        this.logger.info('Qdrant client already initialized.');
         return;
     }
-    this.logger.info('Attempting to initialize Qdrant client in onModuleInit...');
+    this.logger.info('Attempting to initialize Qdrant client...');
     try {
       this.client = new QdrantClient({
         url: this.apiUrl,
         apiKey: this.apiKey
       });
       
-      // Wrap connection check in a timeout
-      const connectionSuccess = await Promise.race([
-        this.checkConnection(),
-        new Promise<boolean>((resolve) => 
-          setTimeout(() => {
-            this.logger.warn('Qdrant connection check timed out');
-            resolve(false);
-          }, this.connectionTimeout)
-        )
-      ]);
-
-      if (!connectionSuccess) {
-        this.logger.warn('Qdrant connection failed, but service will continue in limited mode');
-        // We'll still mark as initialized but with null client
-        this.isInitialized = true;
-        return;
-      }
+      await this.checkConnection();
 
       this.isInitialized = true;
-      this.logger.info(`QdrantClientService initialized successfully in onModuleInit.`);
+      this.logger.info('QdrantClientService initialized successfully.');
     } catch (error) {
-      this.logger.error(`Failed to initialize Qdrant client during onModuleInit: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to initialize Qdrant client during _initializeClient: ${errorMessage}`);
       this.client = null;
       this.isInitialized = false;
-      throw new Error(`Qdrant client initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
   }
 
@@ -254,12 +238,55 @@ export class QdrantClientService implements IQdrantClientService, OnModuleInit {
   }
 
   /**
-   * Explicitly check the connection to the Qdrant server.
+   * Retrieve specific points by their IDs from a collection.
+   * @param collectionName The name of the collection.
+   * @param ids An array of point IDs to retrieve.
+   * @param withVector Whether to include the vector in the returned points
+   */
+  async retrievePoints(collectionName: string, ids: Array<string | number>, withVector: boolean = false): Promise<any[]> {
+    this.logger.info(`Retrieving points with IDs [${ids.join(', ')}] from collection ${collectionName}`);
+    const client = this.getClient();
+    if (!client) {
+      this.logger.warn(`Cannot retrieve points from ${collectionName}: Client unavailable`);
+      return [];
+    }
+    
+    try {
+      if (typeof (client as any).getPoints === 'function') {
+        const result = await (client as any).getPoints(collectionName, {
+          ids: ids as any,
+          with_payload: true,
+          with_vector: withVector,
+        });
+        this.logger.info(`Retrieved ${result.length} points using getPoints from ${collectionName}.`);
+        return result;
+      } else if (typeof (client as any).retrieve === 'function') {
+        const result = await (client as any).retrieve(collectionName, {
+          ids: ids as any,
+          with_payload: true,
+          with_vector: withVector,
+        });
+        this.logger.info(`Retrieved ${result.length} points using retrieve from ${collectionName}.`);
+        return result;
+      } else {
+        this.logger.error('Neither getPoints nor retrieve method is available on Qdrant client.');
+        throw new Error('Point retrieval method not found on Qdrant client.');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to retrieve points from ${collectionName}: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Check the connection to Qdrant by trying to list collections.
+   * Throws an error if the connection cannot be established.
    */
   async checkConnection(): Promise<boolean> {
     if (!this.client) {
-        this.logger.warn('Attempted to check connection before client was instantiated.');
-        return false;
+        this.logger.error('Cannot check Qdrant connection: client not instantiated.');
+        throw new Error('Qdrant client not instantiated before connection check.');
     }
     this.logger.info('Checking Qdrant connection...');
     try {
@@ -267,8 +294,9 @@ export class QdrantClientService implements IQdrantClientService, OnModuleInit {
       this.logger.info('Qdrant connection successful.');
       return true;
     } catch (error) {
-      this.logger.error(`Qdrant connection check failed: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Qdrant connection check failed: ${errorMessage}`);
+      throw error;
     }
   }
 } 

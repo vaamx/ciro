@@ -23,6 +23,7 @@ import { QdrantIngestionService } from '../../../vector/ingestion.service';
 import { EventManager } from '../../../util/event-manager';
 import { SocketService } from '../../../util/socket.service'; // Import SocketService
 import { AiModule } from '../../../ai/ai.module';
+import { EmbeddingService } from '../../../ai/embedding.service';
 
 @Module({
   imports: [
@@ -189,6 +190,7 @@ import { AiModule } from '../../../ai/ai.module';
         qdrantCollectionService: QdrantCollectionService,
         qdrantIngestionService: QdrantIngestionService,
         openAIService: OpenAIService,
+        embeddingService: EmbeddingService,
         socketService: SocketService,
         documentChunkingService: DocumentChunkingService,
       ) => {
@@ -197,6 +199,7 @@ import { AiModule } from '../../../ai/ai.module';
           qdrantCollectionService,
           qdrantIngestionService,
           openAIService,
+          embeddingService,
           socketService,
           documentChunkingService,
         );
@@ -206,6 +209,7 @@ import { AiModule } from '../../../ai/ai.module';
         QdrantCollectionService,
         QdrantIngestionService,
         OpenAIService,
+        EmbeddingService,
         SocketService,
         DocumentChunkingService,
       ],

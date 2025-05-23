@@ -15,12 +15,13 @@ import {
 import { Response } from 'express';
 import { QueryRequestDto } from './dto/query-request.dto';
 import { StreamRequestDto } from './dto/stream-request.dto';
-import { QueryResponseDto, QueryProcessingPath } from './dto/query-response.dto';
+import { QueryResponseDto, QueryProcessingPath, RoutingResponseDto } from './dto/query-response.dto';
 import { QueryRouterService } from '@services/code-execution/query-router.service';
 import { CodeExecutionService } from '@services/code-execution/code-execution.service';
 import { RagIntegrationService } from '@services/rag/integration.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@prisma/client';
+import { RouterDecision, RouterPath } from '../../types/router.types';
 
 interface DataSourceInfo {
   id: string | number;
@@ -103,17 +104,25 @@ export class DualPathController {
       }
 
       // Determine the appropriate processing path - with fallback
-      let routingResult = { path: QueryProcessingPath.RAG, confidence: 0 };
+      // Initialize with a default RouterDecision structure
+      let routingDecision: RouterDecision = {
+        chosenPath: 'direct_vector_rag', // Default to RAG-like path
+        confidence: 0,
+        reasoning: 'Default routing path due to initialization or fallback.',
+        details: { heuristics: { isAnalyticalIntent: false, isRetrievalIntent: true, requestsVisualization: false, mentionsDataset: false, mentionsCode: false, analyticalScore: 0, retrievalScore: 1} }
+      };
+
       try {
         if (this.queryRouterService) {
-          routingResult = await this.queryRouterService.routeQuery(query);
-          this.logger.log(`Query routed to ${routingResult.path} with confidence ${routingResult.confidence}`);
+          routingDecision = await this.queryRouterService.determineRoute(query);
+          this.logger.log(`Query routed to ${routingDecision.chosenPath} with confidence ${routingDecision.confidence}`);
         } else {
-          this.logger.warn('QueryRouterService unavailable - defaulting to RAG path');
+          this.logger.warn('QueryRouterService unavailable - defaulting to direct_vector_rag path');
+          // Keep the default routingDecision from above
         }
       } catch (routingError) {
         this.logger.warn(`Error in query routing: ${routingError instanceof Error ? routingError.message : String(routingError)}`);
-        // Fallback to RAG as default path
+        // Fallback to a default path, keep routingDecision as initialized
       }
       
       let result: any;
@@ -121,9 +130,9 @@ export class DualPathController {
       
       // Process based on determined path with robust error handling for each path
       try {
-        switch (routingResult.path) {
-          case QueryProcessingPath.RAG:
-            // Handle RAG path
+        switch (routingDecision.chosenPath) {
+          case 'direct_vector_rag': // Maps to RAG or a direct vector search
+          case 'analytical_rag': // Also maps to RAG for now, could be more specific later
             if (!this.ragIntegrationService) {
               this.logger.warn('RAG integration service unavailable');
               result = {
@@ -139,94 +148,57 @@ export class DualPathController {
               options
             );
             break;
-            
-          case QueryProcessingPath.CODE_EXECUTION:
-            // Handle code execution path
-            if (!this.codeExecutionService) {
-              this.logger.warn('Code execution service unavailable');
-              result = {
-                content: 'The code execution service is still initializing. Please try again in a moment.',
-                sources: []
-              };
-              break;
-            }
-            
-            result = await this.codeExecutionService.executePipeline(
-              query, 
-              dataSourceIds,
-              {
-                ...options,
-                // Pass file information to code execution service
-                dataSourceDetails
-              }
-            );
-            break;
-            
-          case QueryProcessingPath.HYBRID:
-            // Handle hybrid path - execute both approaches and combine results
-            if (!this.ragIntegrationService && !this.codeExecutionService) {
-              this.logger.warn('Both RAG and code execution services unavailable');
-              result = {
-                content: 'The services required for hybrid processing are still initializing. Please try again in a moment.',
-                sources: []
-              };
-              break;
-            }
-            
-            // If one service is available but not the other, use the available one
-            if (!this.ragIntegrationService) {
-              this.logger.warn('RAG service unavailable for hybrid processing, using only code execution');
-              result = await this.codeExecutionService.executePipeline(
-                query, 
-                dataSourceIds,
-                {
-                  ...options,
-                  dataSourceDetails
-                }
-              );
-              break;
-            }
-            
-            if (!this.codeExecutionService) {
-              this.logger.warn('Code execution service unavailable for hybrid processing, using only RAG');
-              result = await this.ragIntegrationService.processQuery(
-                query, 
-                dataSourceDetails.map(ds => ds.collection_name || ds.id).filter(Boolean) as string[],
-                options
-              );
-              break;
-            }
-            
-            // Both services are available, proceed with hybrid approach
-            const [ragResult, codeResult] = await Promise.all([
-              this.ragIntegrationService.processQuery(
-                query, 
-                dataSourceDetails.map(ds => ds.collection_name || ds.id).filter(Boolean) as string[],
-                options
-              ),
-              this.codeExecutionService.executePipeline(
-                query, 
-                dataSourceIds,
-                {
-                  ...options,
-                  // Pass file information to code execution service
-                  dataSourceDetails
-                }
-              )
-            ]);
-            
+          
+          // Placeholder for actual code execution path if RouterService determines it.
+          // For now, QueryRouterService doesn't output a direct code_execution path yet.
+          // If it did, it would be like: case 'code_execution_path_from_router':
+          // We need to infer if current analytical_rag might map to code execution or a more complex RAG
+          // Based on current QueryProcessingPath, let's assume 'analytical_rag' could also be a trigger for HYBRID or CODE_EXECUTION if RAG isn't the sole intent
+          // This part needs careful review based on how QueryRouterService's paths are truly intended to map to DualPathController's actions.
+
+          // Example: if 'analytical_rag' implies potential code use, and we want a HYBRID approach:
+          // case 'analytical_rag': 
+          // This becomes tricky. For now, let's assume analytical_rag is still primarily RAG.
+          // The HYBRID path in QueryProcessingPath enum isn't directly produced by RouterDecision.chosenPath
+          // The controller previously had a HYBRID case. We need to decide how chosenPath maps to it.
+          // For simplicity, if a more complex path than direct_vector_rag is chosen, we could consider it HYBRID
+          // if both services are available.
+
+          // Let's keep it simple: direct_vector_rag and analytical_rag go to RAG.
+          // user_clarification_needed will be handled by a default case.
+          // The previous HYBRID and CODE_EXECUTION cases from QueryProcessingPath are not directly matched by RouterDecision.chosenPath.
+
+          case 'user_clarification_needed':
             result = {
-              ragResult,
-              codeExecutionResult: codeResult
+                content: `Query requires clarification: ${routingDecision.reasoning}`,
+                sources: []
             };
             break;
-            
+
+          // What about QueryProcessingPath.CODE_EXECUTION and QueryProcessingPath.HYBRID?
+          // RouterDecision doesn't directly map to these. This suggests that the DualPathController's
+          // original switch logic (which used QueryProcessingPath.CODE_EXECUTION/HYBRID)
+          // was based on a different routing mechanism or an assumed mapping that needs to be explicit now.
+
+          // For now, we only handle the paths explicitly given by RouterDecision.
+          // The controller can be expanded later if QueryRouterService starts outputting more diverse chosenPaths
+          // that map to CODE_EXECUTION or require a HYBRID approach here.
+
           default:
-            // Default fallback
-            result = {
-              content: 'Unable to process query with the specified routing path',
-              sources: []
-            };
+            this.logger.warn(`Unhandled chosenPath: ${routingDecision.chosenPath}. Defaulting to RAG-like behavior or clarification.`);
+            // Fallback to RAG or clarification based on reasoning
+            if (this.ragIntegrationService) {
+                 result = await this.ragIntegrationService.processQuery(
+                    query, 
+                    dataSourceDetails.map(ds => ds.collection_name || ds.id).filter(Boolean) as string[],
+                    options
+                );
+            } else {
+                result = {
+                    content: `Unable to process query. Path: ${routingDecision.chosenPath}. Reasoning: ${routingDecision.reasoning}`,
+                    sources: []
+                };
+            }
             break;
         }
       } catch (processingError) {
@@ -241,10 +213,29 @@ export class DualPathController {
       // Add process metrics
       const processingTime = Date.now() - startTime;
       
+      // Map RouterDecision.chosenPath to QueryProcessingPath for the response DTO
+      let responsePath: QueryProcessingPath;
+      switch (routingDecision.chosenPath) {
+        case 'direct_vector_rag':
+          responsePath = QueryProcessingPath.RAG; // Or a new DIRECT_VECTOR_RAG if distinct
+          break;
+        case 'analytical_rag':
+          responsePath = QueryProcessingPath.RAG; // Or a new ANALYTICAL_RAG if distinct, or map to HYBRID/CODE_EXECUTION if appropriate
+          break;
+        case 'user_clarification_needed':
+          responsePath = QueryProcessingPath.CLARIFICATION_NEEDED;
+          break;
+        default:
+          // This case should ideally not be hit if chosenPath is always one of the above
+          this.logger.error(`Unknown chosenPath in final mapping: ${routingDecision.chosenPath}. Defaulting to RAG.`);
+          responsePath = QueryProcessingPath.RAG;
+      }
+
       // Return the result with routing information
       return {
         routing: {
-          ...routingResult,
+          path: responsePath, // Use the mapped path
+          confidence: routingDecision.confidence || 0,
           processingTime
         },
         result

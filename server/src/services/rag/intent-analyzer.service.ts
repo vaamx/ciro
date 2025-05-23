@@ -2,8 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 
 // Define potential intent types
-export type QueryIntent = 'general' | 'count' | 'analysis' | 'summary' | 'comparison' | 'exploration';
-export type CountType = 'entity' | 'document' | 'vcfund' | 'general';
+export type QueryIntent = 'general' | 'count' | 'analysis' | 'summary' | 'comparison' | 'exploration' | 'aggregation' | 'information_seeking';
+export type CountType = 'entity' | 'document' | 'vcfund' | 'general' | 'item';
+
+export interface IntentAnalysisResult {
+  intent: QueryIntent;
+  countType?: CountType;
+  entityTypes?: string[];
+  isSensitive?: boolean;
+  specificFilters?: Record<string, any>;
+  userExpectations?: string;
+  temporalInfo?: Record<string, any>; // Define more specifically if known
+  geospatialInfo?: Record<string, any>; // Define more specifically if known
+  complexityScore?: number;
+  confidenceScore?: number;
+  // Add other relevant fields from QueryOrchestratorService test mock
+}
 
 @Injectable()
 export class IntentAnalysisService {
@@ -11,6 +25,33 @@ export class IntentAnalysisService {
 
     constructor() {
         this.logger.info('IntentAnalysisService initialized');
+    }
+
+    /**
+     * Placeholder for a comprehensive intent analysis method.
+     * This method is assumed by QueryOrchestratorService tests.
+     */
+    async analyzeIntent(query: string): Promise<IntentAnalysisResult> {
+        this.logger.debug(`Placeholder analyzeIntent called for query: ${query}`);
+        // In a real implementation, this would involve more sophisticated logic,
+        // potentially using this.determineIntent, this.determineCountType, and other analyses.
+        const intent = this.determineIntent(query.toLowerCase());
+        let countType: CountType | undefined = undefined;
+        if (intent === 'count') {
+            countType = this.determineCountType(query.toLowerCase());
+        }
+        return {
+            intent,
+            countType,
+            entityTypes: [], // Placeholder
+            isSensitive: false, // Placeholder
+            specificFilters: {}, // Placeholder
+            userExpectations: '', // Placeholder
+            temporalInfo: {}, // Placeholder
+            geospatialInfo: {}, // Placeholder
+            complexityScore: 1, // Placeholder
+            confidenceScore: 0.8, // Placeholder
+        };
     }
 
     /**

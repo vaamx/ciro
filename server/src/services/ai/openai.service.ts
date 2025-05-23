@@ -35,6 +35,12 @@ export interface ChatOptions {
   systemPrompt?: string;
 }
 
+export interface EmbeddingAPIOptions {
+  model?: string;
+  dimensions?: number; // For models that support custom dimensions
+  // Add other OpenAI specific options if needed e.g. encoding_format, user
+}
+
 @Injectable()
 export class OpenAIService {
   
@@ -45,17 +51,26 @@ export class OpenAIService {
   /**
    * Generate embeddings for a text query or queries
    * @param query Text or array of texts to generate embeddings for
-   * @param options Optional parameters
+   * @param apiOptions Optional parameters for the OpenAI API
    * @returns Array of embeddings
    */
-  async createEmbeddings(query: string | string[], options?: { skipCache?: boolean }): Promise<number[][]> {
+  async createEmbeddings(query: string | string[], apiOptions?: EmbeddingAPIOptions): Promise<number[][]> {
     try {
       const input = Array.isArray(query) ? query : [query];
-      
-      const response = await openai.embeddings.create({
-        model: 'text-embedding-ada-002',
+      const model = apiOptions?.model || 'text-embedding-ada-002';
+      const dimensions = apiOptions?.dimensions;
+
+      // Infer type from the actual SDK method
+      const requestBody: Parameters<typeof openai.embeddings.create>[0] = {
+        model,
         input,
-      });
+      };
+
+      if (dimensions) {
+        (requestBody as any).dimensions = dimensions;
+      }
+      
+      const response = await openai.embeddings.create(requestBody);
       
       return response.data.map(item => item.embedding);
     } catch (error) {

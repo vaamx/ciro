@@ -7,6 +7,9 @@ import { CodeExecutionService } from './services/code-execution/code-execution.s
 import { CodeGenerationService } from './services/code-execution/code-generator.service';
 import { QueryAnalysisService } from './services/analysis/query-analysis.service';
 import { QueryAnalyzerService } from './services/rag/query-analyzer.service';
+import { RerankingService } from './services/rag/reranking.service';
+import { DirectRAGService } from './services/rag/direct-rag.service';
+import { QueryOrchestratorService } from './services/rag/query-orchestrator.service';
 import { BaseRetrievalService } from './services/rag/base-retrieval.service';
 import { RetrievalService } from './services/rag/retrieval.service';
 import { EnhancedRetrievalService } from './services/rag/enhanced-retrieval.service';
@@ -37,6 +40,7 @@ import { AiModule } from './services/ai/ai.module';
 import { DualPathModule } from './modules/dual-path/dual-path.module';
 import { CodeExecutionModule } from './services/code-execution/code-execution.module';
 import { AnalysisModule } from './services/analysis/analysis.module';
+import { StateModule } from './modules/state/state.module';
 
 // Check environment variables for Redis and Bull disabling
 const IS_REDIS_DISABLED = process.env.REDIS_DISABLED === 'true';
@@ -86,6 +90,7 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     ConfigModule,
     CodeExecutionModule,
     AnalysisModule,
+    StateModule,
   ],
   providers: [
     OpenAIService,
@@ -119,6 +124,9 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     EnhancedRetrievalService,
     GenerationService,
     QueryAnalyzerService,
+    RerankingService,
+    DirectRAGService,
+    QueryOrchestratorService,
     {
       provide: RagIntegrationService,
       useFactory: (
@@ -192,6 +200,9 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     GenerationService,
     RagIntegrationService,
     QueryAnalyzerService,
+    RerankingService,
+    DirectRAGService,
+    QueryOrchestratorService,
     DocumentChunkingService,
     ElementChunkingService,
     SemanticChunkingService,

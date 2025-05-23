@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService } from './openai.service';
+import { OpenAIService, EmbeddingAPIOptions } from './openai.service';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * Options for embedding generation
@@ -17,13 +18,24 @@ export interface EmbeddingOptions {
  */
 @Injectable()
 export class EmbeddingService {
-  private readonly logger = createServiceLogger('EmbeddingService');
+  private readonly logger = createServiceLogger(EmbeddingService.name);
   private readonly defaultModel = 'text-embedding-ada-002';
   private readonly defaultDimensions = 1536;
   private readonly cache = new Map<string, number[]>();
+  private embeddingCache = new Map<string, number[]>();
+  private readonly cacheEmbeddings: boolean;
+  private readonly defaultEmbeddingModel: string;
 
-  constructor(private readonly openAIService: OpenAIService) {
-    this.logger.info('EmbeddingService initialized');
+  constructor(
+    private readonly openAIService: OpenAIService,
+    private readonly configService: ConfigService,
+  ) {
+    this.cacheEmbeddings = this.configService.get<boolean>('CACHE_EMBEDDINGS', true);
+    this.defaultEmbeddingModel = this.configService.get<string>(
+        'openai.embeddingModel', 
+        'text-embedding-3-small'
+    );
+    this.logger.info(`EmbeddingService initialized. Caching: ${this.cacheEmbeddings}, Default Model: ${this.defaultEmbeddingModel}`);
   }
 
   /**
@@ -66,57 +78,67 @@ export class EmbeddingService {
    * @param options Optional settings
    * @returns Array of embedding vectors
    */
-  async createEmbeddings(texts: string | string[], options: EmbeddingOptions = {}): Promise<number[][]> {
-    try {
-      // Convert to array if single string
-      const textArray = Array.isArray(texts) ? texts : [texts];
-      
-      // Validate input
-      if (textArray.length === 0) {
-        throw new Error('No texts provided for embedding creation');
-      }
-      
-      // Filter out empty texts
-      const validTexts = textArray.filter(text => text && text.trim().length > 0);
-      
-      if (validTexts.length === 0) {
-        throw new Error('All provided texts were empty');
-      }
-      
-      // Check for cached embeddings if not skipping cache
-      if (!options.skipCache && validTexts.length === 1) {
-        const cacheKey = `${options.model || this.defaultModel}:${validTexts[0]}`;
-        
-        if (this.cache.has(cacheKey)) {
-          return [this.cache.get(cacheKey)!];
-        }
-      }
-      
-      // Use OpenAI service to create embeddings
-      const embeddings = await this.openAIService.createEmbeddings(validTexts);
-      
-      // Add single embeddings to cache
-      if (!options.skipCache && validTexts.length === 1) {
-        const cacheKey = `${options.model || this.defaultModel}:${validTexts[0]}`;
-        this.cache.set(cacheKey, embeddings[0]);
-      }
-      
-      return embeddings;
-    } catch (error) {
-      this.logger.error(`Error creating embeddings: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
+  async createEmbeddings(
+    texts: string | string[],
+    options?: EmbeddingOptions,
+  ): Promise<number[][]> {
+    const textsToEmbedArray = Array.isArray(texts) ? texts : [texts];
+    if (textsToEmbedArray.length === 0) {
+      return [];
     }
+
+    const { skipCache = false, ...apiOptions } = options || {}; // Destructure skipCache, pass rest as apiOptions
+    const effectiveModel = apiOptions.model || this.defaultEmbeddingModel;
+
+    const results: number[][] = [];
+    const textsToFetch: string[] = [];
+    const originalIndices: number[] = []; // To put results back in order
+
+    if (this.cacheEmbeddings && !skipCache) {
+      textsToEmbedArray.forEach((text, index) => {
+        const cacheKey = `${effectiveModel}:${text}`;
+        if (this.embeddingCache.has(cacheKey)) {
+          results[index] = this.embeddingCache.get(cacheKey)!;
+        } else {
+          textsToFetch.push(text);
+          originalIndices.push(index);
+          // Placeholder for results to maintain order
+          results[index] = []; 
+        }
+      });
+    } else {
+      textsToFetch.push(...textsToEmbedArray);
+      textsToEmbedArray.forEach((_,index) => originalIndices.push(index));
+       // Placeholder for results to maintain order
+      textsToEmbedArray.forEach((_,index) => results[index] = []);
+    }
+
+    if (textsToFetch.length > 0) {
+      this.logger.debug(
+        `Cache miss for ${textsToFetch.length} texts. Fetching from OpenAI with model ${effectiveModel}. Options: ${JSON.stringify(apiOptions)}`,
+      );
+      // Pass only the apiOptions (model, dimensions) to openAIService
+      const newEmbeddings = await this.openAIService.createEmbeddings(textsToFetch, apiOptions);
+      
+      newEmbeddings.forEach((embedding, i) => {
+        const originalIndex = originalIndices[i];
+        results[originalIndex] = embedding;
+        if (this.cacheEmbeddings && !skipCache) {
+          const cacheKey = `${effectiveModel}:${textsToFetch[i]}`;
+          this.embeddingCache.set(cacheKey, embedding);
+        }
+      });
+    }
+    return results;
   }
 
   /**
    * Clear the embedding cache
    * @returns Number of cleared cache entries
    */
-  clearCache(): number {
-    const cacheSize = this.cache.size;
-    this.cache.clear();
-    this.logger.info(`Cleared ${cacheSize} embeddings from cache`);
-    return cacheSize;
+  clearCache(): void {
+    this.embeddingCache.clear();
+    this.logger.info('Embedding cache cleared.');
   }
 
   /**
