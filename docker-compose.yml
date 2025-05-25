@@ -1,28 +1,26 @@
 version: '3.8'
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: ciro-qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - ./qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT_ALLOW_CORS=true
-    restart: unless-stopped
-    # Disable health check temporarily
-    healthcheck:
-      disable: true
-    
-    # Original health check (commented out)
-    # healthcheck:
-    #   test: ["CMD", "nc", "-z", "localhost", "6333"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 10s 
 
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: ciro-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ciro_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ciro_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Queues
   redis:
     image: redis:latest
     container_name: ciro-redis
@@ -37,6 +35,30 @@ services:
       timeout: 5s
       retries: 3
 
+  # Qdrant Vector Database  
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ciro-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT_ALLOW_CORS=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Python Sandbox (On-demand containers created by SandboxManagerService)
+  # Note: This service creates ephemeral containers for code execution
+  # Base image built from ./sandbox/Dockerfile when needed
+
 volumes:
-  qdrant_data:
-  redis_data: 
+  postgres_data:
+  redis_data:
+  qdrant_data: 

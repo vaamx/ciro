@@ -23,12 +23,13 @@ services:
       - "3001:3001"
     depends_on:
       - qdrant
-      - ***REMOVED***
+      - postgres
+      - redis
     environment:
       - NODE_ENV=production
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
-      - DB_HOST=***REMOVED***
+      - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME}
       - QDRANT_URL=http://qdrant:6333
@@ -38,9 +39,25 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - SENDGRID_API_KEY=${SENDGRID_API_KEY}
       - SENDGRID_FROM_EMAIL=${SENDGRID_FROM_EMAIL}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     volumes:
       - ./uploads:/app/uploads
     restart: unless-stopped
+
+  # Redis Cache & Queues
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # Qdrant vector database
   qdrant:
@@ -61,8 +78,8 @@ services:
       start_period: 10s
 
   # PostgreSQL database
-  ***REMOVED***:
-    image: ***REMOVED***:14-alpine
+  postgres:
+    image: postgres:14-alpine
     ports:
       - "5432:5432"
     environment:
@@ -70,7 +87,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
     volumes:
-      - ***REMOVED***_data:/var/lib/***REMOVED***ql/data
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
@@ -79,5 +96,6 @@ services:
       retries: 5
 
 volumes:
-  ***REMOVED***_data:
+  postgres_data:
+  redis_data:
   qdrant_data: 
