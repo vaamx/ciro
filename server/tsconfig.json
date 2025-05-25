@@ -19,19 +19,19 @@
     "moduleResolution": "node",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "baseUrl": "src",
+    "baseUrl": ".",
     "paths": {
-      "@app/*": ["./*"],
-      "@core/*": ["core/*"],
-      "@modules/*": ["modules/*"],
-      "@infrastructure/*": ["infrastructure/*"],
-      "@common/*": ["common/*"],
-      "@database/*": ["database/*"],
-      "@services/*": ["services/*"],
-      "@utils/*": ["utils/*"],
-      "@config/*": ["config/*"],
-      "@types/*": ["types/*"],
-      "@middleware/*": ["middleware/*"]
+      "@app/*": ["src/*"],
+      "@core/*": ["src/core/*"],
+      "@modules/*": ["src/modules/*"],
+      "@infrastructure/*": ["src/infrastructure/*"],
+      "@common/*": ["src/common/*"],
+      "@database/*": ["src/database/*"],
+      "@services/*": ["src/services/*"],
+      "@utils/*": ["src/utils/*"],
+      "@config/*": ["src/config/*"],
+      "@types/*": ["src/types/*"],
+      "@middleware/*": ["src/middleware/*"]
     },
     "typeRoots": [
       "./node_modules/@types"

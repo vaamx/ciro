@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import winston from 'winston';
-import { ConfigService } from '../core/config.service';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * Logging levels

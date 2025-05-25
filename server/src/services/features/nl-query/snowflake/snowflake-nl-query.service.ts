@@ -3,13 +3,13 @@
 
 import { Injectable } from '@nestjs/common';
 
-import { createServiceLogger } from '@common/utils/logger-factory';
-import { SnowflakeService, SnowflakeQueryResult } from '@services/datasources/connectors/snowflake/snowflake.service';
-import { OpenAIService, ChatMessage } from '@services/ai/openai.service';
-import { QdrantClientService } from '@services/vector/qdrant-client.service';
-import { ChunkingService } from '@services/rag/chunking.service';
-import { SnowflakeSchemaIndexerService } from '@services/datasources/processors/schema/snowflake/snowflake-schema-indexer.service';
-import { db } from '@config/database';
+import { createServiceLogger } from '../../../../common/utils/logger-factory';
+import { SnowflakeService, SnowflakeQueryResult } from '../../../datasources/connectors/snowflake/snowflake.service';
+import { OpenAIService, ChatMessage } from '../../../ai/openai.service';
+import { QdrantClientService } from '../../../vector/qdrant-client.service';
+import { ChunkingService } from '../../../rag/chunking.service';
+import { SnowflakeSchemaIndexerService } from '../../../datasources/processors/schema/snowflake/snowflake-schema-indexer.service';
+import { db } from '../../../../config/database';
 import { v4 as uuidv4 } from 'uuid';
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 

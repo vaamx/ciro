@@ -9,12 +9,14 @@ import { QueryAnalysisService } from './services/analysis/query-analysis.service
 import { QueryAnalyzerService } from './services/rag/query-analyzer.service';
 import { RerankingService } from './services/rag/reranking.service';
 import { DirectRAGService } from './services/rag/direct-rag.service';
+import { RagAggregationService } from './services/rag/rag-aggregation.service';
 import { QueryOrchestratorService } from './services/rag/query-orchestrator.service';
 import { BaseRetrievalService } from './services/rag/base-retrieval.service';
 import { RetrievalService } from './services/rag/retrieval.service';
 import { EnhancedRetrievalService } from './services/rag/enhanced-retrieval.service';
 import { GenerationService } from './services/rag/generation.service';
 import { RagIntegrationService } from './services/rag/integration.service';
+import { AnalyticalRAGService } from './services/rag/analytical-rag.service';
 import { DocumentChunkingService } from './services/rag/chunking/document-chunking.service';
 import { ElementChunkingService } from './services/rag/chunking/element-chunking.service';
 import { SemanticChunkingService } from './services/rag/chunking/semantic-chunking.service';
@@ -35,12 +37,14 @@ import { DocumentPipelineService } from './services/ingestion/document-pipeline.
 import { HubSpotService } from './services/datasources/connectors/hubspot/HubSpotService';
 import { WorkspaceService } from './services/workspace/workspace.service';
 import { PythonExecutorService } from './services/code-execution/python-executor.service';
+import { SandboxManagerService } from './services/sandbox/sandbox-manager.service';
 import { ConfigModule } from '@nestjs/config';
 import { AiModule } from './services/ai/ai.module';
 import { DualPathModule } from './modules/dual-path/dual-path.module';
-import { CodeExecutionModule } from './services/code-execution/code-execution.module';
+
 import { AnalysisModule } from './services/analysis/analysis.module';
 import { StateModule } from './modules/state/state.module';
+import { SandboxModule } from './services/sandbox/sandbox.module';
 
 // Check environment variables for Redis and Bull disabling
 const IS_REDIS_DISABLED = process.env.REDIS_DISABLED === 'true';
@@ -82,15 +86,16 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
  */
 @Module({
   imports: [
+    ConfigModule, // Add ConfigModule to provide ConfigService
     forwardRef(() => AiModule),
     ...conditionalImports,
     forwardRef(() => ProcessorsModule),
     forwardRef(() => IngestionModule),
     forwardRef(() => DualPathModule),
-    ConfigModule,
-    CodeExecutionModule,
+
     AnalysisModule,
     StateModule,
+    SandboxModule,
   ],
   providers: [
     OpenAIService,
@@ -126,6 +131,7 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     QueryAnalyzerService,
     RerankingService,
     DirectRAGService,
+    RagAggregationService,
     QueryOrchestratorService,
     {
       provide: RagIntegrationService,
@@ -185,12 +191,13 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     HubSpotService,
     WorkspaceService,
     PythonExecutorService,
+    SandboxManagerService,
+    AnalyticalRAGService,
   ],
   exports: [
     OpenAIService,
     EmbeddingService,
     SocketService,
-    CodeExecutionModule,
     AnalysisModule,
     CodeExecutionService,
     CodeGenerationService,
@@ -202,6 +209,7 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     QueryAnalyzerService,
     RerankingService,
     DirectRAGService,
+    RagAggregationService,
     QueryOrchestratorService,
     DocumentChunkingService,
     ElementChunkingService,
@@ -220,6 +228,8 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     HubSpotService,
     WorkspaceService,
     PythonExecutorService,
+    SandboxManagerService,
+    AnalyticalRAGService,
   ]
 })
 export class ServicesModule {}

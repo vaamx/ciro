@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '@config/database';
+import { db } from '../../config/database';
 import { User } from '../../core/database/prisma-types';
 import {
   CreateChatSessionDto,

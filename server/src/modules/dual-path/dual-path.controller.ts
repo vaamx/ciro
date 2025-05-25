@@ -16,9 +16,9 @@ import { Response } from 'express';
 import { QueryRequestDto } from './dto/query-request.dto';
 import { StreamRequestDto } from './dto/stream-request.dto';
 import { QueryResponseDto, QueryProcessingPath, RoutingResponseDto } from './dto/query-response.dto';
-import { QueryRouterService } from '@services/code-execution/query-router.service';
-import { CodeExecutionService } from '@services/code-execution/code-execution.service';
-import { RagIntegrationService } from '@services/rag/integration.service';
+import { QueryRouterService } from '../../services/code-execution/query-router.service';
+import { CodeExecutionService } from '../../services/code-execution/code-execution.service';
+import { RagIntegrationService } from '../../services/rag/integration.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@prisma/client';
 import { RouterDecision, RouterPath } from '../../types/router.types';
@@ -417,7 +417,7 @@ export class DualPathController {
       }
       
       // Build where clause for both numeric and string IDs
-      const whereClause: Prisma.DataSourceWhereInput = {
+      const whereClause: any = {
         OR: []
       };
       
@@ -453,7 +453,7 @@ export class DualPathController {
       });
       
       // Map database results to DataSourceInfo interface
-      return dataSources.map(ds => {
+      return dataSources.map((ds: any) => {
         // Parse config if it's a JSON string
         let config = {};
         if (typeof ds.config === 'string') {

@@ -6,8 +6,8 @@ import { ServicesModule } from '../../services.module';
 import { DocumentProcessingModule } from '../document-processing/document-processing.module';
 import { Pool } from 'pg';
 import { ConfigService } from '@nestjs/config';
-import { OpenAIService } from '@services/ai/openai.service';
-import { QdrantSearchService } from '@services/vector/search.service';
+import { OpenAIService } from '../../services/ai/openai.service';
+import { QdrantSearchService } from '../../services/vector/search.service';
 import { DocumentProcessingService } from '../document-processing/document-processing.service';
 
 @Module({

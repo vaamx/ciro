@@ -1,16 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { createServiceLogger } from '@common/utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { QueryAnalyzerService } from './query-analyzer.service';
 import { IntentAnalysisService, QueryIntent, CountType } from './intent-analyzer.service';
 import { EntityExtractionService } from './entity-extraction.service';
 import { DirectRAGService, DirectRAGQueryResponse } from './direct-rag.service';
+import { AnalyticalRAGService } from './analytical-rag.service';
 import { RagAggregationService, QueryOptions as RagQueryOptions } from './rag-aggregation.service';
 import { GenerationService } from './generation.service';
 import { Document, GenerationOptions, ContextBuilderOptions } from '../vector/vector.interfaces';
 import { RetrievalService } from './retrieval.service';
-import { ConfigService } from '@services/core/config.service';
-import { ConversationStateService } from '@services/state/conversation-state.service';
-import { ConversationTurn as StateConversationTurn, ConversationState as GlobalConversationState } from '@app/models/state.types';
+import { ConfigService } from '@nestjs/config';
+import { ConversationStateService } from '../state/conversation-state.service';
+import { IConversationStateService } from '../state/i-conversation-state.service';
+import { ConversationTurn as StateConversationTurn, ConversationState as GlobalConversationState } from '../../models/state.types';
 import { RerankableDocument } from './reranking.service';
 // Import other necessary services and types as needed
 
@@ -136,11 +138,12 @@ export class QueryOrchestratorService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly conversationStateService: ConversationStateService,
+    @Inject(IConversationStateService) private readonly conversationStateService: IConversationStateService,
     private readonly queryAnalyzerService: QueryAnalyzerService,
     private readonly intentAnalysisService: IntentAnalysisService,
     private readonly entityExtractionService: EntityExtractionService,
     private readonly directRAGService: DirectRAGService,
+    private readonly analyticalRAGService: AnalyticalRAGService,
     private readonly ragAggregationService: RagAggregationService,
     private readonly generationService: GenerationService,
     private readonly retrievalService: RetrievalService,
@@ -489,8 +492,8 @@ Rewritten Query:`;
     let aggregationResult: AggregationQueryResponse | undefined;
     let directRAGResponse: DirectRAGQueryResponse | undefined;
     let preliminaryAnswer: string | undefined;
-    let finalAnswerSource: 'aggregation' | 'directRAG' | 'unhandled' | undefined;
-    let shouldUseHistoryContextForQueryRewrite = false; 
+    let finalAnswerSource: 'aggregation' | 'directRAG' | 'analytical' | 'unhandled' | undefined;
+    let shouldUseHistoryContextForQueryRewrite = false;
 
     // Initialize queryMetadata outside the try block for accessibility in finally
     let queryMetadata: OrchestratedRAGResponse['queryMetadata'] = {
@@ -675,37 +678,102 @@ Rewritten Query:`;
             ['financial_metric', 'financial_figure', 'percentage', 'currency_value', 'numeric_value'].includes(type)
           );
 
-          dataSourceIdToUse = this.getDataSourceIdForAggregation(options, strategyTrace);
+          // Check if query requires code execution (mentions of code, programming, analysis with data)
+          const requiresCodeExecution = /\b(code|programming|script|python|analyze.*data|plot|chart|graph|calculate|compute|algorithm)\b/i.test(effectiveQuery);
 
-          if (hasNumericEntities && dataSourceIdToUse !== undefined) {
-            strategyTrace.push(`Routing to RagAggregationService for quantitative analysis. Datasource ID: ${dataSourceIdToUse}`);
-            const rawAggregationResultAnalysis = await this.ragAggregationService.processAggregationQuery(
-              effectiveQuery,
-              Number(dataSourceIdToUse),
-              { query: effectiveQuery, dataSourceIds: options?.dataSourceIds } // Pass full options if needed
-            );
-            aggregationResult = {
-              answer: rawAggregationResultAnalysis.explanation || 'No explanation provided.',
-              sourceDocuments: (rawAggregationResultAnalysis.results as RerankableDocument[]) || [],
-              results: rawAggregationResultAnalysis.results,
-              explanation: rawAggregationResultAnalysis.explanation,
-            };
-            strategyTrace.push(`RagAggregationService (quantitative analysis) result: ${this.safeStringify(aggregationResult)}`);
-            preliminaryAnswer = aggregationResult?.explanation || (aggregationResult?.results ? JSON.stringify(aggregationResult.results) : 'No specific quantitative analysis result.');
-            strategyTrace.push(`Preliminary answer from quantitative analysis: ${preliminaryAnswer}`);
-            finalAnswerSource = 'aggregation';
+          if (requiresCodeExecution) {
+            strategyTrace.push(`Routing to AnalyticalRAGService for code-based analysis.`);
+            try {
+              const analyticalResult = await this.analyticalRAGService.processAnalyticalQuery(
+                effectiveQuery,
+                `orchestrator-${Date.now()}` // Generate session ID
+              );
+              strategyTrace.push(`AnalyticalRAGService response: ${this.safeStringify(analyticalResult)}`);
+              preliminaryAnswer = analyticalResult.finalAnswer || 'Analysis completed but no answer provided.';
+              // Convert artifacts to source documents format if available
+              sourceDocuments = analyticalResult.artifacts?.map(artifact => ({
+                id: artifact.name,
+                content: `${artifact.type}: ${artifact.name}`,
+                text: `Generated ${artifact.type}: ${artifact.name}`,
+                score: 1.0,
+                type: 'analytical_artifact',
+                metadata: { artifactType: artifact.type, name: artifact.name }
+              } as RerankableDocument)) || [];
+              finalAnswerSource = 'analytical';
+            } catch (error) {
+              this.logger.error('Error in AnalyticalRAGService:', error);
+              strategyTrace.push(`AnalyticalRAGService error: ${error instanceof Error ? error.message : String(error)}`);
+              // Fallback to DirectRAG
+              strategyTrace.push('Falling back to DirectRAGService due to analytical error.');
+              directRAGResponse = await this.directRAGService.answerQuery(
+                effectiveQuery,
+                undefined,
+                ragTopK
+              );
+              preliminaryAnswer = directRAGResponse?.answer;
+              sourceDocuments = directRAGResponse?.sourceDocuments || [];
+              finalAnswerSource = 'directRAG';
+            }
           } else {
-            strategyTrace.push('Routing to DirectRAGService for qualitative/general analysis based on entity types or missing data source ID.');
-            directRAGResponse = await this.directRAGService.answerQuery(
+            dataSourceIdToUse = this.getDataSourceIdForAggregation(options, strategyTrace);
+
+            if (hasNumericEntities && dataSourceIdToUse !== undefined) {
+              strategyTrace.push(`Routing to RagAggregationService for quantitative analysis. Datasource ID: ${dataSourceIdToUse}`);
+              const rawAggregationResultAnalysis = await this.ragAggregationService.processAggregationQuery(
+                effectiveQuery,
+                Number(dataSourceIdToUse),
+                { query: effectiveQuery, dataSourceIds: options?.dataSourceIds } // Pass full options if needed
+              );
+              aggregationResult = {
+                answer: rawAggregationResultAnalysis.explanation || 'No explanation provided.',
+                sourceDocuments: (rawAggregationResultAnalysis.results as RerankableDocument[]) || [],
+                results: rawAggregationResultAnalysis.results,
+                explanation: rawAggregationResultAnalysis.explanation,
+              };
+              strategyTrace.push(`RagAggregationService (quantitative analysis) result: ${this.safeStringify(aggregationResult)}`);
+              preliminaryAnswer = aggregationResult?.explanation || (aggregationResult?.results ? JSON.stringify(aggregationResult.results) : 'No specific quantitative analysis result.');
+              strategyTrace.push(`Preliminary answer from quantitative analysis: ${preliminaryAnswer}`);
+              finalAnswerSource = 'aggregation';
+            } else {
+              strategyTrace.push('Routing to DirectRAGService for qualitative/general analysis based on entity types or missing data source ID.');
+              directRAGResponse = await this.directRAGService.answerQuery(
+                effectiveQuery,
+                undefined, // Assuming an optional dataSourceId/string second parameter
+                ragTopK    // Assuming topK is the third parameter as a number
+              );
+              strategyTrace.push(`DirectRAGService response: ${this.safeStringify(directRAGResponse)}`);
+              if (directRAGResponse?.strategyTrace) strategyTrace.push(...directRAGResponse.strategyTrace);
+              preliminaryAnswer = directRAGResponse?.answer;
+              sourceDocuments = directRAGResponse?.sourceDocuments || [];
+              finalAnswerSource = 'directRAG';
+            }
+          }
+          break;
+        case 'analytical_code':
+        case 'analytical_programming':
+          strategyTrace.push(`Processing '${queryMetadata.intent}' intent - routing to AnalyticalRAGService.`);
+          try {
+            const analyticalResult = await this.analyticalRAGService.processAnalyticalQuery(
               effectiveQuery,
-              undefined, // Assuming an optional dataSourceId/string second parameter
-              ragTopK    // Assuming topK is the third parameter as a number
+              `orchestrator-${Date.now()}` // Generate session ID
             );
-            strategyTrace.push(`DirectRAGService response: ${this.safeStringify(directRAGResponse)}`);
-            if (directRAGResponse?.strategyTrace) strategyTrace.push(...directRAGResponse.strategyTrace);
-            preliminaryAnswer = directRAGResponse?.answer;
-            sourceDocuments = directRAGResponse?.sourceDocuments || [];
-            finalAnswerSource = 'directRAG';
+            strategyTrace.push(`AnalyticalRAGService response: ${this.safeStringify(analyticalResult)}`);
+            preliminaryAnswer = analyticalResult.finalAnswer || 'Analysis completed but no answer provided.';
+            // Convert artifacts to source documents format if available
+            sourceDocuments = analyticalResult.artifacts?.map(artifact => ({
+              id: artifact.name,
+              content: `${artifact.type}: ${artifact.name}`,
+              text: `Generated ${artifact.type}: ${artifact.name}`,
+              score: 1.0,
+              type: 'analytical_artifact',
+              metadata: { artifactType: artifact.type, name: artifact.name }
+            } as RerankableDocument)) || [];
+            finalAnswerSource = 'analytical';
+          } catch (error) {
+            this.logger.error('Error in AnalyticalRAGService:', error);
+            strategyTrace.push(`AnalyticalRAGService error: ${error instanceof Error ? error.message : String(error)}`);
+            preliminaryAnswer = 'An error occurred during analytical processing.';
+            finalAnswerSource = 'unhandled';
           }
           break;
         case 'comparison':

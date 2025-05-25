@@ -4,16 +4,26 @@ import { createServiceLogger } from '../../common/utils/logger-factory';
 import { OpenAIService, ChatMessage } from '../ai/openai.service';
 import { PreprocessedQuery, HeuristicOutput, LLMClassificationOutput, RouterDecision } from '../../types/router.types';
 import { QueryAnalysisService } from '../analysis/query-analysis.service';
-import {
-  validateText,
-  getDefaultSettings,
-  combineTextAndLanguageSettings,
-  finalizeSettings,
-  type ValidationIssue,
-} from 'cspell-lib';
+import { AnalyticalRAGService, AnalyticalResponse } from '../rag/analytical-rag.service';
+// Temporarily disabled cspell-lib imports due to compatibility issues
+// import {
+//   validateText,
+//   getDefaultSettings,
+//   combineTextAndLanguageSettings,
+//   finalizeSettings,
+//   type ValidationIssue,
+// } from 'cspell-lib';
 
 // Import cspell-lib for its actual functions, which will be mocked by Jest for tests
-import * as cspellLib from 'cspell-lib';
+// import * as cspellLib from 'cspell-lib';
+
+// Mock ValidationIssue type
+interface ValidationIssue {
+  text: string;
+  offset: number;
+  length: number;
+  suggestions?: any[];
+}
 
 // Minimal local interface to represent cspell-lib's Suggestion structure
 interface CSpellSuggestion {
@@ -37,6 +47,7 @@ export class QueryRouterService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly openAIService: OpenAIService,
     private readonly queryAnalysisService: QueryAnalysisService,
+    private readonly analyticalRAGService: AnalyticalRAGService,
   ) {
     this.routerSpellcheck = this.configService.get<string>('ROUTER_SPELLCHECK') === 'true';
     this.routerModel = this.configService.get<string>('ROUTER_MODEL') || 'o4-mini-2025-04-16';
@@ -51,12 +62,7 @@ export class QueryRouterService implements OnModuleInit {
   async onModuleInit() {
     this.logger.log({ level: 'info', message: 'QueryRouterService onModuleInit called.' });
     if (this.routerSpellcheck) {
-      try {
-        const settings = await cspellLib.getDefaultSettings();
-        this.logger.debug('Successfully pre-loaded cspell default settings during init.', { settings });
-      } catch (error) {
-        this.logger.error('Failed to pre-load cspell default settings during init:', { error });
-      }
+      this.logger.warn('Spell checking is temporarily disabled due to cspell-lib compatibility issues');
     }
   }
 
@@ -297,47 +303,9 @@ export class QueryRouterService implements OnModuleInit {
     }
 
     if (this.routerSpellcheck) {
-      try {
-        const settings = await cspellLib.getDefaultSettings();
-        const languageSettings = cspellLib.combineTextAndLanguageSettings(settings, '', 'en');
-        const finalCSpellSettings = cspellLib.finalizeSettings(languageSettings);
-
-        this.logger.debug('CSpell settings loaded:', { finalCSpellSettings });
-
-        const issues: ValidationIssue[] = await cspellLib.validateText(normalizedQuery, finalCSpellSettings);
-
-        if (issues.length > 0) {
-          let correctedQuery = normalizedQuery;
-          // Apply corrections in reverse order to maintain correct offsets
-          for (let i = issues.length - 1; i >= 0; i--) {
-            const issue = issues[i];
-            if (issue.suggestions && issue.suggestions.length > 0) {
-              const firstSuggestion = issue.suggestions[0];
-              let firstSuggestionText: string;
-
-              if (typeof firstSuggestion === 'string') {
-                firstSuggestionText = firstSuggestion;
-              } else if (typeof firstSuggestion === 'object' && firstSuggestion !== null && 'word' in firstSuggestion) {
-                firstSuggestionText = (firstSuggestion as CSpellSuggestion).word;
-              } else {
-                this.logger.warn(`Unexpected suggestion format for "${issue.text}" at offset ${issue.offset}, skipping.`);
-                continue; // Skip this issue
-              }
-
-              if (issue.text.toLowerCase() !== firstSuggestionText.toLowerCase()) {
-                correctedQuery =
-                  correctedQuery.substring(0, issue.offset) +
-                  firstSuggestionText +
-                  correctedQuery.substring(issue.offset + issue.text.length);
-              }
-            }
-          }
-          normalizedQuery = correctedQuery;
-        }
-      } catch (error) {
-        this.logger.error('Error during spellchecking:', error);
-        // Fallback to original normalized query if spellcheck fails
-      }
+      this.logger.debug('Spell checking is disabled due to cspell-lib compatibility issues');
+      // Spell checking functionality temporarily disabled
+      // normalizedQuery remains unchanged
     }
 
     return {
@@ -608,6 +576,36 @@ Your JSON Output:
     await this.persistLog(rawQuery, decision);
 
     return decision;
+  }
+
+  /**
+   * Execute an analytical query using the AnalyticalRAGService
+   * @param sessionId Session ID for the sandbox
+   * @param query The user query
+   * @param context Optional context for the query
+   * @returns Promise resolving to the analytical response
+   */
+  public async executeAnalyticalQuery(
+    sessionId: string,
+    query: string,
+    context?: string
+  ): Promise<AnalyticalResponse> {
+    this.logger.info('Executing analytical query', { sessionId, query });
+    
+    try {
+      const result = await this.analyticalRAGService.processAnalyticalQuery(sessionId, query, context);
+      this.logger.info('Analytical query completed', { 
+        sessionId, 
+        success: result.success, 
+        executionTime: result.executionTime,
+        artifactsCount: result.artifacts.length 
+      });
+      
+      return result;
+    } catch (error) {
+      this.logger.error('Failed to execute analytical query', { sessionId, query, error });
+      throw error;
+    }
   }
 
   /**

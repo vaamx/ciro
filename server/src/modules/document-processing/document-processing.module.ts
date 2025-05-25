@@ -1,8 +1,8 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { DocumentProcessingController } from './document-processing.controller';
 import { DocumentProcessingService } from './document-processing.service';
-import { S3Module } from '@services/shared/s3';
-import { QueueModule } from '@services/shared/queue';
+import { S3Module } from '../../services/shared/s3';
+import { QueueModule } from '../../services/shared/queue';
 import { AuthModule } from '../../core/auth/auth.module';
 import { BullModule } from '@nestjs/bull';
 import { ServicesModule } from '../../services.module';

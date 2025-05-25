@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConversationState, ConversationTurn } from '@app/models/state.types';
+import { ConversationState, ConversationTurn } from '../../models/state.types';
 import { IConversationStateService } from './i-conversation-state.service';
-import { createServiceLogger } from '@common/utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 
 @Injectable()
 export class ConversationStateService implements IConversationStateService {

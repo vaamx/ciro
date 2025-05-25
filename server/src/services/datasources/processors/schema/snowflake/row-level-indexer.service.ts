@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { EnhancedMetadataService } from '@services/shared/metadata/enhanced-metadata.service';
-import { SnowflakeService } from '@services/datasources/connectors/snowflake/snowflake.service';
-import { QdrantSearchService } from '@services/vector/search.service';
-import { QdrantCollectionService } from '@services/vector/collection-manager.service';
-import { QdrantIngestionService } from '@services/vector/ingestion.service';
-import { OpenAIService } from '@services/ai/openai.service';
-import { createServiceLogger } from '@common/utils/logger-factory';
+import { EnhancedMetadataService } from '../../../../shared/metadata/enhanced-metadata.service';
+import { SnowflakeService } from '../../../connectors/snowflake/snowflake.service';
+import { QdrantSearchService } from '../../../../vector/search.service';
+import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
+import { QdrantIngestionService } from '../../../../vector/ingestion.service';
+import { OpenAIService } from '../../../../ai/openai.service';
+import { createServiceLogger } from '../../../../../common/utils/logger-factory';
 import * as os from 'os'; // For memory monitoring
-import { SocketService } from '@services/util/socket.service';
-import { WebSocketService } from '@services/util/websocket.service';
+import { SocketService } from '../../../../util/socket.service';
+import { WebSocketService } from '../../../../util/websocket.service';
 
 /**
  * Service for indexing individual rows from Snowflake tables for accurate aggregation

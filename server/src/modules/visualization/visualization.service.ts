@@ -1,10 +1,10 @@
 import { Injectable, Logger, NotFoundException, InternalServerErrorException, BadRequestException, Optional } from '@nestjs/common';
 // Import necessary services - names are assumptions, adjust as needed
-import { DataSourceManagementService } from '@services/datasources/management/datasource-management.service'; // Corrected path and name
+import { DataSourceManagementService } from '../../services/datasources/management/datasource-management.service'; // Corrected path and name
 // Import specific Qdrant services provided by ServicesModule
 import { QdrantClientService } from '../../services/vector/qdrant-client.service';
 import { QdrantCollectionService } from '../../services/vector/collection-manager.service';
-import { SnowflakeService } from '@services/datasources/connectors/snowflake/snowflake.service'; // Corrected path
+import { SnowflakeService } from '../../services/datasources/connectors/snowflake/snowflake.service'; // Corrected path
 import { OpenAIService, ChatMessage } from '../../services/ai/openai.service'; // Correct path from ServicesModule, assuming file is infra/ai/openai/openai.service.ts
 import { VisualizationResponseDto } from './dto/visualization.response.dto';
 import { VisualizationRequestDto } from './dto/visualization.request.dto';

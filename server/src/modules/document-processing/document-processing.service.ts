@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JobStatus } from '../../core/database/prisma-types';
 import { DataSourceTypeEnum, DataSourceProcessingStatus } from '../../types';
-import { S3Service } from '@services/shared/s3';
-import { QueueService } from '@services/shared/queue';
+import { S3Service } from '../../services/shared/s3';
+import { QueueService } from '../../services/shared/queue';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateJobDto } from './dto/create-job.dto';
 import { JobResponseDto, DataSourceJobsResponseDto, ProcessingMetricsResponseDto } from './dto/job-response.dto';
@@ -18,7 +18,7 @@ interface ProcessingJob {
   status: string;
   fileName: string | null;
   s3Key: string | null;
-  metadata: Prisma.JsonValue; // Use Prisma.JsonValue instead of Record<string, any> | null
+  metadata: any; // Use any instead of Prisma.JsonValue due to export issues
   content: string | null;
   fileType: string | null;
   progress: number | null;

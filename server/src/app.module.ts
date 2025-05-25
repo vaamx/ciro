@@ -291,6 +291,7 @@ function getFullModuleSet() {
   const oauthModule = require('./modules/oauth/oauth.module').OAuthModule;
   const snowflakeModule = require('./modules/snowflake/snowflake.module').SnowflakeModule;
   const automationModule = require('./modules/automation/automation.module').AutomationModule;
+  const codeExecutionModule = require('./services/code-execution/code-execution.module').CodeExecutionModule;
   
   const commonModules = [
     authModule,
@@ -308,6 +309,7 @@ function getFullModuleSet() {
     oauthModule,
     snowflakeModule,
     automationModule,
+    codeExecutionModule,
   ];
   
   // Add Bull-dependent modules only if Bull is enabled

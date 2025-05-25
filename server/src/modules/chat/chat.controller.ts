@@ -13,7 +13,7 @@ import {
     ForbiddenException,
     Logger
 } from '@nestjs/common';
-import { db } from '@config/database'; // Will be replaced with proper service
+import { db } from '../../config/database'; // Will be replaced with proper service
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
 import { User } from '../../core/database/prisma-types'; // Updated to use Prisma types

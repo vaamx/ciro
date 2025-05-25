@@ -1,10 +1,10 @@
 import { Processor, Process } from '@nestjs/bull';
 import { Job } from 'bull';
 import { Logger, Optional, Inject } from '@nestjs/common';
-import { DocumentProcessorManager } from '@services/ingestion/document-processor-manager';
-import { DataSourceProcessorService } from '@services/ingestion/data-source-processor.service';
+import { DocumentProcessorManager } from '../../services/ingestion/document-processor-manager';
+import { DataSourceProcessorService } from '../../services/ingestion/data-source-processor.service';
 import { FileType } from '../../types';
-import { DataSourceManagementService } from '@services/datasources/management/datasource-management.service';
+import { DataSourceManagementService } from '../../services/datasources/management/datasource-management.service';
 
 // Update Job Data interface to support our new format
 interface DocumentJobData {

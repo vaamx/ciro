@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@services/core/config.service';
-import { createServiceLogger } from '@common/utils/logger-factory';
+import { ConfigService } from '@nestjs/config';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 // We'll likely need a way to make HTTP requests, e.g., axios or built-in fetch
 // For now, let's assume a basic fetch-like capability will be used or added later.
 

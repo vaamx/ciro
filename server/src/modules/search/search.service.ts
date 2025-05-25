@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException, Optional } from '@nestjs/common';
 import { Pool } from 'pg';
-import { QdrantSearchService } from '@services/vector/search.service';
-import { OpenAIService } from '@services/ai/openai.service';
+import { QdrantSearchService } from '../../services/vector/search.service';
+import { OpenAIService } from '../../services/ai/openai.service';
 import { DocumentProcessingService } from '../document-processing/document-processing.service';
 import { SearchResponseDto } from './dto/search-response.dto';
 

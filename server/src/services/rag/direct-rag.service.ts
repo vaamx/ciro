@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@services/core/config.service';
-import { QdrantSearchService } from '@services/vector/search.service';
+import { ConfigService } from '@nestjs/config';
+import { QdrantSearchService } from '../vector/search.service';
 import { RerankingService } from './reranking.service';
-import { EmbeddingService } from '@services/ai/embedding.service';
+import { EmbeddingService } from '../ai/embedding.service';
 import { GenerationService } from './generation.service';
-import { createServiceLogger } from '@common/utils/logger-factory';
+import { createServiceLogger } from '../../common/utils/logger-factory';
 import { RerankableDocument } from './reranking.service';
-import { SearchResultItem, GenerationOptions } from '@services/vector/vector.interfaces';
+import { SearchResultItem, GenerationOptions } from '../vector/vector.interfaces';
 
 export interface DirectRAGQueryResponse {
   answer: string;
@@ -29,7 +29,7 @@ export class DirectRAGService {
     private readonly generationService: GenerationService,
   ) {
     this.generationModel = this.configService.get('GENERATION_LLM_MODEL', 'o4-mini-2025-04-16') ?? 'o4-mini-2025-04-16';
-    this.maxContextTokens = this.configService.getNumber('MAX_CONTEXT_TOKENS', 4096) ?? 4096;
+    this.maxContextTokens = parseInt(this.configService.get('MAX_CONTEXT_TOKENS', '4096') ?? '4096');
     this.defaultCollectionName = this.configService.get('DEFAULT_QDRANT_COLLECTION_NAME', 'default_collection') ?? 'default_collection';
     this.logger.info(
       `DirectRAGService initialized. Generation Model: ${this.generationModel}, Max Context Tokens: ${this.maxContextTokens}, Default Collection: ${this.defaultCollectionName}`,

@@ -5,16 +5,16 @@ import { Injectable } from '@nestjs/common';
 import path from 'path';
 import fs from 'fs-extra';
 import { injectable } from 'inversify';
-import { createServiceLogger } from '@common/utils/logger-factory';
-import { OpenAIService } from '@services/ai/openai.service';
-import { QdrantClientService } from '@services/vector/qdrant-client.service';
-import { SnowflakeService } from '@services/datasources/connectors/snowflake/snowflake.service';
-import { WebSocketService } from '@services/util/websocket.service';
-import { ChunkingService } from '@services/rag/chunking/document-chunking.service';
-import { db } from '@config/database';
+import { createServiceLogger } from '../../../../../common/utils/logger-factory';
+import { OpenAIService } from '../../../../ai/openai.service';
+import { QdrantClientService } from '../../../../vector/qdrant-client.service';
+import { SnowflakeService } from '../../../connectors/snowflake/snowflake.service';
+import { WebSocketService } from '../../../../util/websocket.service';
+import { ChunkingService } from '../../../../rag/chunking/document-chunking.service';
+import { db } from '../../../../../config/database';
 import { RowLevelIndexerService } from './row-level-indexer.service';
-import { EnhancedMetadataService } from '@services/shared/metadata/enhanced-metadata.service';
-import { EventManager } from '@services/util/event-manager';
+import { EnhancedMetadataService } from '../../../../shared/metadata/enhanced-metadata.service';
+import { EventManager } from '../../../../util/event-manager';
 
 // This represents the metadata for a table in Snowflake
 interface TableMetadata {

@@ -8,11 +8,11 @@ import { AuthModule } from '../../core/auth/auth.module';
 import { ServicesModule } from '../../services.module';
 import { SnowflakeService } from '../../services/datasources/connectors/snowflake/snowflake.service';
 import { DataSourceModule } from '../data-source/data-source.module';
-import { DataSourceManagementService } from '@services/datasources/management/datasource-management.service';
-import { OpenAIService } from '@services/ai/openai.service';
-import { QdrantClientService } from '@services/vector/qdrant-client.service';
-import { QdrantCollectionService } from '@services/vector/collection-manager.service';
-import { QdrantIngestionService } from '@services/vector/ingestion.service';
+import { DataSourceManagementService } from '../../services/datasources/management/datasource-management.service';
+import { OpenAIService } from '../../services/ai/openai.service';
+import { QdrantClientService } from '../../services/vector/qdrant-client.service';
+import { QdrantCollectionService } from '../../services/vector/collection-manager.service';
+import { QdrantIngestionService } from '../../services/vector/ingestion.service';
 
 @Module({
   imports: [

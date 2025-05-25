@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 
 // Define potential intent types
-export type QueryIntent = 'general' | 'count' | 'analysis' | 'summary' | 'comparison' | 'exploration' | 'aggregation' | 'information_seeking';
+export type QueryIntent = 'general' | 'count' | 'analysis' | 'summary' | 'comparison' | 'exploration' | 'aggregation' | 'information_seeking' | 'analytical_code' | 'analytical_programming' | 'unknown';
 export type CountType = 'entity' | 'document' | 'vcfund' | 'general' | 'item';
 
 export interface IntentAnalysisResult {
@@ -62,6 +62,10 @@ export class IntentAnalysisService {
     determineIntent(normalizedQuery: string): QueryIntent {
         if (this.containsCountPattern(normalizedQuery)) {
             return 'count';
+        } else if (this.containsAnalyticalCodePattern(normalizedQuery)) {
+            return 'analytical_code';
+        } else if (this.containsAnalyticalProgrammingPattern(normalizedQuery)) {
+            return 'analytical_programming';
         } else if (this.containsAnalysisPattern(normalizedQuery)) {
             return 'analysis';
         } else if (this.containsSummaryPattern(normalizedQuery)) {
@@ -106,6 +110,27 @@ export class IntentAnalysisService {
             /how many/i, /count of/i, /number of/i, /total number/i, /count the/i
         ];
         return countPatterns.some(pattern => pattern.test(query));
+    }
+
+    private containsAnalyticalCodePattern(query: string): boolean {
+        const analyticalCodePatterns = [
+            /analyze.*data/i, /data.*analysis/i, /calculate/i, /computation/i, /compute/i,
+            /plot/i, /chart/i, /graph/i, /visualization/i, /visualize/i,
+            /python.*code/i, /code.*python/i, /pandas/i, /numpy/i, /matplotlib/i,
+            /generate.*script/i, /script.*generate/i, /write.*code/i, /code.*write/i,
+            /statistical.*analysis/i, /machine.*learning/i, /data.*science/i
+        ];
+        return analyticalCodePatterns.some(pattern => pattern.test(query));
+    }
+
+    private containsAnalyticalProgrammingPattern(query: string): boolean {
+        const analyticalProgrammingPatterns = [
+            /programming.*analysis/i, /analytical.*programming/i, /automate.*analysis/i,
+            /generate.*algorithm/i, /algorithm.*generate/i, /implement.*solution/i,
+            /solution.*implement/i, /build.*model/i, /model.*build/i,
+            /create.*function/i, /function.*create/i, /develop.*script/i, /script.*develop/i
+        ];
+        return analyticalProgrammingPatterns.some(pattern => pattern.test(query));
     }
 
     private containsAnalysisPattern(query: string): boolean {
