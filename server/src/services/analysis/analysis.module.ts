@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { QueryAnalysisService } from './query-analysis.service';
-import { AiModule } from '../ai/ai.module'; // Import AiModule as OpenAIService is a dependency
+import { LLMModule } from '../llm/llm.module';
 
 @Module({
-  imports: [AiModule], // Import AiModule
+  imports: [LLMModule],
   providers: [QueryAnalysisService],
   exports: [QueryAnalysisService],
 })

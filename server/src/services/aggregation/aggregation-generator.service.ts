@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService } from '../ai/openai.service';
 import { QdrantClientService } from '../vector/qdrant-client.service';
 import { QdrantCollectionService } from '../vector/collection-manager.service';
 import { QdrantSearchService } from '../vector/search.service';
 import { SnowflakeService } from '../datasources/connectors/snowflake/snowflake.service';
 import { db } from '../../config/database';
-import { EmbeddingService } from '../ai/embedding.service';
+import { EmbeddingService } from '../llm';
 
 const logger = createServiceLogger('AggregationGeneratorService');
 
@@ -20,10 +19,10 @@ export class AggregationGeneratorService {
     private readonly qdrantClientService: QdrantClientService,
     private readonly qdrantSearchService: QdrantSearchService,
     private readonly qdrantCollectionService: QdrantCollectionService,
-    private readonly openaiService: EmbeddingService,
+    private readonly embeddingService: EmbeddingService,
     private readonly database = db,
   ) {
-    logger.info('AggregationGeneratorService initialized via DI');
+    logger.info('AggregationGeneratorService initialized with LLM abstraction layer');
   }
   
   // Common aggregation types to generate
@@ -151,7 +150,7 @@ export class AggregationGeneratorService {
         );
         
         // Generate embedding
-        const vector = await this.openaiService.createEmbedding(description);
+        const vector = await this.embeddingService.createEmbedding(description);
         
         aggregations.push({
           type: 'total_sales_by_product',
@@ -220,7 +219,7 @@ export class AggregationGeneratorService {
           );
           
           // Generate embedding
-          const vector = await this.openaiService.createEmbedding(description);
+          const vector = await this.embeddingService.createEmbedding(description);
           
           aggregations.push({
             type: 'total_quantity_by_product',
@@ -534,7 +533,7 @@ export class AggregationGeneratorService {
           );
           
           // Generate embedding
-          const vector = await this.openaiService.createEmbedding(description);
+          const vector = await this.embeddingService.createEmbedding(description);
           
           aggregations.push({
             type: 'average_price_by_product',

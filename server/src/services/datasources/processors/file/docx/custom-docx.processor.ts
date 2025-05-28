@@ -3,8 +3,7 @@ import { BaseDocumentProcessor, ProcessingResult } from '../base-document.proces
 import { ConfigService } from '../../../../core/config.service';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
-import { OpenAIService } from '../../../../ai/openai.service';
-import { EmbeddingService } from '../../../../ai/embedding.service';
+import { EmbeddingService } from '../../../../llm';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,7 +29,6 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
         protected readonly configService: ConfigService,
         protected readonly qdrantCollectionService: QdrantCollectionService,
         protected readonly qdrantIngestionService: QdrantIngestionService,
-        protected readonly openAIService: OpenAIService,
         protected readonly embeddingService: EmbeddingService,
         protected readonly socketService: SocketService,
         private readonly documentChunkingService: DocumentChunkingService
@@ -109,7 +107,12 @@ export class CustomDocxProcessorService extends BaseDocumentProcessor {
             // --- Generate Embeddings ---
             this.logger.info('Generating embeddings...');
             await this.updateStatus(dataSourceId, organizationId, DataSourceProcessingStatus.PROCESSING, { step: 'embedding' });
-            const embeddings = await this.openAIService.createEmbeddings(chunks);
+            // Generate embeddings individually since EmbeddingService.createEmbedding expects single strings
+            const embeddings: number[][] = [];
+            for (const chunk of chunks) {
+                const embedding = await this.embeddingService.createEmbedding(chunk);
+                embeddings.push(embedding);
+            }
             this.logger.info(`Generated ${embeddings.length} embeddings.`);
             if (embeddings.length !== chunks.length) {
                 throw new Error(`Mismatch between chunk count (${chunks.length}) and embedding count (${embeddings.length})`);

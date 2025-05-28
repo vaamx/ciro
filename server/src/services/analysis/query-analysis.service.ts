@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { AnalyticalOperationType } from '../../types/document/processing';
 import { v4 as uuidv4 } from 'uuid';
 import { HeuristicOutput, PreprocessedQuery } from '../../types/router.types';
@@ -54,9 +54,9 @@ export class QueryAnalysisService implements OnModuleInit {
   private config!: QueryAnalysisConfig;
 
   constructor(
-    private readonly openAIService: OpenAIService
+    private readonly llmService: LLMService
   ) {
-    this.logger.info('QueryAnalysisService initialized');
+    this.logger.info('QueryAnalysisService initialized with LLM abstraction layer');
   }
 
   async onModuleInit() {
@@ -536,27 +536,26 @@ Return ONLY the operation names separated by commas, nothing else.`;
             id: uuidv4(),
             role: 'system', 
             content: sysPrompt, 
-            timestamp: Date.now(),
-            status: 'complete'
+            timestamp: Date.now()
           },
           { 
             id: uuidv4(),
             role: 'user', 
             content: query,
-            timestamp: Date.now(),
-            status: 'complete'
+            timestamp: Date.now()
           }
         ];
         
-        // Use the injected openAIService
-        const result = await this.openAIService.generateChatCompletion(operationsMessages, {
+        // Use the injected llmService
+        const result = await this.llmService.generateChatCompletion(operationsMessages, {
           model: 'gpt-4o-mini',
-          temperature: 0.1
+          temperature: 0.1,
+          taskType: 'simple_qa',
+          taskComplexity: 'simple'
         });
         
-        if (result) {
-          const responseBody = await result.json() as { content?: string };
-          const content = responseBody.content || '';
+        if (result && result.content) {
+          const content = result.content;
           const llmOperations = content.split(/,\s*/).map((op: string) => op.trim().toLowerCase());
           
           for (const op of llmOperations) {
@@ -632,27 +631,26 @@ Return ONLY the visualization type name, nothing else.`;
           id: uuidv4(),
           role: 'system', 
           content: sysPrompt, 
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         },
         { 
           id: uuidv4(),
           role: 'user', 
           content: `Query: ${query}\nOperations: ${operationsText}`,
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         }
       ];
       
-      // Use the injected openAIService
-      const result = await this.openAIService.generateChatCompletion(visualizationMessages, {
+      // Use the injected llmService
+      const result = await this.llmService.generateChatCompletion(visualizationMessages, {
         model: 'gpt-4o-mini',
-        temperature: 0.1
+        temperature: 0.1,
+        taskType: 'simple_qa',
+        taskComplexity: 'simple'
       });
       
-      if (result) {
-        const responseBody = await result.json() as { content?: string };
-        const content = responseBody.content || '';
+      if (result && result.content) {
+        const content = result.content;
         const normalized = content.trim().toLowerCase().replace(/\s+/g, '_');
         
         for (const type of Object.values(ChartType)) {

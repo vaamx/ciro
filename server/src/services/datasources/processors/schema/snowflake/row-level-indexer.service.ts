@@ -4,7 +4,7 @@ import { SnowflakeService } from '../../../connectors/snowflake/snowflake.servic
 import { QdrantSearchService } from '../../../../vector/search.service';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
 import * as os from 'os'; // For memory monitoring
 import { SocketService } from '../../../../util/socket.service';
@@ -23,7 +23,7 @@ export class RowLevelIndexerService {
     private readonly websocketService: WebSocketService,
     
     private snowflakeService: SnowflakeService,
-    private openaiService: OpenAIService,
+    private embeddingService: EmbeddingService,
     private qdrantSearchService: QdrantSearchService,
     private qdrantCollectionService: QdrantCollectionService,
     private qdrantIngestionService: QdrantIngestionService,
@@ -531,7 +531,7 @@ export class RowLevelIndexerService {
               };
               
               // Note: OpenAI service only accepts a single string parameter
-              embeddings = await this.openaiService.createEmbeddings(rowDescriptions.join('\n'));
+              embeddings = await this.embeddingService.createEmbeddings(rowDescriptions.join('\n'));
               
               // If succeeded, break the retry loop
               break;

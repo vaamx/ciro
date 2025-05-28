@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import { injectable } from 'inversify';
 import { createServiceLogger } from '../../../common/utils/logger-factory';
-import { OpenAIService } from '../../ai/openai/openai.service';
+import { EmbeddingService } from '../../../llm';
 import { QdrantClientService } from '../../vector/qdrant/qdrant-client.service';
 import { SnowflakeService } from './snowflake.service';
 import { WebSocketService } from '../../util/websocket.service';
@@ -119,7 +119,7 @@ export class SnowflakeSchemaIndexerService {
 
   constructor(
     private readonly snowflakeService: SnowflakeService,
-    private readonly openaiService: OpenAIService,
+    private readonly embeddingService: EmbeddingService,
     private readonly qdrantService: ExtendedQdrantClientService, // Use the extended interface
     private readonly chunkingService: ChunkingService,
     private readonly rowLevelIndexerService: RowLevelIndexerService,
@@ -955,7 +955,7 @@ This is a large table with approximately ${table.rowCount} rows.
 Column details:
 ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]' : ''}${c.foreignKey ? ` [FOREIGN KEY to ${c.foreignKey.table}.${c.foreignKey.column}]` : ''}: ${c.description || this.inferColumnDescription(c.name, c.type)}`).join('\n')}`;
               
-              const tableStructureVector = await this.openaiService.createEmbeddings(tableStructureDescription);
+              const tableStructureVector = await this.embeddingService.createEmbeddings(tableStructureDescription);
               
               embeddings.push({
                 id: `${dataSourceId}:${database}:${schema}:${table.tableName}:structure`,
@@ -989,7 +989,7 @@ ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]'
               
               // Only create embeddings for tables with descriptions
               if (tableDescription.trim().length > 10) {
-                const tableEmbeddingVector = await this.openaiService.createEmbeddings(tableDescription);
+                const tableEmbeddingVector = await this.embeddingService.createEmbeddings(tableDescription);
                 
                 embeddings.push({
                   id: `${dataSourceId}:${database}:${schema}:${table.tableName}`,
@@ -1011,7 +1011,7 @@ ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]'
                   // Only create embeddings for columns with substantial descriptions
                   if (columnDescription.trim().length > 10) {
                     try {
-                      const columnEmbeddingVector = await this.openaiService.createEmbeddings(columnDescription);
+                      const columnEmbeddingVector = await this.embeddingService.createEmbeddings(columnDescription);
                       
                       embeddings.push({
                         id: `${dataSourceId}:${database}:${schema}:${table.tableName}:${table.columns[i].name}`,
@@ -1709,7 +1709,7 @@ Description: ${column.description || this.inferColumnDescription(column.name, co
       const embeddingResults: number[][] = [];
       for (const input of embeddingInputs) {
         try {
-          const result = await this.openaiService.createEmbeddings(input.text);
+          const result = await this.embeddingService.createEmbeddings(input.text);
           embeddingResults.push(result[0]);
         } catch (error: any) {
           this.logger.warn(`Failed to create embedding: ${error.message}`);
@@ -1828,7 +1828,7 @@ Complete data snapshot for BI and visualization analysis
 ${this.createTableDescription(chunkTableMetadata, true)}`;
         
         try {
-          const chunkEmbeddingVector = await this.openaiService.createEmbeddings(chunkDescription);
+          const chunkEmbeddingVector = await this.embeddingService.createEmbeddings(chunkDescription);
           
           // Add the chunk embedding with enhanced metadata
           embeddings.push({

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { SandboxManagerService, SandboxExecutionResult } from '../sandbox/sandbox-manager.service';
 
 export interface AnalyticalArtifact {
@@ -41,13 +41,13 @@ export class AnalyticalRAGService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly openAIService: OpenAIService,
+    private readonly llmService: LLMService,
     private readonly sandboxManager: SandboxManagerService,
   ) {
     this.maxIterations = parseInt(this.configService.get<string>('ANALYTICAL_MAX_ITERATIONS') || '10');
     this.analyticalModel = this.configService.get<string>('ANALYTICAL_MODEL') || 'gpt-4-turbo-preview';
     
-    this.logger.info('AnalyticalRAGService initialized', {
+    this.logger.info('AnalyticalRAGService initialized with LLM abstraction layer', {
       maxIterations: this.maxIterations,
       analyticalModel: this.analyticalModel,
     });
@@ -75,15 +75,13 @@ export class AnalyticalRAGService {
           id: 'system',
           role: 'system',
           content: this.getSystemPrompt(),
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         },
         {
           id: 'user-query',
           role: 'user',
           content: this.formatInitialQuery(query, context),
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         }
       ];
 
@@ -106,8 +104,7 @@ export class AnalyticalRAGService {
           id: `agent-${iteration}`,
           role: 'assistant',
           content: agentResponse,
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         });
 
         // Check if agent wants to execute code
@@ -132,8 +129,7 @@ export class AnalyticalRAGService {
               id: `observation-${iteration}`,
               role: 'user',
               content: `Observation: ${observation}`,
-              timestamp: Date.now(),
-              status: 'complete'
+              timestamp: Date.now()
             });
 
           } catch (error) {
@@ -145,8 +141,7 @@ export class AnalyticalRAGService {
               id: `error-${iteration}`,
               role: 'user',
               content: `Observation: Error executing code: ${errorMessage}`,
-              timestamp: Date.now(),
-              status: 'complete'
+              timestamp: Date.now()
             });
           }
         }
@@ -247,16 +242,14 @@ The sandbox has a /scratch directory for saving files. Use save_plot() helper fu
 
   private async getAgentResponse(conversationHistory: ChatMessage[]): Promise<string> {
     try {
-      const response = await this.openAIService.generateChatCompletion(conversationHistory, {
+      const response = await this.llmService.generateChatCompletion(conversationHistory, {
         model: this.analyticalModel,
         temperature: 0.1, // Lower temperature for more consistent reasoning
-        systemPrompt: this.getSystemPrompt()
+        taskType: 'complex_reasoning',
+        taskComplexity: 'complex'
       });
 
-      const responseText = await response.text();
-      const parsedResponse = JSON.parse(responseText);
-      
-      return parsedResponse.content || '';
+      return response.content || '';
     } catch (error) {
       this.logger.error('Failed to get agent response', error);
       throw new Error(`Failed to get agent response: ${error instanceof Error ? error.message : String(error)}`);

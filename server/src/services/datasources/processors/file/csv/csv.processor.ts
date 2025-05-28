@@ -12,9 +12,9 @@ import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { parse } from 'csv-parse/sync';
 import { v4 as uuidv4 } from 'uuid';
 import { SocketService } from '../../../../util/socket.service';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
-import OpenAI from 'openai';
+
 import { DataSourceProcessingStatus } from '../../../../../types';
 
 // Define ParseConfig type interface to match csv-parse options
@@ -42,7 +42,7 @@ export class CsvProcessorService extends BaseDocumentProcessor {
     protected readonly qdrantSearchService: QdrantSearchService,
     protected readonly qdrantCollectionService: QdrantCollectionService,
     protected readonly qdrantIngestionService: QdrantIngestionService,
-    private readonly openAIService: OpenAIService
+    private readonly embeddingService: EmbeddingService
   ) {
     super('CsvProcessorService', socketService);
     this.logger.info('CSV Processor Service initialized');

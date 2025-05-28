@@ -1,20 +1,19 @@
-// @ts-nocheck - IMPORTANT: This file needs major refactoring to work with the updated service architecture
-// Temporary fix applied to address critical TypeScript errors, but a complete refactoring is required
-
 import { Injectable } from '@nestjs/common';
 import path from 'path';
 import fs from 'fs-extra';
 import { injectable } from 'inversify';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
-import { OpenAIService } from '../../../../ai/openai.service';
-import { QdrantClientService } from '../../../../vector/qdrant-client.service';
+import { EmbeddingService } from '@services/llm';
+import { QdrantCollectionService } from '@services/vector/collection-manager.service';
+import { QdrantIngestionService } from '@services/vector/ingestion.service';
 import { SnowflakeService } from '../../../connectors/snowflake/snowflake.service';
 import { WebSocketService } from '../../../../util/websocket.service';
-import { ChunkingService } from '../../../../rag/chunking/document-chunking.service';
+import { DocumentChunkingService } from '../../../../rag/chunking/document-chunking.service';
 import { db } from '../../../../../config/database';
 import { RowLevelIndexerService } from './row-level-indexer.service';
 import { EnhancedMetadataService } from '../../../../shared/metadata/enhanced-metadata.service';
 import { EventManager } from '../../../../util/event-manager';
+import { v4 as uuidv4 } from 'uuid';
 
 // This represents the metadata for a table in Snowflake
 interface TableMetadata {
@@ -83,16 +82,6 @@ interface SchemaEmbedding {
   };
 }
 
-// Extended interface for QdrantClientService with missing methods
-interface ExtendedQdrantClientService extends QdrantClientService {
-  getCollection(name: string): Promise<any>;
-  deleteCollection(name: string): Promise<void>;
-  createCollection(name: string, options: any): Promise<void>;
-  upsertVectors(collectionName: string, points: any[]): Promise<void>;
-  collectionExists(name: string): Promise<boolean>;
-  deleteVectors(collectionName: string, filter: any): Promise<void>;
-}
-
 // Extend the EnhancedMetadataOptions to include the missing properties
 interface ExtendedMetadataOptions {
   calculateDistributions?: boolean;
@@ -109,18 +98,17 @@ interface ExtendedMetadataOptions {
 @injectable()
 export class SnowflakeSchemaIndexerService {
   private readonly logger = createServiceLogger('SnowflakeSchemaIndexerService');
-  private readonly eventManager: EventManager;
   private metadataCache = new Map<string, TableMetadata>();
   private METADATA_CACHE_DIR = path.join(process.cwd(), '.cache', 'schema-metadata');
-  private websocketService: WebSocketService;
   private KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
   private SNOWFLAKE_KNOWLEDGE_DIR = path.join(this.KNOWLEDGE_DIR, 'snowflake');
 
   constructor(
     private readonly snowflakeService: SnowflakeService,
-    private readonly openaiService: OpenAIService,
-    private readonly qdrantService: ExtendedQdrantClientService, // Use the extended interface
-    private readonly chunkingService: ChunkingService,
+    private readonly embeddingService: EmbeddingService,
+    private readonly qdrantCollectionService: QdrantCollectionService,
+    private readonly qdrantIngestionService: QdrantIngestionService,
+    private readonly documentChunkingService: DocumentChunkingService,
     private readonly rowLevelIndexerService: RowLevelIndexerService,
     private readonly enhancedMetadataService: EnhancedMetadataService,
     private readonly eventManager: EventManager,
@@ -911,14 +899,17 @@ export class SnowflakeSchemaIndexerService {
       const collectionName = `snowflake_${dataSourceId}_${database}_${schema}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
       
       // Delete existing collection if it exists
-      if (await this.qdrantService.getCollection(collectionName)) {
-        await this.qdrantService.deleteCollection(collectionName);
+      if (await this.qdrantCollectionService.collectionExists(collectionName)) {
+        await this.qdrantCollectionService.deleteCollection(collectionName);
       }
       
       // Create new collection
-      await this.qdrantService.createCollection(collectionName, {
-        size: 1536,
-        distance: 'Cosine'
+      await this.qdrantCollectionService.createCollection(collectionName, {
+        dimension: 1536,
+        vectors: {
+          size: 1536,
+          distance: 'Cosine'
+        }
       });
       this.logger.info(`Created collection ${collectionName} for schema embeddings`);
       
@@ -953,13 +944,13 @@ This is a large table with approximately ${table.rowCount} rows.
 Column details:
 ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]' : ''}${c.foreignKey ? ` [FOREIGN KEY to ${c.foreignKey.table}.${c.foreignKey.column}]` : ''}: ${c.description || this.inferColumnDescription(c.name, c.type)}`).join('\n')}`;
               
-              const tableStructureVector = await this.openaiService.createEmbeddings(tableStructureDescription);
+              const tableStructureVector = await this.embeddingService.createEmbedding(tableStructureDescription);
               
               embeddings.push({
                 id: `${dataSourceId}:${database}:${schema}:${table.tableName}:structure`,
                 text: tableStructureDescription,
                 type: 'table',
-                vector: tableStructureVector[0],
+                vector: tableStructureVector,
                 metadata: {
                   dataSourceId,
                   database,
@@ -987,13 +978,13 @@ ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]'
               
               // Only create embeddings for tables with descriptions
               if (tableDescription.trim().length > 10) {
-                const tableEmbeddingVector = await this.openaiService.createEmbeddings(tableDescription);
+                const tableEmbeddingVector = await this.embeddingService.createEmbedding(tableDescription);
                 
                 embeddings.push({
                   id: `${dataSourceId}:${database}:${schema}:${table.tableName}`,
                   text: tableDescription,
                   type: 'table',
-                  vector: tableEmbeddingVector[0],
+                  vector: tableEmbeddingVector,
                   metadata: {
                     dataSourceId,
                     database,
@@ -1009,13 +1000,13 @@ ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]'
                   // Only create embeddings for columns with substantial descriptions
                   if (columnDescription.trim().length > 10) {
                     try {
-                      const columnEmbeddingVector = await this.openaiService.createEmbeddings(columnDescription);
+                      const columnEmbeddingVector = await this.embeddingService.createEmbedding(columnDescription);
                       
                       embeddings.push({
                         id: `${dataSourceId}:${database}:${schema}:${table.tableName}:${table.columns[i].name}`,
                         text: columnDescription,
                         type: 'column',
-                        vector: columnEmbeddingVector[0],
+                        vector: columnEmbeddingVector,
                         metadata: {
                           dataSourceId,
                           database,
@@ -1059,7 +1050,7 @@ ${table.columns.map(c => `${c.name} (${c.type})${c.primaryKey ? ' [PRIMARY KEY]'
         
         // Upload this batch to Qdrant
         if (points.length > 0) {
-          await this.qdrantService.upsertVectors(collectionName, points);
+          await this.qdrantIngestionService.upsertVectors(collectionName, points);
           totalEmbeddings += points.length;
           this.logger.info(`Uploaded ${points.length} embeddings in batch, ${totalEmbeddings} total so far`);
         }
@@ -1213,7 +1204,7 @@ POST /data-sources/${dataSourceId}/nl-query
       // Filter out collections that don't exist in Qdrant
       const results = [];
       for (const name of collectionNames) {
-        if (await this.qdrantService.collectionExists(name)) {
+        if (await this.qdrantCollectionService.collectionExists(name)) {
           results.push(name);
         }
       }
@@ -1635,7 +1626,7 @@ Description: ${column.description || this.inferColumnDescription(column.name, co
       const collectionName = `snowflake_schema_${dataSourceId}`;
       
       // Check if collection exists
-      const collectionExists = await this.qdrantService.collectionExists(collectionName);
+      const collectionExists = await this.qdrantCollectionService.collectionExists(collectionName);
       
       if (!collectionExists) {
         this.logger.warn(`Collection ${collectionName} does not exist, creating full embeddings instead`);
@@ -1661,7 +1652,7 @@ Description: ${column.description || this.inferColumnDescription(column.name, co
         ]
       };
       
-      await this.qdrantService.deleteVectors(collectionName, tableFilter);
+      await this.qdrantIngestionService.deleteVectorsByFilter(collectionName, tableFilter);
       
       // Create new embeddings
       const embeddingInputs: {
@@ -1707,8 +1698,8 @@ Description: ${column.description || this.inferColumnDescription(column.name, co
       const embeddingResults: number[][] = [];
       for (const input of embeddingInputs) {
         try {
-          const result = await this.openaiService.createEmbeddings(input.text);
-          embeddingResults.push(result[0]);
+          const result = await this.embeddingService.createEmbedding(input.text);
+          embeddingResults.push(result);
         } catch (error: any) {
           this.logger.warn(`Failed to create embedding: ${error.message}`);
           // Add a dummy vector to maintain the order
@@ -1727,7 +1718,7 @@ Description: ${column.description || this.inferColumnDescription(column.name, co
         }
       }));
       
-      await this.qdrantService.upsertVectors(collectionName, points);
+      await this.qdrantIngestionService.upsertVectors(collectionName, points);
       
       this.logger.info(`Updated ${embeddingResults.length} embeddings for ${database}.${schema}.${tableName}`);
       return embeddingResults.length;
@@ -1826,14 +1817,14 @@ Complete data snapshot for BI and visualization analysis
 ${this.createTableDescription(chunkTableMetadata, true)}`;
         
         try {
-          const chunkEmbeddingVector = await this.openaiService.createEmbeddings(chunkDescription);
+          const chunkEmbeddingVector = await this.embeddingService.createEmbedding(chunkDescription);
           
           // Add the chunk embedding with enhanced metadata
           embeddings.push({
             id: `${dataSourceId}:${database}:${schema}:${tableName}:chunk:${processedChunks}`,
             text: chunkDescription,
             type: 'table_chunk',
-            vector: chunkEmbeddingVector[0],
+            vector: chunkEmbeddingVector,
             metadata: {
               dataSourceId,
               database,

@@ -5,7 +5,7 @@ import { DataSourceType } from '../../../../types'; // Corrected import path aga
 // Required Service Imports (adjust paths as needed based on actual locations)
 import { createServiceLogger } from '../../../../common/utils/logger-factory'; // Adjust path
 import { SnowflakeService } from '../../../datasources/connectors/snowflake/snowflake.service'; // Adjust path
-import { OpenAIService } from '../../../ai/openai.service'; // Adjust path
+import { LLMService } from '../../../llm'; // Adjust path
 import { QdrantSearchService } from '../../../vector/search.service'; // Adjust path
 import { QdrantCollectionService } from '../../../vector/collection-manager.service'; // Adjust path
 import { ChunkingService } from '../../../rag/chunking.service'; // Adjust path
@@ -35,7 +35,7 @@ export class SnowflakeNLQueryStrategy implements INLQueryStrategy {
   // Inject dependencies needed by the logic moved from the old service
   constructor(
     private snowflakeService: SnowflakeService,
-    private openaiService: OpenAIService,
+    private llmService: LLMService,
     private qdrantSearchService: QdrantSearchService,
     private qdrantCollectionService: QdrantCollectionService,
     private chunkingService: ChunkingService, // Assuming ChunkingService is needed for schema description processing
@@ -269,13 +269,12 @@ export class SnowflakeNLQueryStrategy implements INLQueryStrategy {
           // Assuming OpenAIService has a method like generateText or similar
           // Adjust based on the actual OpenAIService implementation
           const messages = [{ role: 'user', content: prompt }];
-          const response = await this.openaiService.generateChatCompletion(messages as any, { // Use type assertion carefully
+          const response = await this.llmService.generateChatCompletion(messages as any, { // Use type assertion carefully
               model: model,
               temperature: temperature,
           });
 
-          const responseData = await response.json() as any; // Use type assertion carefully
-          let generatedSql = responseData?.content?.trim() || '';
+          let generatedSql = response.content?.trim() || '';
 
           // Basic cleanup: remove potential markdown code blocks
           generatedSql = generatedSql.replace(/^```(?:sql)?\s*|\s*```$/g, '').trim();
@@ -350,13 +349,12 @@ export class SnowflakeNLQueryStrategy implements INLQueryStrategy {
 
       try {
            const messages = [{ role: 'user', content: prompt }];
-            const response = await this.openaiService.generateChatCompletion(messages as any, { // Use type assertion carefully
+            const response = await this.llmService.generateChatCompletion(messages as any, { // Use type assertion carefully
                 model: model,
                 temperature: temperature,
             });
 
-            const responseData = await response.json() as any; // Use type assertion carefully
-            const reasoning = responseData?.content?.trim() || 'Could not generate reasoning.';
+            const reasoning = response.content?.trim() || 'Could not generate reasoning.';
 
           this.logger.info({ level: 'info', message: 'Successfully generated reasoning.' });
           return reasoning;

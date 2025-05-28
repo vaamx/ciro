@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@services/core/config.service';
-import { QdrantSearchService } from '@services/vector/search.service';
+import { ConfigService } from '../core/config.service';
+import { QdrantSearchService } from '../vector/search.service';
 import { RerankingService, RerankableDocument } from './reranking.service';
-import { EmbeddingService } from '@services/ai/embedding.service'; // Added
+import { EmbeddingService } from '../llm/embedding.service';
 // import { LLMService } from './llm.service'; // To be mocked
 import { DirectRAGService, DirectRAGQueryResponse } from './direct-rag.service';
-import { createServiceLogger } from '@common/utils/logger-factory';
-import { SearchResultItem } from '@services/vector/vector.interfaces'; // Added
+import { createServiceLogger } from '../../common/utils/logger-factory';
+import { SearchResultItem } from '../vector/vector.interfaces'; // Added
 import { GenerationService } from './generation.service';
 
 // Remove top-level mockLogger constant, it will be created inside jest.mock's factory

@@ -1,27 +1,9 @@
-// @ts-nocheck - IMPORTANT: Needs refactoring to work with updated OpenAIService types
-// Temporary fix applied to address critical TypeScript errors
-
+import { Injectable } from '@nestjs/common';
 import { db } from '../../config/database';
-import { OpenAIService } from '../../services/ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { encode } from 'gpt-tokenizer';
 import * as Knex from 'knex';
-
-// Define a simplified ChatMessage for internal use
-interface SimpleChatMessage {
-  role: string;
-  content: string;
-}
-
-// Define OpenAIChatMessage type with required fields for this service
-interface OpenAIChatMessage {
-  role: string;
-  content: string;
-  name?: string;
-  id?: string;
-  timestamp?: number;
-  status?: string;
-}
 
 interface SummaryOptions {
   maxTokenCount?: number;
@@ -35,9 +17,9 @@ interface SummaryOptions {
  * This helps maintain context across long conversations by periodically
  * creating summaries that can replace older message history
  */
+@Injectable()
 export class ConversationSummaryService {
   private readonly logger = createServiceLogger('ConversationSummaryService');
-  private openAI: OpenAIService;
   private defaultOptions: SummaryOptions = {
     maxTokenCount: 4000,
     minMessageCount: 10,
@@ -45,9 +27,8 @@ export class ConversationSummaryService {
     model: 'gpt-4o-mini'
   };
   
-  constructor(openAIService?: OpenAIService) {
-    // Ensure openAI is always initialized with a valid instance
-    this.openAI = openAIService || new OpenAIService();
+  constructor(private readonly llmService: LLMService) {
+    this.logger.info('ConversationSummaryService initialized with LLM abstraction layer');
   }
   
   /**
@@ -236,46 +217,37 @@ export class ConversationSummaryService {
    */
   private async summarizeMessages(messages: any[]): Promise<string | null> {
     try {
-      // Create properly formatted messages for OpenAI API
-      const formattedMessages: OpenAIChatMessage[] = messages.map(msg => ({
+      // Create properly formatted messages for LLM API
+      const formattedMessages: ChatMessage[] = messages.map(msg => ({
         id: String(msg.id || Date.now()),
-        role: msg.role || 'user',
+        role: (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') ? msg.role : 'user',
         content: msg.content || '',
-        timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
-        status: 'complete'
+        timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now()
       }));
       
       // Add summary system prompt
-      const systemPrompt: OpenAIChatMessage = {
+      const systemPrompt: ChatMessage = {
         id: 'system-prompt',
         role: 'system',
         content: this.defaultOptions.summaryPrompt || '',
-        timestamp: Date.now(),
-        status: 'complete'
+        timestamp: Date.now()
       };
       
       // Generate summary
-      const response = await this.openAI.generateChatCompletion(
+      const response = await this.llmService.generateChatCompletion(
         [systemPrompt, ...formattedMessages],
-        { model: this.defaultOptions.model as any }
+        { 
+          model: this.defaultOptions.model,
+          taskType: 'simple_qa',
+          taskComplexity: 'simple'
+        }
       );
       
-      // Parse the response and extract content
-      const responseText = await response.text();
-      let parsedResponse = {};
-      
-      try {
-        parsedResponse = JSON.parse(responseText);
-      } catch (e) {
-        this.logger.error('Failed to parse JSON response', { response: responseText });
-        return null;
-      }
-      
-      // Check if the response has content
-      if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
-        return (parsedResponse as any).content || null;
+      // Extract content from response
+      if (response && response.content) {
+        return response.content;
       } else {
-        this.logger.warn('No content found in response', { response: parsedResponse });
+        this.logger.warn('No content found in response', { response });
         return null;
       }
     } catch (error) {
@@ -414,5 +386,5 @@ export class ConversationSummaryService {
   }
 }
 
-// Singleton instance
-export const conversationSummaryService = new ConversationSummaryService(); 
+// Note: Singleton pattern removed - use dependency injection instead
+// export const conversationSummaryService = new ConversationSummaryService(); 

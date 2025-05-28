@@ -12,7 +12,7 @@ import { QdrantCollectionService } from '../../../../vector/collection-manager.s
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { DataSourceService } from '../../../management/datasource-management.service';
 import { v4 as uuidv4 } from 'uuid';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { SocketService } from '../../../../util/socket.service';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
 import { DataSourceProcessingStatus } from '../../../../../types';
@@ -51,7 +51,7 @@ export class CsvProcessorService extends BaseDocumentProcessor {
     protected readonly qdrantSearchService: QdrantSearchService,
     protected readonly qdrantCollectionService: QdrantCollectionService,
     protected readonly qdrantIngestionService: QdrantIngestionService,
-    protected readonly openAIService: OpenAIService
+    protected readonly embeddingService: EmbeddingService
   ) {
     super('CsvProcessorService', dataSourceService, socketService);
     this.logger.info('CSV Processor Service initialized');

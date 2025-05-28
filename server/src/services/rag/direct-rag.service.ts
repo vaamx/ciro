@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QdrantSearchService } from '../vector/search.service';
 import { RerankingService } from './reranking.service';
-import { EmbeddingService } from '../ai/embedding.service';
+import { EmbeddingService } from '../llm';
 import { GenerationService } from './generation.service';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { RerankableDocument } from './reranking.service';
@@ -28,11 +28,11 @@ export class DirectRAGService {
     private readonly embeddingService: EmbeddingService,
     private readonly generationService: GenerationService,
   ) {
-    this.generationModel = this.configService.get('GENERATION_LLM_MODEL', 'o4-mini-2025-04-16') ?? 'o4-mini-2025-04-16';
+    this.generationModel = this.configService.get('GENERATION_LLM_MODEL', 'gpt-4o-mini') ?? 'gpt-4o-mini';
     this.maxContextTokens = parseInt(this.configService.get('MAX_CONTEXT_TOKENS', '4096') ?? '4096');
     this.defaultCollectionName = this.configService.get('DEFAULT_QDRANT_COLLECTION_NAME', 'default_collection') ?? 'default_collection';
     this.logger.info(
-      `DirectRAGService initialized. Generation Model: ${this.generationModel}, Max Context Tokens: ${this.maxContextTokens}, Default Collection: ${this.defaultCollectionName}`,
+      `DirectRAGService initialized with LLM abstraction layer. Generation Model: ${this.generationModel}, Max Context Tokens: ${this.maxContextTokens}, Default Collection: ${this.defaultCollectionName}`,
     );
   }
 
@@ -53,17 +53,12 @@ export class DirectRAGService {
 
     let queryEmbedding: number[];
     try {
-      const embeddingResponses: any[] = await this.embeddingService.createEmbeddings(query);
-      if (!embeddingResponses || embeddingResponses.length === 0 || !embeddingResponses[0].embedding) {
-        this.logger.error('Failed to generate query embedding.');
-        return { answer: 'Error: Could not process query due to embedding failure.', sourceDocuments: [] };
-      }
-      queryEmbedding = embeddingResponses[0].embedding;
+      queryEmbedding = await this.embeddingService.createEmbedding(query);
+      this.logger.debug(`Generated query embedding with dimension: ${queryEmbedding.length}`);
     } catch (error) {
       this.logger.error('Error generating query embedding:', error);
       return { answer: 'Error: Could not process query due to embedding failure.', sourceDocuments: [] };
     }
-    this.logger.debug(`Generated query embedding with dimension: ${queryEmbedding.length}`);
 
     let searchResults: SearchResultItem[];
     try {

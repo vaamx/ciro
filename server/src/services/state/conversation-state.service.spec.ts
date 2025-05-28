@@ -44,7 +44,7 @@ describe('ConversationStateService', () => {
 
     service = module.get<IConversationStateService>(IConversationStateService);
     // Clear any states that might persist if the service instance isn't recreated fresh (though it should be by Test.createTestingModule)
-    service.clearAllStates(); 
+    service.clearAllStates?.(); 
   });
 
   it('should be defined', () => {
@@ -187,7 +187,7 @@ describe('ConversationStateService', () => {
       await service.updateState('id1', turn);
       await service.updateState('id2', turn);
 
-      const clearAllResult = await service.clearAllStates();
+      const clearAllResult = await service.clearAllStates?.();
       expect(clearAllResult).toBe(true);
 
       expect(await service.getState('id1')).toBeNull();
@@ -197,7 +197,7 @@ describe('ConversationStateService', () => {
     });
 
     it('should return true even if there are no states to clear', async () => {
-      const clearAllResult = await service.clearAllStates();
+      const clearAllResult = await service.clearAllStates?.();
       expect(clearAllResult).toBe(true);
     });
   });

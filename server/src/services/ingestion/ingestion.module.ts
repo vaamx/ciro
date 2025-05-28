@@ -8,7 +8,7 @@ import { QdrantCollectionService } from '../vector/collection-manager.service';
 import { BullModule } from '@nestjs/bull';
 
 // Import dependency modules (assuming standard locations and names)
-import { AiModule } from '../ai/ai.module';
+import { LLMModule } from '../llm/llm.module';
 import { AnalysisModule } from '../analysis/analysis.module';
 import { VisualizationModule } from '../../modules/visualization/visualization.module';
 import { DatasourcesProcessorsUtilsModule } from '../datasources/processors/utils/datasources-processors-utils.module';
@@ -40,7 +40,7 @@ if (!IS_REDIS_DISABLED && !IS_BULL_DISABLED) {
 @Module({
   imports: [
     PrismaModule,
-    AiModule, 
+    LLMModule, 
     AnalysisModule, 
     forwardRef(() => VisualizationModule),
     DatasourcesProcessorsUtilsModule,

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { EmbeddingService } from '../ai/embedding.service';
+import { EmbeddingService } from '../llm/embedding.service';
 import { 
   IQdrantSearchService, 
   SearchOptions, 

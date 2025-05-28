@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { PreprocessedQuery, HeuristicOutput, LLMClassificationOutput, RouterDecision } from '../../types/router.types';
 import { QueryAnalysisService } from '../analysis/query-analysis.service';
 import { AnalyticalRAGService, AnalyticalResponse } from '../rag/analytical-rag.service';
@@ -45,17 +45,17 @@ export class QueryRouterService implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly openAIService: OpenAIService,
+    private readonly llmService: LLMService,
     private readonly queryAnalysisService: QueryAnalysisService,
     private readonly analyticalRAGService: AnalyticalRAGService,
   ) {
     this.routerSpellcheck = this.configService.get<string>('ROUTER_SPELLCHECK') === 'true';
-    this.routerModel = this.configService.get<string>('ROUTER_MODEL') || 'o4-mini-2025-04-16';
+    this.routerModel = this.configService.get<string>('ROUTER_MODEL') || 'gpt-4o-mini';
     this.routerConfHigh = parseFloat(this.configService.get<string>('ROUTER_CONF_HIGH') || '0.85');
     this.routerConfMid = parseFloat(this.configService.get<string>('ROUTER_CONF_MID') || '0.65');
     this.logger.log({
       level: 'info',
-      message: `QueryRouterService initialized. Spellcheck: ${this.routerSpellcheck}, Model: ${this.routerModel}, HighConf: ${this.routerConfHigh}, MidConf: ${this.routerConfMid}`,
+      message: `QueryRouterService initialized with LLM abstraction layer. Spellcheck: ${this.routerSpellcheck}, Model: ${this.routerModel}, HighConf: ${this.routerConfHigh}, MidConf: ${this.routerConfMid}`,
     });
   }
 
@@ -433,7 +433,6 @@ Your JSON Output:
         role: 'system',
         content: systemPrompt,
         timestamp: Date.now(),
-        status: 'complete',
       },
       // A minimal user message to trigger the LLM based on the system prompt.
       // The actual user query is already part of the system_prompt.
@@ -442,42 +441,22 @@ Your JSON Output:
         role: 'user',
         content: "Based on the information I provided in the system prompt (user query and heuristics), please provide your JSON output.",
         timestamp: Date.now(),
-        status: 'complete',
       },
     ];
 
     try {
-      const llmResponse = await this.openAIService.generateChatCompletion(messages, {
+      const llmResponse = await this.llmService.generateChatCompletion(messages, {
         model: this.routerModel,
         temperature: 0.1, // Low temperature for more deterministic classification
         // systemPrompt is already part of the messages array.
       });
 
-      // Define an interface for the expected structure of responseData
-      interface LLMResponseData {
-        id: string;
-        role: 'assistant' | 'error';
-        content: string;
-        timestamp: number;
-        status: 'complete' | 'error';
-        metadata?: {
-          model?: string;
-          tokens?: {
-            prompt: number;
-            completion: number;
-            total: number;
-          };
-        };
-      }
+      this.logger.debug('Raw LLM response for classification:', { content: llmResponse.content });
 
-      const responseData = await llmResponse.json() as LLMResponseData;
-      
-      this.logger.debug('Raw LLM response for classification:', { responseData });
-
-      if (responseData && responseData.content) {
+      if (llmResponse && llmResponse.content) {
         // Attempt to parse the content, which should be a JSON string
         // The LLM's response might sometimes include markdown ```json ... ```, so we try to extract it.
-        let jsonString = responseData.content;
+        let jsonString = llmResponse.content;
         const jsonMatch = jsonString.match(/```json\\n([\s\S]*?)\\n```/);
         if (jsonMatch && jsonMatch[1]) {
           jsonString = jsonMatch[1];
@@ -505,11 +484,11 @@ Your JSON Output:
             return null;
           }
         } catch (parseError) {
-          this.logger.error('Error parsing LLM JSON response for classification:', { error: parseError, content: responseData.content });
+          this.logger.error('Error parsing LLM JSON response for classification:', { error: parseError, content: llmResponse.content });
           return null;
         }
       } else {
-        this.logger.error('LLM response did not contain content for classification.', { responseData });
+        this.logger.error('LLM response did not contain content for classification.', { response: llmResponse });
         return null;
       }
     } catch (error) {

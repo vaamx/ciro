@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { QdrantSearchService } from './search.service';
 import { QdrantClientService } from './qdrant-client.service';
-import { EmbeddingService } from '../ai/embedding.service';
+import { EmbeddingService } from '../llm/services/embedding.service';
 import { ConfigService } from '@nestjs/config'; // Often needed by underlying services
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { SearchResultItem, PointsList } from './vector.interfaces';

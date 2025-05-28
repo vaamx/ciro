@@ -10,7 +10,7 @@ import { QdrantSearchService } from '../../../../vector/search.service';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { DataSourceService } from '../../../management/datasource-management.service';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { SocketService } from '../../../../util/socket.service';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
 import { DataSourceProcessingStatus } from '../../../../../types';

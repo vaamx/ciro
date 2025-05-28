@@ -1,4 +1,4 @@
-import { ConversationState, ConversationTurn } from '@app/models/state.types';
+import { ConversationState, ConversationTurn } from '../../models/state.types';
 
 export const IConversationStateService = Symbol('IConversationStateService');
 

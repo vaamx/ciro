@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common';
-// @ts-nocheck - TODO: This file needs major refactoring to work with the updated service architecture
-
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { StatisticalAnalysisService } from '../ai/statistical-analysis.service';
 import { VisualizationService } from '../../modules/visualization/visualization.service';
 import { ProcessingStage, ProcessingOptions, AnalyticalOperationType } from '../../types/document/processing';
 import { DataSourceType, DataPreprocessingService } from '../datasources/processors/utils/data-preprocessing.service';
 import { QueryAnalysisService } from '../analysis/query-analysis.service';
-import { LlmAnalysisService } from '../ai/llm-analysis.service';
+import { LlmAnalysisService } from '../llm/services/llm-analysis.service';
 import { ResponseParsingService, StructuredAnalysisResponse, ChartType } from '../ai/response-parsing.service';
 import { VisualizationPreparationService } from '../visualization/visualization-preparation.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -26,7 +24,7 @@ export class DataAnalysisOrchestratorService {
   private progressCallback: ProgressCallback | null = null;
   
   constructor(
-    private readonly openAIService: OpenAIService,
+    private readonly llmService: LLMService,
     private readonly statisticalAnalysisService: StatisticalAnalysisService,
     private readonly visualizationService: VisualizationService,
     private readonly dataPreprocessingService: DataPreprocessingService,
@@ -35,7 +33,7 @@ export class DataAnalysisOrchestratorService {
     private readonly responseParsingService: ResponseParsingService,
     private readonly visualizationPreparationService: VisualizationPreparationService
   ) {
-    this.logger.info('DataAnalysisOrchestrator initialized');
+    this.logger.info('DataAnalysisOrchestrator initialized with LLM abstraction layer');
   }
   
   /**
@@ -105,7 +103,8 @@ export class DataAnalysisOrchestratorService {
       processedData: enhancedData,
       dataSourceType,
       analyticalOperations,
-      chatOptions: { model: 'gpt-4o', temperature: 0.2 }
+      model: 'gpt-4o',
+      temperature: 0.2
     });
     
     // Step 7: Parse the structured response

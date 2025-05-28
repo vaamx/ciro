@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService } from '../ai/openai.service';
+import { LLMService } from '../llm';
 import { CodeGenerationService, CodeGenerationType, GeneratedCode } from './code-generator.service';
 import { PythonExecutorService, ExecutionResult } from './python-executor.service';
 import { QdrantSearchService } from '../vector/search.service';
@@ -57,10 +57,10 @@ export class CodeExecutionService {
     // For now, let's assume they should be available and remove optionality.
     private readonly codeGenerator: CodeGenerationService,
     private readonly pythonExecutor: PythonExecutorService,
-    private readonly openAiService: OpenAIService,
+    private readonly llmService: LLMService,
     private readonly qdrantSearchService: QdrantSearchService 
   ) {
-    this.logger.info('CodeExecutionService initialized via Dependency Injection.');
+    this.logger.info('CodeExecutionService initialized with LLM abstraction layer');
   }
 
   /**

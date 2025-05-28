@@ -8,7 +8,7 @@ import { DocumentProcessorService } from '../data-processing/document-processor.
 import * as config from '../../config';
 import { db } from '../../config/database';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService } from '../ai/openai.service';
+
 
 @Injectable()
 export class StartupService implements OnModuleInit {

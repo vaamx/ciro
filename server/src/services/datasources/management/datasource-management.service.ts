@@ -19,8 +19,8 @@ import { DocumentPipelineService } from '../../ingestion/document-pipeline.servi
 
 import { FileType } from '../../../types/utils/file-types';
 
-import { CreateDataSourceDto } from '@modules/data-source/dto/create-data-source.dto';
-import { UpdateDataSourceDto } from '@modules/data-source/dto/update-data-source.dto';
+import { CreateDataSourceDto } from '../../../modules/data-source/dto/create-data-source.dto';
+import { UpdateDataSourceDto } from '../../../modules/data-source/dto/update-data-source.dto';
 
 
 // Define interface for DocumentChunk

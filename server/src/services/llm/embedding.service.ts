@@ -1,7 +1,12 @@
+/**
+ * Embedding Service using LLM Abstraction Layer
+ * Migrated from the legacy AI module to use the new LLM service
+ */
+
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, EmbeddingAPIOptions } from './openai.service';
 import { ConfigService } from '@nestjs/config';
+import { LLMService } from './llm.service';
+import { Logger } from '@nestjs/common';
 
 /**
  * Options for embedding generation
@@ -18,8 +23,8 @@ export interface EmbeddingOptions {
  */
 @Injectable()
 export class EmbeddingService {
-  private readonly logger = createServiceLogger(EmbeddingService.name);
-  private readonly defaultModel = 'text-embedding-ada-002';
+  private readonly logger = new Logger(EmbeddingService.name);
+  private readonly defaultModel = 'text-embedding-3-small';
   private readonly defaultDimensions = 1536;
   private readonly cache = new Map<string, number[]>();
   private embeddingCache = new Map<string, number[]>();
@@ -27,7 +32,7 @@ export class EmbeddingService {
   private readonly defaultEmbeddingModel: string;
 
   constructor(
-    private readonly openAIService: OpenAIService,
+    private readonly llmService: LLMService,
     private readonly configService: ConfigService,
   ) {
     this.cacheEmbeddings = this.configService.get<boolean>('CACHE_EMBEDDINGS', true);
@@ -35,7 +40,7 @@ export class EmbeddingService {
         'openai.embeddingModel', 
         'text-embedding-3-small'
     );
-    this.logger.info(`EmbeddingService initialized. Caching: ${this.cacheEmbeddings}, Default Model: ${this.defaultEmbeddingModel}`);
+    this.logger.log(`EmbeddingService initialized. Caching: ${this.cacheEmbeddings}, Default Model: ${this.defaultEmbeddingModel}`);
   }
 
   /**
@@ -95,8 +100,8 @@ export class EmbeddingService {
       throw new Error('All provided texts were empty'); // Match test assertion
     }
 
-    const { skipCache = false, ...apiOptions } = options || {}; // Destructure skipCache, pass rest as apiOptions
-    const effectiveModel = apiOptions.model || this.defaultEmbeddingModel;
+    const { skipCache = false, model, dimensions } = options || {};
+    const effectiveModel = model || this.defaultEmbeddingModel;
 
     const results: number[][] = [];
     const textsToFetch: string[] = [];
@@ -123,21 +128,18 @@ export class EmbeddingService {
 
     if (textsToFetch.length > 0) {
       this.logger.debug(
-        `Cache miss for ${textsToFetch.length} texts. Fetching from OpenAI with model ${effectiveModel}. Options: ${JSON.stringify(apiOptions)}`,
+        `Cache miss for ${textsToFetch.length} texts. Fetching embeddings with model ${effectiveModel}.`,
       );
-      // Pass only the apiOptions (model, dimensions) to openAIService
-      // const newEmbeddings = await this.openAIService.createEmbeddings(textsToFetch, apiOptions);
-      // Correctly pass the effectiveModel and other relevant API options
-      const finalApiOptions: EmbeddingAPIOptions = { ...apiOptions };
-      if (effectiveModel) { // Ensure model is only added if it exists
-        finalApiOptions.model = effectiveModel;
-      }
-      // Dimensions might also be in apiOptions, so keep them if they are.
-      // If apiOptions.dimensions is not set, OpenAI client will use its default.
-
-      const newEmbeddings = await this.openAIService.createEmbeddings(textsToFetch, finalApiOptions);
       
-      newEmbeddings.forEach((embedding, i) => {
+      // Use the new LLM service for embeddings
+      const response = await this.llmService.generateEmbedding(textsToFetch, {
+        model: effectiveModel,
+        // Note: dimensions would need to be added to the LLM request types if needed
+      });
+      
+      const newEmbeddings = response.embeddings;
+      
+      newEmbeddings.forEach((embedding: number[], i: number) => {
         const originalIndex = originalIndices[i];
         results[originalIndex] = embedding;
         if (this.cacheEmbeddings && !skipCache) {
@@ -155,7 +157,7 @@ export class EmbeddingService {
    */
   clearCache(): void {
     this.embeddingCache.clear();
-    this.logger.info('Embedding cache cleared.');
+    this.logger.log('Embedding cache cleared.');
   }
 
   /**
@@ -206,25 +208,23 @@ export class EmbeddingService {
 
   /**
    * Normalize a vector to unit length
-   * @param vector Vector to normalize
+   * @param vector Input vector
    * @returns Normalized vector
    */
   normalizeVector(vector: number[]): number[] {
-    const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-    
-    if (magnitude === 0) {
-      return vector.slice(); // Return a copy of the vector
+    const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+    if (norm === 0) {
+      return vector; // Return original if zero vector
     }
-    
-    return vector.map(val => val / magnitude);
+    return vector.map(val => val / norm);
   }
 
   /**
-   * Find the most similar text in a collection
-   * @param query Query text to compare
-   * @param candidates Array of candidate texts
-   * @param topK Number of results to return
-   * @returns Top K most similar texts with similarity scores
+   * Find the most similar texts from a list of candidates
+   * @param query Query text
+   * @param candidates List of candidate texts
+   * @param topK Number of top results to return
+   * @returns Array of texts with similarity scores
    */
   async findMostSimilar(
     query: string,
@@ -232,17 +232,15 @@ export class EmbeddingService {
     topK: number = 1
   ): Promise<Array<{ text: string; similarity: number }>> {
     try {
-      // Create embeddings for query and candidates
-      const queryEmbedding = (await this.createEmbeddings(query))[0];
+      const queryEmbedding = await this.createEmbedding(query);
       const candidateEmbeddings = await this.createEmbeddings(candidates);
       
-      // Calculate similarities
       const similarities = candidateEmbeddings.map((embedding, index) => ({
         text: candidates[index],
         similarity: this.calculateCosineSimilarity(queryEmbedding, embedding)
       }));
       
-      // Sort by similarity (descending) and take top K
+      // Sort by similarity (descending) and return top K
       return similarities
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, topK);

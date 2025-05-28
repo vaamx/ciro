@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { DataSourceType } from '../rag/integration.service';
 
 /**
@@ -65,16 +65,9 @@ export interface CodeGenerationOptions {
 @Injectable()
 export class CodeGenerationService {
   private readonly logger = createServiceLogger('CodeGenerationService');
-  private openAIService?: OpenAIService;
 
-  constructor() {
-    try {
-      // Comment out ServiceRegistry usage - will be replaced by NestJS DI
-      // this.openAIService = ServiceRegistry.resolve(OpenAIService);
-      this.logger.info('CodeGenerationService initialized (DI pending)');
-    } catch (error) {
-      this.logger.error(`Error during initial setup of CodeGenerationService: ${error}`);
-    }
+  constructor(private readonly llmService: LLMService) {
+    this.logger.info('CodeGenerationService initialized with LLM abstraction layer');
   }
 
   /**
@@ -127,26 +120,6 @@ export class CodeGenerationService {
         }
       }
       
-      // If OpenAI service is not available, fall back to template
-      if (!this.openAIService) {
-        this.logger.warn('OpenAI service not available, using template');
-        const code = this.getBasicCodeTemplate(
-          query,
-          type,
-          includeVisualization ? 'bar' : undefined
-        );
-        
-        return {
-          code,
-          type,
-          explanation: 'Basic code generated based on your query.',
-          language: 'python',
-          estimatedExecutionTime: 5,
-          requiredLibraries: ['pandas', 'numpy', 'matplotlib'],
-          visualizationType: includeVisualization ? 'bar' : undefined
-        };
-      }
-      
       // Build the prompt
       const prompt = this.buildCodeGenerationPrompt(
         query,
@@ -155,38 +128,34 @@ export class CodeGenerationService {
         context || (includeVisualization ? 'Include visualization.' : '')
       );
       
-      // Call OpenAI to generate code
+      // Call LLM to generate code
       const messages: ChatMessage[] = [
         { 
           id: `system-${Date.now()}`,
           role: 'system', 
           content: 'You are a data analysis and visualization code generator.',
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         },
         { 
           id: `user-${Date.now()}`,
           role: 'user', 
           content: prompt,
-          timestamp: Date.now(),
-          status: 'complete'
+          timestamp: Date.now()
         }
       ];
       
-      const response = await this.openAIService.generateChatCompletion(messages, {
-        temperature: 0.2
+      const response = await this.llmService.generateChatCompletion(messages, {
+        temperature: 0.2,
+        taskType: 'code_generation',
+        taskComplexity: type === CodeGenerationType.MACHINE_LEARNING ? 'complex' : 'medium'
       });
-      
-      const responseData = await response.json() as {
-        content: string;
-      };
 
-      if (!responseData || !responseData.content) {
-        throw new Error('Failed to get a valid response');
+      if (!response.content) {
+        throw new Error('Failed to get a valid response from LLM');
       }
 
       // Parse the response to extract the code, explanation, and metadata
-      const result = this.parseCodeResponse(responseData.content, type);
+      const result = this.parseCodeResponse(response.content, type);
       
       // Trim the code if it's too long
       if (result.code.length > maxCodeLength) {
@@ -198,17 +167,21 @@ export class CodeGenerationService {
       this.logger.error(`Error generating code: ${error}`);
       
       // Return a basic template on error
+      const fallbackType = options.type || CodeGenerationType.ANALYSIS;
+      const fallbackCode = this.getBasicCodeTemplate(
+        query,
+        fallbackType,
+        options.includeVisualization ? 'bar' : undefined
+      );
+      
       return {
-        code: this.getBasicCodeTemplate(
-          query,
-          options.type || CodeGenerationType.ANALYSIS,
-          options.includeVisualization ? 'bar' : undefined
-        ),
-        type: options.type || CodeGenerationType.ANALYSIS,
-        explanation: `Error generating code: ${error}. Using fallback template.`,
+        code: fallbackCode,
+        type: fallbackType,
+        explanation: 'Basic code generated due to error in LLM generation.',
         language: 'python',
         estimatedExecutionTime: 5,
-        requiredLibraries: ['pandas', 'numpy', 'matplotlib']
+        requiredLibraries: ['pandas', 'numpy', 'matplotlib'],
+        visualizationType: options.includeVisualization ? 'bar' : undefined
       };
     }
   }

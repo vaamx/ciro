@@ -8,5 +8,5 @@ export const mockUser: User = {
   updatedAt: new Date(),
   role: 'USER',
   name: 'Test User',
-  settings: null,
+  // settings: null, // Removed - not part of User type
 }; 

@@ -3,7 +3,7 @@ import { ConfigService } from '../../../../core/config.service';
 import { ChunkingService } from '../../../../rag/chunking.service';
 import { QdrantSearchService } from '../../../../vector/search.service';
 import { SocketService } from '../../../../util/socket.service';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
@@ -27,7 +27,7 @@ export class EnhancedCsvProcessorService extends CsvProcessorService {
     protected readonly qdrantSearchService: QdrantSearchService,
     protected readonly qdrantCollectionService: QdrantCollectionService,
     protected readonly qdrantIngestionService: QdrantIngestionService,
-    openAIService: OpenAIService
+    embeddingService: EmbeddingService
   ) {
     super(
         socketService,
@@ -36,7 +36,7 @@ export class EnhancedCsvProcessorService extends CsvProcessorService {
         qdrantSearchService,
         qdrantCollectionService,
         qdrantIngestionService,
-        openAIService
+        embeddingService
     );
     this.logger.info('EnhancedCsvProcessorService initialized');
   }

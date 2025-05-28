@@ -4,7 +4,6 @@ import { CustomDocxProcessorService } from './docx/custom-docx.processor';
 import { EnhancedExcelProcessorService } from './excel/enhanced-excel.processor';
 import { EnhancedCsvProcessorService } from './csv/enhanced-csv-processor.service';
 import * as winston from 'winston';
-import { OpenAIService } from '../../../ai/openai.service';
 import { DocumentChunkingService } from '../../../rag/chunking/document-chunking.service';
 import { ConfigService } from '../../../core/config.service';
 import * as path from 'path';
@@ -22,7 +21,6 @@ export class DocumentProcessorFactory {
   private readonly enhancedCsvProcessor: EnhancedCsvProcessorService;
   private readonly customDocxProcessor: CustomDocxProcessorService;
   private readonly enhancedExcelProcessor: EnhancedExcelProcessorService;
-  private readonly openAIService: OpenAIService;
   private readonly documentChunkingService: DocumentChunkingService;
   private readonly websocketService: WebSocketService;
   
@@ -46,7 +44,6 @@ export class DocumentProcessorFactory {
     enhancedCsvProcessor: EnhancedCsvProcessorService,
     customDocxProcessor: CustomDocxProcessorService,
     enhancedExcelProcessor: EnhancedExcelProcessorService,
-    openAIService: OpenAIService,
     documentChunkingService: DocumentChunkingService,
     websocketService: WebSocketService
   ) {
@@ -56,7 +53,6 @@ export class DocumentProcessorFactory {
     this.enhancedCsvProcessor = enhancedCsvProcessor;
     this.customDocxProcessor = customDocxProcessor;
     this.enhancedExcelProcessor = enhancedExcelProcessor;
-    this.openAIService = openAIService;
     this.documentChunkingService = documentChunkingService;
     this.websocketService = websocketService;
     

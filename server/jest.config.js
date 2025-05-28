@@ -28,6 +28,7 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   moduleNameMapper: generatedMapper, // Use the logged mapper
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   collectCoverage: true,
   coverageDirectory: 'coverage',
   collectCoverageFrom: [

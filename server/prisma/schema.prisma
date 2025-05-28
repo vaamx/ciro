@@ -81,6 +81,7 @@ model DataSource {
   creator        User            @relation("UserDataSources", fields: [creatorId], references: [id])
   workspace      Organization    @relation("OrganizationDataSources", fields: [workspaceId], references: [id])
   processingJobs ProcessingJob[]
+  documentChunks DocumentChunk[] @relation("DataSourceToDocumentChunks")
 
   @@map("data_sources")
 }
@@ -212,19 +213,19 @@ model workspaces {
 }
 
 model Dashboard {
-  id             Int              @id @default(autoincrement())
+  id             Int               @id @default(autoincrement())
   name           String
   description    String?
   team           String?
   category       String?
-  createdBy      Int?             @map("created_by")
-  organizationId Int              @map("organization_id")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
+  createdBy      Int?              @map("created_by")
+  organizationId Int               @map("organization_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
   widgets        DashboardWidget[]
   metrics        Metric[]
-  creator        User?            @relation(fields: [createdBy], references: [id], onDelete: SetNull)
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator        User?             @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("dashboards")
 }
@@ -257,6 +258,20 @@ model Metric {
   dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 
   @@map("metrics")
+}
+
+model DocumentChunk {
+  id           String     @id @default(uuid())
+  dataSourceId Int        @map("data_source_id")
+  dataSource   DataSource @relation("DataSourceToDocumentChunks", fields: [dataSourceId], references: [id], onDelete: Cascade)
+  content      String
+  embedding    Json? // The service stores this as a JSON string, Prisma can handle it as Json
+  metadata     Json?
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@index([dataSourceId])
+  @@map("document_chunks")
 }
 
 enum Role {

@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException, Optional } from '@nestjs/common';
 import { Pool } from 'pg';
 import { QdrantSearchService } from '../../services/vector/search.service';
-import { OpenAIService } from '../../services/ai/openai.service';
+import { EmbeddingService } from '../../services/llm';
 import { DocumentProcessingService } from '../document-processing/document-processing.service';
 import { SearchResponseDto } from './dto/search-response.dto';
 
@@ -19,12 +19,12 @@ export class SearchService {
 
   constructor(
     private readonly documentProcessorService: DocumentProcessingService,
-    @Optional() private readonly openAIService: OpenAIService,
+    @Optional() private readonly embeddingService: EmbeddingService,
     @Optional() private readonly qdrantSearchService: QdrantSearchService,
     private readonly pool: Pool
   ) {
-    if (!this.openAIService) {
-      this.logger.warn('OpenAIService is not available in SearchService - some search features may be limited');
+    if (!this.embeddingService) {
+      this.logger.warn('EmbeddingService is not available in SearchService - some search features may be limited');
     }
     
     if (!this.qdrantSearchService) {
@@ -236,8 +236,8 @@ export class SearchService {
     
     this.logger.debug(`Searching collection ${collectionName} with query: "${query}" (analytical: ${isAnalytical})`);
     
-    // Check if OpenAI service is available
-    if (!this.openAIService || !this.qdrantSearchService) {
+    // Check if embedding service is available
+    if (!this.embeddingService || !this.qdrantSearchService) {
       this.logger.warn('Required search services not available - returning placeholder result');
       return [{
         content: "Search functionality is limited while services are initializing. Please try again in a moment.",
@@ -252,12 +252,12 @@ export class SearchService {
     }
     
     // Get embedding for the query
-    const embeddings = await this.openAIService.createEmbeddings(query || '');
+    const embedding = await this.embeddingService.createEmbedding(query || '');
     
     // Perform the search
     const searchResults = await this.qdrantSearchService.search(
       collectionName,
-      embeddings[0], // Use the first embedding vector
+      embedding, // Use the embedding vector directly
       undefined,
       searchLimit
     );

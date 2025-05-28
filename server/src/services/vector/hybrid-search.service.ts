@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { QdrantSearchService } from './search.service';
 import { QdrantClientService } from './qdrant-client.service';
-import { EmbeddingService } from '../ai/embedding.service';
+import { EmbeddingService } from '../llm/embedding.service';
 import { SearchResultItem } from '../vector/vector.interfaces';
 import { 
   normalizeCollectionName, 

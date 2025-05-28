@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage, ChatOptions } from './openai.service';
-import { DataSourceType, AnalyticalOperationType } from '../../types/document/processing';
+import { createServiceLogger } from '../../../common/utils/logger-factory';
+import { LLMService } from '../llm.service';
+import { ChatMessage } from '../types/llm-types';
+import { DataSourceType, AnalyticalOperationType } from '../../../types/document/processing';
 import { v4 as uuidv4 } from 'uuid';
 
 // Interface for the input parameters of generateAnalysis
@@ -10,14 +11,17 @@ interface LlmAnalysisInput {
   processedData: string; // Enhanced data string
   dataSourceType: DataSourceType;
   analyticalOperations: AnalyticalOperationType[];
-  chatOptions?: Partial<ChatOptions>; // Allow overriding default chat options
+  model?: string; // Allow model override
+  temperature?: number; // Allow temperature override
 }
 
 @Injectable()
 export class LlmAnalysisService {
   private readonly logger = createServiceLogger('LlmAnalysisService');
 
-  constructor(private readonly openAIService: OpenAIService) {}
+  constructor(private readonly llmService: LLMService) {
+    this.logger.info('LlmAnalysisService initialized with LLM abstraction layer');
+  }
 
   // Method to create the system prompt 
   // (Assuming a basic implementation was intended here)
@@ -48,7 +52,7 @@ export class LlmAnalysisService {
    * @returns The raw analysis content string from the LLM
    */
   public async generateAnalysis(input: LlmAnalysisInput): Promise<string> {
-    const { query, processedData, dataSourceType, analyticalOperations, chatOptions } = input;
+    const { query, processedData, dataSourceType, analyticalOperations, model, temperature } = input;
     this.logger.info(`Generating LLM analysis for query: "${query}"`);
 
     // Create system prompt
@@ -62,44 +66,30 @@ export class LlmAnalysisService {
     // Prepare chat messages
     const messages: ChatMessage[] = [
       { 
-        id: uuidv4(), // Generate unique ID
+        id: uuidv4(),
         role: 'system', 
         content: systemPrompt, 
-        timestamp: Date.now(), // Add timestamp
-        status: 'loading' // Set initial status
+        timestamp: Date.now()
       },
       { 
-        id: uuidv4(), // Generate unique ID
+        id: uuidv4(),
         role: 'user', 
         content: userMessageContent, 
-        timestamp: Date.now(), // Add timestamp
-        status: 'loading' // Set initial status
+        timestamp: Date.now()
       },
     ];
 
-    // Default options + overrides from request
-    const finalChatOptions: ChatOptions = {
-      model: 'gpt-4o', 
-      temperature: 0.2, 
-      ...chatOptions, // Apply overrides
-      stream: false // Force stream off for this service
-    };
-    this.logger.debug(`Using chat options: ${JSON.stringify(finalChatOptions)}`);
-
     try {
       this.logger.info('Sending request to LLM...');
-      // Use the correct method name and handle the Response object
-      const response = await this.openAIService.generateChatCompletion(messages, finalChatOptions);
       
-      // Check if the response is okay and parse the JSON body
-      if (!response.ok) {
-        throw new Error(`LLM API request failed with status ${response.status}`);
-      }
+      const response = await this.llmService.generateChatCompletion(messages, {
+        model: model || 'gpt-4o', // Default to GPT-4o for analysis
+        temperature: temperature || 0.2,
+        taskType: 'complex_reasoning',
+        taskComplexity: 'complex'
+      });
       
-      // Parse the JSON response body which should contain our ChatMessage structure
-      const responseData = await response.json() as ChatMessage; 
-      
-      const analysisContent = responseData?.content?.trim() ?? '';
+      const analysisContent = response.content?.trim() ?? '';
       this.logger.info('Received response from LLM.');
       this.logger.debug(`LLM Response Content: ${analysisContent.substring(0, 100)}...`);
       
@@ -115,4 +105,4 @@ export class LlmAnalysisService {
       throw new Error(`Failed to generate LLM analysis: ${errorMessage}`);
     }
   }
-}
+} 

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as winston from 'winston';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from '../ai/openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { Document, GenerationOptions, IGenerationService, ContextBuilderOptions, ContextFormat } from '../vector/vector.interfaces';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -13,13 +13,10 @@ import { v4 as uuidv4 } from 'uuid';
 export class GenerationService implements IGenerationService {
   private readonly logger = createServiceLogger('GenerationService');
   
-  private openaiService: OpenAIService;
-
   constructor(
-    private readonly openAIService: OpenAIService,
+    private readonly llmService: LLMService,
     ) {
-    this.logger.info('GenerationService initialized');
-    this.openaiService = this.openAIService;
+    this.logger.info('GenerationService initialized with LLM abstraction layer');
   }
 
   /**
@@ -41,7 +38,7 @@ export class GenerationService implements IGenerationService {
     
     // Generate response
     try {
-      // Format messages for OpenAI
+      // Format messages for LLM service
       const messages: ChatMessage[] = [
         systemMessage,
         userMessage
@@ -50,34 +47,16 @@ export class GenerationService implements IGenerationService {
       // Select model
       const model = options?.model || this.selectAppropriateModel(prompt);
       
-      // Send to OpenAI
-      const response = await this.openaiService.generateChatCompletion(messages, {
-        model: model as any,
+      // Send to LLM service with intelligent model selection
+      const response = await this.llmService.generateChatCompletion(messages, {
+        model: model,
         temperature: options?.temperature || 0.7,
-        ...(options?.maxTokens ? { maxTokens: options?.maxTokens } : {})
+        maxTokens: options?.maxTokens,
+        taskType: 'simple_qa', // Help with model selection
+        taskComplexity: this.estimateQueryComplexity(prompt) > 5 ? 'complex' : 'simple'
       });
       
-      // Parse the response
-      const responseText = await response.text();
-      let parsedResponse: Record<string, any> = {};
-      
-      try {
-        parsedResponse = JSON.parse(responseText);
-      } catch (e) {
-        this.logger.error('Failed to parse JSON response', { response: responseText });
-        return "There was an error generating a response. Please try again.";
-      }
-      
-      // Extract content from response
-      let content = '';
-      if (parsedResponse?.choices?.length > 0 && parsedResponse.choices[0].message) {
-        content = parsedResponse.choices[0].message.content || '';
-      } else if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
-        // Fallback for direct content or other less common structures
-        content = (parsedResponse as any).content || '';
-      }
-      
-      return content;
+      return response.content || "There was an error generating a response. Please try again.";
     } catch (error) {
       this.logger.error('Error generating response:', error);
       return "I encountered an error while generating a response. Please try again.";
@@ -124,48 +103,27 @@ export class GenerationService implements IGenerationService {
     
     // Generate response
     try {
-      // Format messages for OpenAI
+      // Format messages for LLM service
       const messages: ChatMessage[] = [
         systemMessage,
         userMessage
       ];
       
-      // Send to OpenAI
-      const response = await this.openaiService.generateChatCompletion(messages, {
-        model: model as any,
+      // Send to LLM service with intelligent model selection
+      const response = await this.llmService.generateChatCompletion(messages, {
+        model: model,
         temperature: options.temperature || 0.7,
-        ...(options.maxTokens ? { maxTokens: options.maxTokens } : {})
+        maxTokens: options.maxTokens,
+        taskType: 'simple_qa', // Help with model selection
+        taskComplexity: this.estimateQueryComplexity(query) > 5 ? 'complex' : 'simple'
       });
       
-      // Parse the response
-      const responseText = await response.text();
-      let parsedResponse: Record<string, any> = {};
-      
-      try {
-        parsedResponse = JSON.parse(responseText);
-      } catch (e) {
-        this.logger.error('Failed to parse JSON response', { response: responseText });
-        return {
-          content: "There was an error generating a response. Please try again.",
-          model: model
-        };
-      }
-      
-      // Extract content from response
-      let content = '';
-      if (parsedResponse?.choices?.length > 0 && parsedResponse.choices[0].message) {
-        content = parsedResponse.choices[0].message.content || '';
-      } else if (parsedResponse && typeof parsedResponse === 'object' && 'content' in parsedResponse) {
-        // Fallback for direct content or other less common structures
-        content = (parsedResponse as any).content || '';
-      }
-      
       const duration = Date.now() - startTime;
-      this.logger.info(`Generated response in ${duration}ms using model ${model}`);
+      this.logger.info(`Generated response in ${duration}ms using model ${response.metadata.model}`);
       
       return {
-        content,
-        model
+        content: response.content || "There was an error generating a response. Please try again.",
+        model: response.metadata.model
       };
     } catch (error) {
       this.logger.error('Error generating response:', error);
@@ -330,8 +288,7 @@ export class GenerationService implements IGenerationService {
       id: uuidv4(),
       role: 'system',
       content: systemContent,
-      timestamp: Date.now(),
-      status: 'complete'
+      timestamp: Date.now()
     };
   }
 
@@ -346,8 +303,7 @@ export class GenerationService implements IGenerationService {
       id: uuidv4(),
       role: 'user',
       content: `Context Information:\n${context}\n\nUser Question: ${query}`,
-      timestamp: Date.now(),
-      status: 'complete'
+      timestamp: Date.now()
     };
   }
 
@@ -468,47 +424,19 @@ export class GenerationService implements IGenerationService {
     try {
       const messages: ChatMessage[] = [
         systemMessage, // A base system message can still be useful
-        { role: 'user', content: fullPrompt, id: uuidv4(), timestamp: Date.now(), status: 'complete' },
+        { role: 'user', content: fullPrompt, id: uuidv4(), timestamp: Date.now() },
       ];
 
-      const response = await this.openaiService.generateChatCompletion(messages, {
-        model: model as any,
+      const response = await this.llmService.generateChatCompletion(messages, {
+        model: model,
         temperature: options?.temperature || 0.7,
-        ...(options?.maxTokens ? { maxTokens: options.maxTokens } : {}),
+        maxTokens: options?.maxTokens,
       });
 
-      const responseText = await response.text();
-      let parsedResponse: Record<string, any> = {}; // Use any for parsedResponse as structure can vary
-
-      try {
-        parsedResponse = JSON.parse(responseText);
-      } catch (e) {
-        this.logger.error('Failed to parse JSON response from pre-formatted prompt', { response: responseText });
-        // Attempt to recover if it's a simple string response not in JSON format
-        if (typeof responseText === 'string' && !responseText.startsWith('{')) {
-            this.logger.info('Response appears to be a plain string, using as content.');
-            const durationPlain = Date.now() - startTime;
-            this.logger.info(`Generated plain string response from pre-formatted prompt in ${durationPlain}ms using model ${model}`);
-            return responseText; 
-        }
-        return "Error: Could not parse LLM response.";
-      }
-      
-      let content = '';
-      // Standard OpenAI chat completion structure
-      if (parsedResponse.choices && parsedResponse.choices.length > 0 && parsedResponse.choices[0].message) {
-        content = parsedResponse.choices[0].message.content || '';
-      } 
-      // Fallback for direct content or other structures if necessary (adjust as per your LLMService actual responses)
-      else if (parsedResponse.content) { 
-        content = parsedResponse.content;
-      }
-      // Add other parsing logic if your LLM returns different structures
-
       const duration = Date.now() - startTime;
-      this.logger.info(`Generated response from pre-formatted prompt in ${duration}ms using model ${model}`);
+      this.logger.info(`Generated response from pre-formatted prompt in ${duration}ms using model ${response.metadata.model}`);
 
-      return content;
+      return response.content || "Error: Could not generate response.";
     } catch (error) {
       this.logger.error('Error generating response from pre-formatted prompt:', error);
       return "I encountered an error while generating a response. Please try again.";

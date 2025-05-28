@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { BaseDocumentProcessor, ProcessingResult } from '../base-document.processor';
 import { DocumentChunkingService } from '../../../../rag/chunking/document-chunking.service';
 // import { DataSourceService } from '../data-source.service'; // TODO: Relocate/Refactor
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { SocketService } from '../../../../util/socket.service';
@@ -29,7 +29,7 @@ export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
     private readonly configService: ConfigService,
     private readonly documentChunkingService: DocumentChunkingService,
     // readonly dataSourceService: DataSourceService, // TODO: Reinstate
-    private readonly openAIService: OpenAIService,
+    private readonly embeddingService: EmbeddingService,
     private readonly qdrantCollectionService: QdrantCollectionService,
     private readonly qdrantIngestionService: QdrantIngestionService,
     readonly socketService: SocketService,
@@ -145,7 +145,12 @@ export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
       this.logger.info('Generating embeddings...');
       await this.updateStatus(numericDataSourceId, organizationId, DataSourceProcessingStatus.PROCESSING, { step: 'embedding' });
       const chunkContents = chunks;
-      const embeddings = await this.openAIService.createEmbeddings(chunkContents);
+      // Generate embeddings individually since EmbeddingService.createEmbedding expects single strings
+      const embeddings: number[][] = [];
+      for (const chunk of chunkContents) {
+        const embedding = await this.embeddingService.createEmbedding(chunk);
+        embeddings.push(embedding);
+      }
       this.logger.info(`Generated ${embeddings.length} embeddings.`);
 
       if (embeddings.length !== chunks.length) {

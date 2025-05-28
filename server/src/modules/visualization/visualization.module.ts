@@ -9,7 +9,7 @@ import { ServicesModule } from '../../services.module';
 import { SnowflakeService } from '../../services/datasources/connectors/snowflake/snowflake.service';
 import { DataSourceModule } from '../data-source/data-source.module';
 import { DataSourceManagementService } from '../../services/datasources/management/datasource-management.service';
-import { OpenAIService } from '../../services/ai/openai.service';
+import { LLMService } from '../../services/llm';
 import { QdrantClientService } from '../../services/vector/qdrant-client.service';
 import { QdrantCollectionService } from '../../services/vector/collection-manager.service';
 import { QdrantIngestionService } from '../../services/vector/ingestion.service';
@@ -42,7 +42,7 @@ import { QdrantIngestionService } from '../../services/vector/ingestion.service'
         qdrantClientService?: QdrantClientService,
         qdrantCollectionService?: QdrantCollectionService,
         snowflakeService?: SnowflakeService,
-        openAIService?: OpenAIService,
+        llmService?: LLMService,
         qdrantIngestionService?: QdrantIngestionService
       ) => {
         return new VisualizationService(
@@ -50,7 +50,7 @@ import { QdrantIngestionService } from '../../services/vector/ingestion.service'
           qdrantClientService as any,
           qdrantCollectionService as any,
           snowflakeService as any,
-          openAIService as any,
+          llmService as any,
           qdrantIngestionService as any
         );
       },
@@ -59,7 +59,7 @@ import { QdrantIngestionService } from '../../services/vector/ingestion.service'
         { token: QdrantClientService, optional: true },
         { token: QdrantCollectionService, optional: true },
         { token: SnowflakeService, optional: true },
-        { token: OpenAIService, optional: true },
+        { token: LLMService, optional: true },
         { token: QdrantIngestionService, optional: true }
       ]
     }

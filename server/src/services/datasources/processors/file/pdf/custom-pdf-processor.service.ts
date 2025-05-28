@@ -1,4 +1,4 @@
-// @ts-nocheck - TODO: This file needs major refactoring to work with the updated service architecture
+// Migrated to LLM abstraction layer - using EmbeddingService instead of OpenAIService
 
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
@@ -9,8 +9,9 @@ import { DocumentChunkingService } from '../../../../rag/chunking/document-chunk
 import { QdrantSearchService } from '../../../../vector/search.service';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
-import { DataSourceService } from '../../../management/datasource-management.service';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { DataSourceManagementService } from '../../../management/datasource-management.service';
+import { LLMService } from '../../../../llm';
+import { EmbeddingService } from '../../../../llm';
 import { SocketService } from '../../../../util/socket.service';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
 import { DataSourceProcessingStatus } from '../../../../../types';
@@ -40,25 +41,25 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
     protected readonly logger = createServiceLogger('CustomPdfProcessorService');
     private documentChunkingService: DocumentChunkingService;
     private pdfExtract: PDFExtract;
-    private openaiService: OpenAIService;
+    private embeddingService: EmbeddingService;
     private qdrantService: QdrantSearchService;
     
     // Batch size for embedding generation to avoid rate limits
     private readonly EMBEDDING_BATCH_SIZE = 20;
 
     constructor(
-        dataSourceService: DataSourceService,
+        dataSourceService: DataSourceManagementService,
         socketService: SocketService,
         private readonly configService: ConfigService,
         documentChunkingService: DocumentChunkingService,
         qdrantService: QdrantSearchService,
-        openaiService: OpenAIService,
+        embeddingService: EmbeddingService,
     ) {
-        super('CustomPdfProcessorService', dataSourceService, socketService);
+        super('CustomPdfProcessorService', socketService);
         
         this.documentChunkingService = documentChunkingService;
         this.qdrantService = qdrantService;
-        this.openaiService = openaiService;
+        this.embeddingService = embeddingService;
         
         this.pdfExtract = new PDFExtract();
         this.logger.info('CustomPdfProcessorService initialized');
@@ -449,8 +450,8 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
             if (elements.length === 0 && rawText.trim().length > 0) {
                  this.logger.warn('Text was extracted, but no elements were generated. Chunking raw text.');
                  // Use ChunkingService for raw text
-                 const textChunks = await this.documentChunkingService.chunkText(rawText, { chunkSize: 1000, overlap: 100 }); // Example parameters
-                 elements = textChunks.map((text, index) => ({
+                 const textChunks = this.documentChunkingService.createChunks(rawText, { chunkSize: 1000, overlap: 100 }); // Example parameters
+                 elements = textChunks.map((text: string, index: number) => ({
                      element_id: crypto.randomUUID(),
                      type: 'TextChunk',
                      text: text,
@@ -532,14 +533,12 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
 
             // Ingest into Qdrant
             this.logger.info(`Ingesting ${embeddings.length} vectors into collection: ${collectionName}`);
-            await this.qdrantService.getClient().upsert(collectionName, {
-                 wait: true,
-                 points: embeddings.map((vector, index) => ({
-                     id: elementMetadata[index].element_id || crypto.randomUUID(),
-                     vector: vector,
-                     payload: elementMetadata[index]
-                 }))
-             });
+            const points = embeddings.map((vector, index) => ({
+                id: elementMetadata[index].element_id || crypto.randomUUID(),
+                vector: vector,
+                payload: elementMetadata[index]
+            }));
+            await this.qdrantService.upsert(collectionName, points);
 
             this.logger.info(`Successfully processed and ingested ${elements.length} elements.`);
             return { status: 'success', chunks: elements.length, metadata: { collectionName } };
@@ -559,12 +558,13 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
         for (let i = 0; i < texts.length; i += this.EMBEDDING_BATCH_SIZE) {
             const batchTexts = texts.slice(i, i + this.EMBEDDING_BATCH_SIZE);
             try {
-                const embeddings = await this.openaiService.createEmbeddings(batchTexts);
-                if (embeddings && embeddings.length === batchTexts.length) {
-                    allEmbeddings.push(...embeddings);
-                } else {
-                     this.logger.warn(`Embedding batch ${i / this.EMBEDDING_BATCH_SIZE + 1} returned unexpected result count.`);
+                // Process each text individually since EmbeddingService.createEmbedding expects a single string
+                const batchEmbeddings: number[][] = [];
+                for (const text of batchTexts) {
+                    const embedding = await this.embeddingService.createEmbedding(text);
+                    batchEmbeddings.push(embedding);
                 }
+                allEmbeddings.push(...batchEmbeddings);
             } catch (error) {
                 this.logger.error(`Error generating embeddings for batch starting at index ${i}: ${error}`);
                 throw new Error(`Failed to generate embeddings: ${error}`);

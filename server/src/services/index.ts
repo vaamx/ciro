@@ -7,7 +7,8 @@
 export * from './core';
 
 // AI services
-export * from './ai';
+// Legacy AI exports removed - use LLM abstraction layer instead
+// export * from './ai';
 
 // Vector database services
 export * from './vector';

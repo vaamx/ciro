@@ -5,7 +5,7 @@ import { DataSourceManagementService } from '../../services/datasources/manageme
 import { QdrantClientService } from '../../services/vector/qdrant-client.service';
 import { QdrantCollectionService } from '../../services/vector/collection-manager.service';
 import { SnowflakeService } from '../../services/datasources/connectors/snowflake/snowflake.service'; // Corrected path
-import { OpenAIService, ChatMessage } from '../../services/ai/openai.service'; // Correct path from ServicesModule, assuming file is infra/ai/openai/openai.service.ts
+import { LLMService, ChatMessage } from '../../services/llm';
 import { VisualizationResponseDto } from './dto/visualization.response.dto';
 import { VisualizationRequestDto } from './dto/visualization.request.dto';
 // Import necessary types/entities if needed (e.g., DataSource entity)
@@ -52,7 +52,7 @@ export class VisualizationService {
     @Optional() private readonly qdrantClientService: QdrantClientService,
     @Optional() private readonly qdrantCollectionService: QdrantCollectionService,
     @Optional() private readonly snowflakeService: SnowflakeService,
-    @Optional() private readonly openaiService: OpenAIService,
+    @Optional() private readonly llmService: LLMService,
     @Optional() private readonly qdrantIngestionService: QdrantIngestionService,
   ) {
     if (!this.dataSourceManagementService) {
@@ -71,8 +71,8 @@ export class VisualizationService {
       this.logger.warn('QdrantCollectionService is not available. Collection-based operations will be limited.');
     }
 
-    if (!this.openaiService) {
-      this.logger.warn('OpenAIService is not available. AI-powered visualizations will be limited.');
+    if (!this.llmService) {
+      this.logger.warn('LLMService is not available. AI-powered visualizations will be limited.');
     }
 
     if (!this.qdrantIngestionService) {
@@ -465,54 +465,56 @@ export class VisualizationService {
   private async analyzeDataWithOpenAI(prompt: string): Promise<{ visualizationType: string, title: string, description: string, transformations: any[] }> {
      const defaultResponse = { visualizationType: 'enhanced-bar-chart', title: 'Data Visualization', description: 'Generated visualization based on data source', transformations: [] };
      
-     if (!this.openaiService) {
-       this.logger.warn('OpenAIService not available - returning default response for data analysis');
+     if (!this.llmService) {
+       this.logger.warn('LLMService not available - returning default response for data analysis');
        return defaultResponse;
      }
      
      try {
        const messages: ChatMessage[] = [
-          { id: 'system-prompt', role: 'system', content: 'You are a data visualization expert. Analyze the data and recommend the best visualization type, providing your response as a clean JSON object.', timestamp: Date.now(), status: 'complete' },
-          { id: 'user-prompt', role: 'user', content: prompt, timestamp: Date.now(), status: 'complete' }
+          { id: 'system-prompt', role: 'system', content: 'You are a data visualization expert. Analyze the data and recommend the best visualization type, providing your response as a clean JSON object.', timestamp: Date.now() },
+          { id: 'user-prompt', role: 'user', content: prompt, timestamp: Date.now() }
        ];
-       const response = await this.openaiService.generateChatCompletion(messages, { stream: false });
-       if (!response.ok) {
-          const errorBody = await response.text();
-          this.logger.error(`OpenAI API error: ${response.status} ${response.statusText} - ${errorBody}`);
-          throw new InternalServerErrorException(`OpenAI API error: ${response.status} ${response.statusText}`);
+       const response = await this.llmService.generateChatCompletion(messages, { 
+         taskType: 'complex_reasoning',
+         taskComplexity: 'medium'
+       });
+       
+       if (!response.content) {
+          this.logger.error(`LLM response error: No content received`);
+          throw new InternalServerErrorException(`LLM response error: No content received`);
        }
-       // Use type assertion for responseData
-       const responseData = await response.json();
-       const content = (responseData as any)?.content?.trim();
-       if (!content) {
-           this.logger.warn('OpenAI response content was empty or missing.');
-           return defaultResponse;
-       }
-       let jsonStartIndex = content.indexOf('{');
-       let jsonEndIndex = content.lastIndexOf('}');
-       if (jsonStartIndex !== -1 && jsonEndIndex !== -1) {
-           const jsonStr = content.substring(jsonStartIndex, jsonEndIndex + 1);
-           try {
-               const parsedJson = JSON.parse(jsonStr);
-               return {
-                   visualizationType: parsedJson.visualizationType || defaultResponse.visualizationType,
-                   title: parsedJson.title || defaultResponse.title,
-                   description: parsedJson.description || defaultResponse.description,
-                   transformations: parsedJson.transformations || defaultResponse.transformations,
-               };
-           } catch (parseError) {
-               this.logger.warn(`Failed to parse OpenAI JSON response: ${parseError instanceof Error ? parseError.message : 'Unknown parsing error'}. Response content: ${content}`);
-               return defaultResponse;
-           }
-       } else {
-           this.logger.warn(`Could not find JSON object in OpenAI response content: ${content}`);
-           return defaultResponse;
-       }
-     } catch (error) {
-       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-       this.logger.error(`Error analyzing data with OpenAI: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
-       return defaultResponse;
-     }
+       
+       const content = response.content.trim();
+               if (!content) {
+            this.logger.warn('LLM response content was empty or missing.');
+            return defaultResponse;
+        }
+        let jsonStartIndex = content.indexOf('{');
+        let jsonEndIndex = content.lastIndexOf('}');
+        if (jsonStartIndex !== -1 && jsonEndIndex !== -1) {
+            const jsonStr = content.substring(jsonStartIndex, jsonEndIndex + 1);
+            try {
+                const parsedJson = JSON.parse(jsonStr);
+                return {
+                    visualizationType: parsedJson.visualizationType || defaultResponse.visualizationType,
+                    title: parsedJson.title || defaultResponse.title,
+                    description: parsedJson.description || defaultResponse.description,
+                    transformations: parsedJson.transformations || defaultResponse.transformations,
+                };
+            } catch (parseError) {
+                this.logger.warn(`Failed to parse LLM JSON response: ${parseError instanceof Error ? parseError.message : 'Unknown parsing error'}. Response content: ${content}`);
+                return defaultResponse;
+            }
+        } else {
+            this.logger.warn(`Could not find JSON object in LLM response content: ${content}`);
+            return defaultResponse;
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`Error analyzing data with LLM: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
+        return defaultResponse;
+      }
   }
 
 

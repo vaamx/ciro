@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { db } from '../../config/database';
-import { OpenAIService } from '../ai/openai.service';
 
 /**
  * Interface for a conversation message
@@ -21,20 +20,10 @@ export interface ConversationMessage {
 @Injectable()
 export class ConversationService {
   private readonly logger = createServiceLogger('ConversationService');
-  private openaiService: OpenAIService;
   
-
-  private constructor(
-    private readonly openAIService: OpenAIService,
-    ) {
+  constructor() {
     this.logger.info('ConversationService initialized');
-    this.openaiService = this.openAIService;
   }
-
-  /**
-   * Get the singleton instance of the service
-   */
-  
 
   /**
    * Save a new message to the conversation history

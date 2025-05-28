@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
-import { OpenAIService, ChatMessage } from './openai.service';
+import { LLMService, ChatMessage } from '../llm';
 import { ServiceRegistry } from '../core/service-registry';
 
 /**
@@ -54,11 +54,11 @@ export interface CodeGenerationParams {
 @Injectable()
 export class CodeGenerationService {
   private readonly logger = createServiceLogger('CodeGenerationService');
-  private openAIService?: OpenAIService;
+  private llmService?: LLMService;
 
   constructor() {
     try {
-      this.openAIService = ServiceRegistry.resolve(OpenAIService);
+      this.llmService = ServiceRegistry.resolve(LLMService);
       this.logger.info('CodeGenerationService initialized');
     } catch (error) {
       this.logger.error(`Error initializing CodeGenerationService: ${error}`);
@@ -101,9 +101,9 @@ export class CodeGenerationService {
         }
       }
       
-      // If OpenAI service is not available, fall back to template
-      if (!this.openAIService) {
-        this.logger.warn('OpenAI service not available, using template');
+      // If LLM service is not available, fall back to template
+      if (!this.llmService) {
+        this.logger.warn('LLM service not available, using template');
         const code = this.getBasicCodeTemplate(
           query,
           type,
@@ -129,30 +129,24 @@ export class CodeGenerationService {
         context || (includeVisualization ? 'Include visualization.' : '')
       );
       
-      // Call OpenAI to generate code
+      // Call LLM to generate code
       const messages: ChatMessage[] = [
         { 
-          id: `system-${Date.now()}`,
           role: 'system', 
-          content: 'You are a data analysis and visualization code generator.',
-          timestamp: Date.now(),
-          status: 'complete'
+          content: 'You are a data analysis and visualization code generator.'
         },
         { 
-          id: `user-${Date.now()}`,
           role: 'user', 
-          content: prompt,
-          timestamp: Date.now(),
-          status: 'complete'
+          content: prompt
         }
       ];
       
-      const response = await this.openAIService.generateChatCompletion(messages, {
+      const response = await this.llmService.generateChatCompletion(messages, {
         temperature: 0.2
       });
       
-      const responseData = await response.json() as {
-        content: string;
+      const responseData = {
+        content: response.content
       };
 
       if (!responseData || !responseData.content) {

@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { GenerationService } from './generation.service';
-import { OpenAIService } from '@services/ai/openai.service';
+import { LLMService } from '@services/llm/llm.service';
 import { createServiceLogger } from '@common/utils/logger-factory';
 import { Document, GenerationOptions, ContextBuilderOptions, ContextFormat } from '@services/vector/vector.interfaces';
-import { ChatMessage } from '@services/ai/openai.service'; // Assuming ChatMessage is exported
+import { ChatMessage } from '@services/llm/types/llm-types';
 
 jest.mock('@common/utils/logger-factory', () => {
   const innerMockLogger = {
@@ -23,7 +23,7 @@ jest.mock('@services/ai/openai.service'); // Auto-mock OpenAIService
 
 describe('GenerationService', () => {
   let service: GenerationService;
-  let mockOpenAIService: jest.Mocked<OpenAIService>;
+  let mockLLMService: jest.Mocked<LLMService>;
   let mockLogger: any;
 
   const sampleQuery = 'What is the capital of France?';
@@ -44,19 +44,20 @@ describe('GenerationService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GenerationService,
-        OpenAIService, // Provide the actual OpenAIService which will be auto-mocked by jest.mock at the top
+        LLMService, // Provide the actual LLMService which will be auto-mocked by jest.mock at the top
       ],
     }).compile();
 
     service = module.get<GenerationService>(GenerationService);
-    mockOpenAIService = module.get(OpenAIService) as jest.Mocked<OpenAIService>;
+    mockLLMService = module.get(LLMService) as jest.Mocked<LLMService>;
 
     // Default mock implementation for generateChatCompletion
     // This mock now directly provides the structure expected by the parsing logic in generateResponse and generateFromPreformattedPrompt
-    mockOpenAIService.generateChatCompletion.mockResolvedValue({
-      text: jest.fn().mockResolvedValue(JSON.stringify({ 
-        choices: [{ message: { content: 'Mocked LLM Response' } }] 
-      })),
+    mockLLMService.generateChatCompletion.mockResolvedValue({
+      content: 'Mocked LLM Response',
+      finishReason: 'stop',
+      metadata: { model: 'test-model', provider: 'test' },
+      usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 }
     } as any); // Use 'as any' to simplify complex mocking if Response type is intricate
   });
 

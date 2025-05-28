@@ -5,6 +5,7 @@ import { CsvProcessorService } from './csv/csv-processor.service';
 import { EnhancedCsvProcessorService } from './csv/enhanced-csv-processor.service';
 import { CustomDocxProcessorService } from './docx/custom-docx.processor';
 import { EnhancedExcelProcessorService } from './excel/enhanced-excel.processor';
+import { JsonProcessorService } from './json/json-processor.service';
 // ADD import for the factory
 import { DocumentProcessorFactory } from './document-processor.factory';
 import { DocumentChunkingService } from '../../../rag/chunking/document-chunking.service';
@@ -15,21 +16,20 @@ import { ConfigModule } from '@nestjs/config';
 import { ConfigService as CoreConfigService } from '../../../core/config.service';
 // import { ChunkingService } from '../../../rag/chunking.service'; // Removed import
 import { WebSocketService } from '../../../util/websocket.service';
-import { OpenAIService } from '../../../ai/openai.service';
+import { LLMModule } from '../../../llm/llm.module'; // Updated import
+import { EmbeddingService, LLMService } from '../../../llm';
 import { DataSourceManagementService } from '../../management/datasource-management.service';
 import { QdrantSearchService } from '../../../vector/search.service';
 import { QdrantCollectionService } from '../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../vector/ingestion.service';
 import { EventManager } from '../../../util/event-manager';
 import { SocketService } from '../../../util/socket.service'; // Import SocketService
-import { AiModule } from '../../../ai/ai.module';
-import { EmbeddingService } from '../../../ai/embedding.service';
 
 @Module({
   imports: [
     ConfigModule,
     forwardRef(() => ServicesModule),
-    forwardRef(() => AiModule),
+    LLMModule, // Updated import
   ],
   providers: [
     // Make sure CoreConfigService is provided
@@ -57,7 +57,6 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         enhancedCsvProcessor: EnhancedCsvProcessorService,
         docxProcessor: CustomDocxProcessorService,
         enhancedExcelProcessor: EnhancedExcelProcessorService,
-        openAIService: OpenAIService,
         documentChunkingService: DocumentChunkingService,
         websocketService: WebSocketService
       ) => {
@@ -67,7 +66,6 @@ import { EmbeddingService } from '../../../ai/embedding.service';
           enhancedCsvProcessor,
           docxProcessor,
           enhancedExcelProcessor,
-          openAIService,
           documentChunkingService,
           websocketService
         );
@@ -78,7 +76,6 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         EnhancedCsvProcessorService,
         CustomDocxProcessorService,
         EnhancedExcelProcessorService,
-        OpenAIService,
         DocumentChunkingService,
         WebSocketService
       ]
@@ -92,7 +89,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         coreConfigService: CoreConfigService,
         documentChunkingService: DocumentChunkingService,
         qdrantService: QdrantSearchService,
-        openAIService: OpenAIService,
+        embeddingService: EmbeddingService,
       ) => {
         return new CustomPdfProcessorService(
           dataSourceService,
@@ -100,7 +97,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
           coreConfigService as any,
           documentChunkingService,
           qdrantService,
-          openAIService,
+          embeddingService,
         );
       },
       inject: [
@@ -109,7 +106,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         CoreConfigService,
         DocumentChunkingService,
         QdrantSearchService,
-        OpenAIService,
+        EmbeddingService,
       ],
     },
     // CSV Processor
@@ -123,7 +120,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         qdrantSearchService: QdrantSearchService,
         qdrantCollectionService: QdrantCollectionService,
         qdrantIngestionService: QdrantIngestionService,
-        openAIService: OpenAIService,
+        embeddingService: EmbeddingService,
       ) => {
         return new CsvProcessorService(
           dataSourceService,
@@ -133,7 +130,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
           qdrantSearchService,
           qdrantCollectionService,
           qdrantIngestionService,
-          openAIService,
+          embeddingService,
         );
       },
       inject: [
@@ -144,7 +141,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         QdrantSearchService,
         QdrantCollectionService,
         QdrantIngestionService,
-        OpenAIService,
+        EmbeddingService,
       ],
     },
     // Enhanced CSV Processor
@@ -158,7 +155,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         qdrantSearchService: QdrantSearchService,
         qdrantCollectionService: QdrantCollectionService,
         qdrantIngestionService: QdrantIngestionService,
-        openAIService: OpenAIService,
+        embeddingService: EmbeddingService,
       ) => {
         return new EnhancedCsvProcessorService(
           dataSourceManagementService,
@@ -168,7 +165,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
           qdrantSearchService,
           qdrantCollectionService,
           qdrantIngestionService,
-          openAIService,
+          embeddingService,
         );
       },
       inject: [
@@ -179,7 +176,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         QdrantSearchService,
         QdrantCollectionService,
         QdrantIngestionService,
-        OpenAIService,
+        EmbeddingService,
       ],
     },
     // DOCX Processor
@@ -189,7 +186,6 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         coreConfigService: CoreConfigService,
         qdrantCollectionService: QdrantCollectionService,
         qdrantIngestionService: QdrantIngestionService,
-        openAIService: OpenAIService,
         embeddingService: EmbeddingService,
         socketService: SocketService,
         documentChunkingService: DocumentChunkingService,
@@ -198,7 +194,6 @@ import { EmbeddingService } from '../../../ai/embedding.service';
           coreConfigService as any,
           qdrantCollectionService,
           qdrantIngestionService,
-          openAIService,
           embeddingService,
           socketService,
           documentChunkingService,
@@ -208,7 +203,6 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         CoreConfigService,
         QdrantCollectionService,
         QdrantIngestionService,
-        OpenAIService,
         EmbeddingService,
         SocketService,
         DocumentChunkingService,
@@ -220,7 +214,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
       useFactory: (
         coreConfigService: CoreConfigService,
         documentChunkingService: DocumentChunkingService,
-        openAIService: OpenAIService,
+        embeddingService: EmbeddingService,
         qdrantCollectionService: QdrantCollectionService,
         qdrantIngestionService: QdrantIngestionService,
         socketService: SocketService,
@@ -228,7 +222,7 @@ import { EmbeddingService } from '../../../ai/embedding.service';
         return new EnhancedExcelProcessorService(
           coreConfigService as any,
           documentChunkingService,
-          openAIService,
+          embeddingService,
           qdrantCollectionService,
           qdrantIngestionService,
           socketService,
@@ -237,10 +231,39 @@ import { EmbeddingService } from '../../../ai/embedding.service';
       inject: [
         CoreConfigService,
         DocumentChunkingService,
-        OpenAIService,
+        EmbeddingService,
         QdrantCollectionService,
         QdrantIngestionService,
         SocketService,
+      ],
+    },
+    // JSON Processor
+    {
+      provide: JsonProcessorService,
+      useFactory: (
+        coreConfigService: CoreConfigService,
+        qdrantCollectionService: QdrantCollectionService,
+        qdrantIngestionService: QdrantIngestionService,
+        embeddingService: EmbeddingService,
+        socketService: SocketService,
+        documentChunkingService: DocumentChunkingService,
+      ) => {
+        return new JsonProcessorService(
+          coreConfigService as any,
+          qdrantCollectionService,
+          qdrantIngestionService,
+          embeddingService,
+          socketService,
+          documentChunkingService,
+        );
+      },
+      inject: [
+        CoreConfigService,
+        QdrantCollectionService,
+        QdrantIngestionService,
+        EmbeddingService,
+        SocketService,
+        DocumentChunkingService,
       ],
     },
   ],

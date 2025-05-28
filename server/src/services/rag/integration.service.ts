@@ -6,7 +6,6 @@ import { RagQueryResult, RagResponseMetadata, Document } from '../vector/vector.
 import { QdrantSearchService } from '../vector/search.service';
 import { HybridSearchService } from '../vector/hybrid-search.service';
 import { EnhancedMetadataService } from '../shared/metadata/enhanced-metadata.service';
-import { OpenAIService } from '../ai/openai.service';
 import { EnhancedRetrievalService } from './enhanced-retrieval.service';
 
 // Define DataSourceType locally if the module cannot be found
@@ -30,7 +29,6 @@ export class RagIntegrationService {
   private readonly logger = new Logger(RagIntegrationService.name);
   
   private readonly queryAnalyzer: QueryAnalyzerService;
-  private readonly openAIService?: OpenAIService;
 
   constructor(
     queryAnalyzerService: QueryAnalyzerService,
@@ -41,7 +39,7 @@ export class RagIntegrationService {
     @Optional() private readonly enhancedMetadataService?: EnhancedMetadataService,
     @Optional() private readonly enhancedRetrievalService?: EnhancedRetrievalService,
   ) {
-    this.logger.log(`${RagIntegrationService.name} initialized (DI pending)`);
+    this.logger.log(`${RagIntegrationService.name} initialized with LLM abstraction layer`);
     this.queryAnalyzer = queryAnalyzerService;
     
     if (!this.enhancedMetadataService) {

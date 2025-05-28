@@ -8,7 +8,7 @@ import { AggregationRefreshTaskService } from './aggregation-refresh.task.servic
 import { ConversationSummarizationTaskService } from './conversation-summarization.task.service';
 import { DataCleanupTaskService } from './data-cleanup.task.service';
 import { VectorIndexingTaskService } from './vector-indexing.task.service';
-import { ChatModule } from '@modules/chat/chat.module';
+import { ChatModule } from '../modules/chat/chat.module';
 
 @Module({
   imports: [

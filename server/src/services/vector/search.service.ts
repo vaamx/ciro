@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '../../common/utils/logger-factory';
 import { QdrantClientService } from './qdrant-client.service';
-import { EmbeddingService } from '../ai/embedding.service';
+import { EmbeddingService } from '../llm/embedding.service';
 import { BaseSearchService } from './base-search.service';
 import { 
   SearchOptions, 

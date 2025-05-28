@@ -1,5 +1,5 @@
 import { RagIntegrationService } from '../rag/integration.service';
-import { RagQueryResult } from '../vector/vector.interfaces'; // Import the correct interface
+import { RagQueryResult, RagResponseMetadata } from '../vector/vector.interfaces'; // Import the correct interface
 
 // Remove singleton instance fetching
 // const ragIntegrationService = RagIntegrationService.getInstance();
@@ -30,9 +30,27 @@ export const processRagQueryWithMetadata = async (
     const response = await ragIntegrationService.processQuery(query, dataSourceIds);
     
     // Ensure metadata object exists and add fields
-    const metadata = response.metadata || {};
-    metadata.isRagResponse = true;
-    metadata.dataSourceIds = dataSourceIds.map(id => String(id));
+    const incomingMetadata = response.metadata; // This should be RagResponseMetadata as per RagQueryResult
+
+    // Construct a new metadata object ensuring all required fields are present
+    const metadata: RagResponseMetadata = {
+      // Spread existing metadata first, so our explicit sets can override if needed
+      // Also provide defaults for required fields if not present in incomingMetadata
+      processingTime: incomingMetadata?.processingTime || Date.now(), // Default to now if not present
+      dataSourceIds: dataSourceIds.map(id => String(id)), // Set from function parameters
+      retrievalMethod: incomingMetadata?.retrievalMethod || 'unknown', // Default if not present
+      modelUsed: incomingMetadata?.modelUsed || 'unknown', // Default if not present
+      queryAnalysis: {
+        complexity: incomingMetadata?.queryAnalysis?.complexity || 'unknown',
+        intent: incomingMetadata?.queryAnalysis?.intent || 'unknown',
+        isAnalytical: incomingMetadata?.queryAnalysis?.isAnalytical || false,
+        // Spread other potential fields from incoming queryAnalysis
+        ...(incomingMetadata?.queryAnalysis || {}),
+      },
+      // Spread all other fields from incomingMetadata that are not explicitly set above
+      ...(incomingMetadata || {}),
+      isRagResponse: true, // Explicitly set this as per original logic
+    };
     
     // Construct the final response adhering to RagResponse (which extends RagQueryResult)
     const finalResponse: RagResponse = {

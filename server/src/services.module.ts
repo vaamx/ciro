@@ -1,7 +1,8 @@
 import { Module, forwardRef, Provider, Logger } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
-import { OpenAIService } from './services/ai/openai.service';
-import { EmbeddingService } from './services/ai/embedding.service';
+// OpenAIService removed - migrated to LLM abstraction layer
+// Migrated to LLM module
+import { LLMModule, LegacyAIAdapter, EmbeddingService, LLMService } from './services/llm';
 import { SocketService } from './services/util/socket.service';
 import { CodeExecutionService } from './services/code-execution/code-execution.service';
 import { CodeGenerationService } from './services/code-execution/code-generator.service';
@@ -39,7 +40,6 @@ import { WorkspaceService } from './services/workspace/workspace.service';
 import { PythonExecutorService } from './services/code-execution/python-executor.service';
 import { SandboxManagerService } from './services/sandbox/sandbox-manager.service';
 import { ConfigModule } from '@nestjs/config';
-import { AiModule } from './services/ai/ai.module';
 import { DualPathModule } from './modules/dual-path/dual-path.module';
 
 import { AnalysisModule } from './services/analysis/analysis.module';
@@ -87,7 +87,7 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
 @Module({
   imports: [
     ConfigModule, // Add ConfigModule to provide ConfigService
-    forwardRef(() => AiModule),
+    LLMModule, // LLM abstraction layer
     ...conditionalImports,
     forwardRef(() => ProcessorsModule),
     forwardRef(() => IngestionModule),
@@ -98,28 +98,28 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     SandboxModule,
   ],
   providers: [
-    OpenAIService,
-    EmbeddingService,
+    // OpenAIService removed - migrated to LLM abstraction layer
+    // EmbeddingService now comes from LLM module
     SocketService,
     {
       provide: CodeExecutionService,
       useFactory: (
         codeGenerator: CodeGenerationService,
         pythonExecutor: PythonExecutorService,
-        openAiService: OpenAIService,
+        llmService: LLMService,
         qdrantSearchService: QdrantSearchService
       ) => {
         return new CodeExecutionService(
           codeGenerator,
           pythonExecutor,
-          openAiService,
+          llmService,
           qdrantSearchService
         );
       },
       inject: [
         CodeGenerationService,
         PythonExecutorService,
-        OpenAIService,
+        LLMService,
         QdrantSearchService
       ]
     },
@@ -195,8 +195,8 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     AnalyticalRAGService,
   ],
   exports: [
-    OpenAIService,
-    EmbeddingService,
+    // OpenAIService removed - migrated to LLM abstraction layer
+    LLMModule, // Export LLM module to make its services available
     SocketService,
     AnalysisModule,
     CodeExecutionService,

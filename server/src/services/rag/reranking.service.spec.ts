@@ -63,7 +63,7 @@ describe('RerankingService', () => {
         if (key === 'COHERE_RERANK_MODEL') return mockModel;
         return undefined;
       });
-      const newService = new RerankingService(mockConfigService as ConfigService);
+      const newService = new RerankingService(mockConfigService as any);
       expect(mockLogger.warn).toHaveBeenCalledWith('COHERE_API_KEY is not set. RerankingService will not be able to function.');
       expect(newService).toBeDefined(); // Still initializes
     });
@@ -107,7 +107,7 @@ describe('RerankingService', () => {
         if (key === 'COHERE_API_KEY') return undefined;
         return mockModel; 
       });
-      const serviceWithoutKey = new RerankingService(mockConfigService as ConfigService);
+      const serviceWithoutKey = new RerankingService(mockConfigService as any);
       const result = await serviceWithoutKey.rerankDocuments(sampleQuery, sampleDocs);
       
       expect(mockLogger.error).toHaveBeenCalledWith('Cohere API key is not configured. Cannot perform reranking.');

@@ -4,7 +4,7 @@ import { DocumentChunkingService } from '../../../../rag/chunking/document-chunk
 import { QdrantSearchService } from '../../../../vector/search.service';
 import { WebSocketService } from '../../../../util/websocket.service';
 import { SocketService } from '../../../../util/socket.service';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
 import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
@@ -41,7 +41,7 @@ export class EnhancedCsvProcessorService extends CsvProcessorService {
     protected readonly qdrantSearchService: QdrantSearchService,
     protected readonly qdrantCollectionService: QdrantCollectionService,
     protected readonly qdrantIngestionService: QdrantIngestionService,
-    protected readonly openAIService: OpenAIService
+    protected readonly embeddingService: EmbeddingService
   ) {
     // Use strong type assertions to bypass TypeScript checks
     super(
@@ -53,7 +53,7 @@ export class EnhancedCsvProcessorService extends CsvProcessorService {
       qdrantSearchService,
       qdrantCollectionService,
       qdrantIngestionService,
-      openAIService
+      embeddingService
     );
     this.logger.info('Enhanced CSV Processor Service initialized');
   }

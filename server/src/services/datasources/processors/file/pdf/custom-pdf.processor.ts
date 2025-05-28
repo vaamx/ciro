@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as util from 'util';
 import { v4 as uuidv4 } from 'uuid';
-import { OpenAIService } from '../../../../ai/openai.service';
+import { EmbeddingService } from '../../../../llm';
 import { ChunkingService } from '../../../../rag/chunking.service';
 import { QdrantClientService } from '../../../../vector/qdrant-client.service';
 import { ConfigService } from '../../../../core/config.service';
@@ -35,7 +35,7 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
     protected readonly logger = createServiceLogger('CustomPdfProcessorService');
     private chunkingService: ChunkingService;
     private pdfExtract: PDFExtract;
-    private openaiService: OpenAIService;
+    private embeddingService: EmbeddingService;
     private qdrantService: QdrantClientService;
     
     // Batch size for embedding generation to avoid rate limits
@@ -47,13 +47,13 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
         private readonly configService: ConfigService,
         chunkingService: ChunkingService,
         qdrantService: QdrantClientService,
-        openaiService: OpenAIService,
+        embeddingService: EmbeddingService,
     ) {
         super('CustomPdfProcessorService', socketService);
         
         this.chunkingService = chunkingService;
         this.qdrantService = qdrantService;
-        this.openaiService = openaiService;
+        this.embeddingService = embeddingService;
         
         this.pdfExtract = new PDFExtract();
         this.logger.info('CustomPdfProcessorService initialized');
@@ -547,7 +547,7 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
         for (let i = 0; i < texts.length; i += this.EMBEDDING_BATCH_SIZE) {
             const batchTexts = texts.slice(i, i + this.EMBEDDING_BATCH_SIZE);
             try {
-                const embeddings = await this.openaiService.createEmbeddings(batchTexts);
+                const embeddings = await this.embeddingService.createEmbeddings(batchTexts);
                 if (embeddings && embeddings.length === batchTexts.length) {
                     allEmbeddings.push(...embeddings);
                 } else {

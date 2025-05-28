@@ -6,7 +6,7 @@ import { ServicesModule } from '../../services.module';
 import { DocumentProcessingModule } from '../document-processing/document-processing.module';
 import { Pool } from 'pg';
 import { ConfigService } from '@nestjs/config';
-import { OpenAIService } from '../../services/ai/openai.service';
+import { LLMService } from '../../services/llm';
 import { QdrantSearchService } from '../../services/vector/search.service';
 import { DocumentProcessingService } from '../document-processing/document-processing.service';
 
@@ -39,20 +39,20 @@ import { DocumentProcessingService } from '../document-processing/document-proce
       provide: SearchService,
       useFactory: (
         documentProcessorService: DocumentProcessingService,
-        openAIService?: OpenAIService,
+        llmService?: LLMService,
         qdrantSearchService?: QdrantSearchService,
         pool?: Pool
       ) => {
         return new SearchService(
           documentProcessorService,
-          openAIService as any,
+          llmService as any,
           qdrantSearchService as any,
           pool as any
         );
       },
       inject: [
         DocumentProcessingService,
-        { token: OpenAIService, optional: true },
+        { token: LLMService, optional: true },
         { token: QdrantSearchService, optional: true },
         Pool
       ]

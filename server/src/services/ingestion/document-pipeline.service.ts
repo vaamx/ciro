@@ -6,7 +6,7 @@ import { FileType } from '../../types';
 import { QdrantSearchService } from '../vector/search.service';
 import { QdrantCollectionService } from '../vector/collection-manager.service';
 import { DocumentProcessorFactory } from '../datasources/processors/file/document-processor.factory';
-import { OpenAIService } from '../ai/openai.service';
+import { LLMService } from '../llm';
 
 // Define Job Data interface
 interface DocumentJobData {
@@ -32,7 +32,7 @@ export class DocumentPipelineService {
     @Optional() private readonly documentProcessorFactory: DocumentProcessorFactory | null,
     @Optional() private readonly qdrantSearchService: QdrantSearchService | null,
     @Optional() private readonly qdrantCollectionService: QdrantCollectionService | null,
-    @Optional() private readonly openAIService: OpenAIService | null,
+    @Optional() private readonly llmService: LLMService | null,
     ) {
     // Check if queue is disabled
     this.isQueueDisabled = !this.documentQueue;
@@ -68,7 +68,7 @@ export class DocumentPipelineService {
       this.logger.warn('DocumentPipelineService initialized with Queue DISABLED. Document processing will be simulated.');
       console.log('>>> DOCUMENT-PIPELINE: Queue is DISABLED - running in simulation mode');
     } else {
-      this.logger.info('DocumentPipelineService initialized with Queue injection.');
+      this.logger.info('DocumentPipelineService initialized with Queue injection and LLM abstraction layer.');
       console.log('>>> DOCUMENT-PIPELINE: Queue is ENABLED - using Bull for document processing');
     }
     
@@ -82,8 +82,8 @@ export class DocumentPipelineService {
     if (!this.qdrantCollectionService) {
       console.log('>>> DOCUMENT-PIPELINE: QdrantCollectionService is not available - vector collections will be unavailable');
     }
-    if (!this.openAIService) {
-      console.log('>>> DOCUMENT-PIPELINE: OpenAIService is not available - AI features will be limited');
+    if (!this.llmService) {
+      console.log('>>> DOCUMENT-PIPELINE: LLMService is not available - AI features will be limited');
     }
   }
 
