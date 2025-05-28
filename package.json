@@ -57,6 +57,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.4",
     "@nestjs/cli": "^11.0.7",
     "@nestjs/common": "^11.0.20",
     "@nestjs/core": "^11.0.20",
