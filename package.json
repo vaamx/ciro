@@ -1,4 +1,7 @@
 {
+  "name": "ciro-project",
+  "private": true,
+  "version": "0.0.0",
   "dependencies": {
     "@assistant-ui/react": "^0.7.82",
     "@assistant-ui/react-ai-sdk": "^0.7.15",
