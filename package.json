@@ -25,7 +25,7 @@
     "@types/papaparse": "^5.3.15",
     "@types/react-beautiful-dnd": "^13.1.8",
     "@types/react-dropzone": "^5.1.0",
-    "@types/xlsx": "^0.0.36",
+    "@types/xlsx": "^0.0.35",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",
     "bull": "^4.16.5",
