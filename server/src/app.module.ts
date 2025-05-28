@@ -37,8 +37,8 @@ const REDIS_DEPENDENT_MODULES = (IS_REDIS_DISABLED || IS_BULL_DISABLED) ? [] : [
       console.log('>>> INFO: Initializing Bull Redis queues');
       return {
         redis: {
-          // Try container hostname, then IP address (determined from docker inspect), then localhost
-          host: process.env.REDIS_HOST || '192.168.240.2',
+          // Use localhost since Docker Compose exposes Redis on localhost:6379
+          host: process.env.REDIS_HOST || 'localhost',
           port: parseInt(process.env.REDIS_PORT || '6379', 10),
           // IMPORTANT: Bull has specific constraints with Redis options
           // Disabling both problematic options per https://github.com/OptimalBits/bull/issues/1873
@@ -268,6 +268,42 @@ function getModulesByGroup(groupId: number) {
         require('./modules/file/file.module').FileModule,
         require('./modules/document-processing/document-processing.module').DocumentProcessingModule,
       ];
+    case 99:
+      // Test case: Only AuthModule + DataSourceModule (no ServicesModule)
+      return [
+        require('./core/auth/auth.module').AuthModule,
+        require('./modules/data-source/data-source.module').DataSourceModule,
+      ];
+    case 98:
+      // Test case: Only AuthModule + ServicesModule (no DataSourceModule)
+      return [
+        require('./core/auth/auth.module').AuthModule,
+        require('./services.module').ServicesModule,
+      ];
+    case 97:
+      // Test case: AuthModule + ServicesModule + DataSourceModule
+      return [
+        require('./core/auth/auth.module').AuthModule,
+        require('./services.module').ServicesModule,
+        require('./modules/data-source/data-source.module').DataSourceModule,
+      ];
+    case 96:
+      // Test case: AuthModule + ServicesModule + DataSourceModule + SearchModule
+      return [
+        require('./core/auth/auth.module').AuthModule,
+        require('./services.module').ServicesModule,
+        require('./modules/data-source/data-source.module').DataSourceModule,
+        require('./modules/search/search.module').SearchModule,
+      ];
+    case 95:
+      // Test case: AuthModule + ServicesModule + DataSourceModule + SearchModule + WorkspaceModule
+      return [
+        require('./core/auth/auth.module').AuthModule,
+        require('./services.module').ServicesModule,
+        require('./modules/data-source/data-source.module').DataSourceModule,
+        require('./modules/search/search.module').SearchModule,
+        require('./modules/workspace/workspace.module').WorkspaceModule,
+      ];
     default:
       return getFullModuleSet();
   }
@@ -287,7 +323,7 @@ function getFullModuleSet() {
   const dataSourceModule = require('./modules/data-source/data-source.module').DataSourceModule;
   const documentProcessingModule = require('./modules/document-processing/document-processing.module').DocumentProcessingModule;
   const visualizationModule = require('./modules/visualization/visualization.module').VisualizationModule;
-  const dualPathModule = require('./modules/dual-path/dual-path.module').DualPathModule;
+  // const dualPathModule = require('./modules/dual-path/dual-path.module').DualPathModule;
   const oauthModule = require('./modules/oauth/oauth.module').OAuthModule;
   const snowflakeModule = require('./modules/snowflake/snowflake.module').SnowflakeModule;
   const automationModule = require('./modules/automation/automation.module').AutomationModule;
@@ -305,7 +341,6 @@ function getFullModuleSet() {
     dataSourceModule,
     documentProcessingModule,
     visualizationModule,
-    dualPathModule,
     oauthModule,
     snowflakeModule,
     automationModule,

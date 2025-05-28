@@ -400,8 +400,8 @@ export class LLMService implements OnModuleInit, OnModuleDestroy {
     if (!availableModels || availableModels.length === 0) {
       this.logger.error('No models available in the registry for selection.');
       throw new LLMError('No models available in registry for selection.', 'NO_MODELS_REGISTERED');
-    }
-    
+      }
+      
     this.logger.verbose(`Found ${availableModels.length} models in registry for selection.`);
 
     const selectedModel = await this.modelSelectorService.selectBestModel(

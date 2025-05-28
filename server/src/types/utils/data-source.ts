@@ -4,7 +4,7 @@
 export type DataSourceType = 
   | 'snowflake' 
   | 'file' 
-  | '***REMOVED***ql' 
+  | 'postgresql' 
   | 'mysql'
   | 'excel'
   | 'csv'
@@ -90,7 +90,7 @@ export enum DataSourceProcessingStatus {
 export enum DataSourceTypeEnum {
   SNOWFLAKE = 'snowflake',
   FILE = 'file',
-  POSTGRESQL = '***REMOVED***ql',
+  POSTGRESQL = 'postgresql',
   MYSQL = 'mysql',
   EXCEL = 'excel',
   CSV = 'csv',

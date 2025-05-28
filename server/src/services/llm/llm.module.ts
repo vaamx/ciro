@@ -59,11 +59,35 @@ export class LLMModule {
   ) {}
 
   async onModuleInit() {
-    // Initialize and register providers
-    await this.openaiProvider.initialize();
-    await this.anthropicProvider.initialize();
+    console.log('>>> LLM_MODULE: Starting onModuleInit...');
     
-    this.llmService.registerProvider(this.openaiProvider);
-    this.llmService.registerProvider(this.anthropicProvider);
+    // Initialize and register providers with timeout protection
+    try {
+      console.log('>>> LLM_MODULE: Initializing OpenAI provider...');
+      await Promise.race([
+        this.openaiProvider.initialize(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OpenAI provider initialization timeout after 10 seconds')), 10000)
+        )
+      ]);
+      console.log('>>> LLM_MODULE: OpenAI provider initialized successfully');
+    } catch (error) {
+      console.log('>>> LLM_MODULE: OpenAI provider initialization failed:', (error as Error).message);
+    }
+    
+    try {
+      console.log('>>> LLM_MODULE: Initializing Anthropic provider...');
+      await Promise.race([
+        this.anthropicProvider.initialize(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Anthropic provider initialization timeout after 10 seconds')), 10000)
+        )
+      ]);
+      console.log('>>> LLM_MODULE: Anthropic provider initialized successfully');
+    } catch (error) {
+      console.log('>>> LLM_MODULE: Anthropic provider initialization failed:', (error as Error).message);
+    }
+    
+    console.log('>>> LLM_MODULE: onModuleInit completed');
   }
 } 

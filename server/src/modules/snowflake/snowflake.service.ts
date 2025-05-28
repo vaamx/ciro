@@ -1,11 +1,15 @@
-import { Injectable, Logger, BadRequestException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, InternalServerErrorException, NotFoundException, Inject, Optional } from '@nestjs/common';
 import { SnowflakeConnectionParams } from './interfaces/snowflake-connection.interface';
+import { SnowflakeNLQueryService } from '../../services/features/nl-query/snowflake/snowflake-nl-query.service';
 
 @Injectable()
 export class SnowflakeService {
   private legacyService: any; // Holds the connector service instance
   
-  constructor(private readonly logger: Logger) {
+  constructor(
+    private readonly logger: Logger,
+    @Optional() private readonly nlQueryService?: SnowflakeNLQueryService
+  ) {
     // Logger.setContext is a method on LoggerService, not Logger
     // Using string context in log methods instead
     try {
@@ -145,10 +149,12 @@ export class SnowflakeService {
       throw new BadRequestException('Query is required');
     }
 
+    if (!this.nlQueryService) {
+      throw new InternalServerErrorException('Natural language query service is not available');
+    }
+
     try {
-      // This method would delegate to the NLQueryService
-      const nlQueryService = await this.getNLQueryService();
-      return await nlQueryService.executeNaturalLanguageQuery(dataSourceId, query, options);
+      return await this.nlQueryService.executeNaturalLanguageQuery(dataSourceId, query, options);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Error executing natural language query: ${errorMessage}`, 'SnowflakeService');
@@ -158,62 +164,11 @@ export class SnowflakeService {
       throw new InternalServerErrorException(`Failed to execute natural language query: ${errorMessage}`);
     }
   }
-  
-  /**
-   * Create embeddings for Snowflake tables to enable semantic search
-   */
-  async createTableEmbeddings(dataSourceId: number, tables: string[]) {
-    try {
-      const nlQueryService = await this.getNLQueryService();
-      const results = await nlQueryService.createEmbeddingsForTables(dataSourceId, tables);
-      return { success: true, results };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Error creating table embeddings: ${errorMessage}`, 'SnowflakeService');
-      if (typeof errorMessage === 'string' && (errorMessage.includes('not found') || errorMessage.includes('does not exist'))) {
-        throw new NotFoundException(`Data source with ID ${dataSourceId} not found`);
-      }
-      throw new InternalServerErrorException(`Failed to create table embeddings: ${errorMessage}`);
-    }
-  }
-  
-  /**
-   * Find tables relevant to a natural language query using semantic search
-   */
-  async findRelevantTables(dataSourceId: number, query: string, limit?: number) {
-    if (!query) {
-      throw new BadRequestException('Query is required');
-    }
-    
-    try {
-      const nlQueryService = await this.getNLQueryService();
-      return await nlQueryService.findRelevantTables(dataSourceId, query, limit);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Error finding relevant tables: ${errorMessage}`, 'SnowflakeService');
-      if (typeof errorMessage === 'string' && (errorMessage.includes('not found') || errorMessage.includes('does not exist'))) {
-        throw new NotFoundException(`Data source with ID ${dataSourceId} not found`);
-      }
-      throw new InternalServerErrorException(`Failed to find relevant tables: ${errorMessage}`);
-    }
-  }
 
   // Helper methods
   private validateConnectionParams(params: SnowflakeConnectionParams) {
     if (!params.account || !params.username || !params.password) {
       throw new BadRequestException('Account, username, and password are required for Snowflake connection');
-    }
-  }
-
-  private async getNLQueryService() {
-    try {
-      // Import dynamically to avoid circular dependency issues
-      const { SnowflakeNLQueryService } = require('../../services/features/nl-query/snowflake/snowflake-nl-query.service');
-      return SnowflakeNLQueryService.getInstance();
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to get NLQueryService: ${errorMessage}`, 'SnowflakeService');
-      throw new InternalServerErrorException('Failed to initialize NL query service');
     }
   }
 } 

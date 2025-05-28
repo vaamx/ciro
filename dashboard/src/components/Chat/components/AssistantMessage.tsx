@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { type ChatMessage } from '../types';
 import { useNotification } from '../../../contexts/NotificationContext';
 import { PDFResponseAdapter } from './PDFResponseAdapter';
@@ -15,6 +15,8 @@ import { DocumentRenderer } from './DocumentRenderer';
 import { ModernVisualizationAdapter } from './visualization/ModernVisualizationAdapter';
 import { ThinkingStep } from './ThinkingProcess';
 import { DualPathResponse } from './DualPathResponse';
+import { ArtifactRenderer } from './ArtifactRenderer';
+import type { VisualizationConfig } from './visualization/VisualizationRenderer';
 // Removing unused imports
 // import ReactMarkdown from 'react-markdown';
 // import remarkGfm from 'remark-gfm';
@@ -629,7 +631,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   const isDualPathResponse = message.metadata?.isDualPathResponse === true;
 
   // Determine content to render based on message type
-  const renderContent = () => {
+  const renderContent = (): React.ReactNode => {
     // If it's a dual-path response, use specialized renderer
     if (isDualPathResponse) {
       return processDualPathResponse();
@@ -649,10 +651,43 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     if (docType.type !== DocumentType.UNKNOWN) {
       return processDocumentResponse();
     }
-    
-    // Default to simple markdown rendering
+
+    // Check for artifacts in message metadata
+    const artifacts = message.metadata?.artifacts;
+    if (artifacts && Array.isArray(artifacts) && artifacts.length > 0) {
+      return (
+        <div className="space-y-4">
+          {/* Main message content */}
+          <MessageMarkdown content={stripJsonFromContent(extractedContent)} />
+          
+          {/* Artifacts */}
+          <ArtifactRenderer
+            artifacts={artifacts}
+            onAddToDashboard={handleAddToDashboard}
+            className="mt-4"
+          />
+        </div>
+      );
+    }
+
+    // Default message rendering
     return <MessageMarkdown content={stripJsonFromContent(extractedContent)} />;
   };
+
+  // Handle dashboard integration for visualizations
+  const handleAddToDashboard = useCallback((config: VisualizationConfig) => {
+    // Dispatch event for dashboard integration
+    const event = new CustomEvent('add-to-dashboard', {
+      detail: { visualizationConfig: config, messageId: message.id }
+    });
+    document.dispatchEvent(event);
+    
+    // Show notification
+    showNotification?.({
+      type: 'success',
+      message: 'Visualization has been added to your dashboard'
+    });
+  }, [message.id, showNotification]);
 
   // If content is not ready and message is complete, render a loading placeholder instead of null
   if (!shouldRenderContent) {

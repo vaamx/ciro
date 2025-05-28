@@ -3,11 +3,14 @@ import { BullModule } from '@nestjs/bull';
 // OpenAIService removed - migrated to LLM abstraction layer
 // Migrated to LLM module
 import { LLMModule, LegacyAIAdapter, EmbeddingService, LLMService } from './services/llm';
+import { VectorModule } from './services/vector/vector.module'; // RE-ENABLED TO TEST
+import { QdrantSearchService } from './services/vector/search.service'; // Import for CodeExecutionService
+import { HybridSearchService } from './services/vector/hybrid-search.service'; // Import for RagIntegrationService
 import { SocketService } from './services/util/socket.service';
 import { CodeExecutionService } from './services/code-execution/code-execution.service';
 import { CodeGenerationService } from './services/code-execution/code-generator.service';
-import { QueryAnalysisService } from './services/analysis/query-analysis.service';
 import { QueryAnalyzerService } from './services/rag/query-analyzer.service';
+import { QueryRouterService } from './services/code-execution/query-router.service';
 import { RerankingService } from './services/rag/reranking.service';
 import { DirectRAGService } from './services/rag/direct-rag.service';
 import { RagAggregationService } from './services/rag/rag-aggregation.service';
@@ -22,11 +25,6 @@ import { DocumentChunkingService } from './services/rag/chunking/document-chunki
 import { ElementChunkingService } from './services/rag/chunking/element-chunking.service';
 import { SemanticChunkingService } from './services/rag/chunking/semantic-chunking.service';
 import { ChunkingService } from './services/rag/chunking.service';
-import { QdrantSearchService } from './services/vector/search.service';
-import { HybridSearchService } from './services/vector/hybrid-search.service';
-import { QdrantCollectionService } from './services/vector/collection-manager.service';
-import { QdrantClientService } from './services/vector/qdrant-client.service';
-import { QdrantIngestionService } from './services/vector/ingestion.service';
 import { ProcessorsModule } from './services/datasources/processors/file/processors.module';
 import { IntentAnalysisService } from './services/rag/intent-analyzer.service';
 import { ComplexityAnalysisService } from './services/rag/complexity-analyzer.service';
@@ -40,11 +38,13 @@ import { WorkspaceService } from './services/workspace/workspace.service';
 import { PythonExecutorService } from './services/code-execution/python-executor.service';
 import { SandboxManagerService } from './services/sandbox/sandbox-manager.service';
 import { ConfigModule } from '@nestjs/config';
-import { DualPathModule } from './modules/dual-path/dual-path.module';
-
+import { SnowflakeService } from './services/datasources/connectors/snowflake/snowflake.service';
+import { ServiceRegistry } from './services/core/service-registry';
 import { AnalysisModule } from './services/analysis/analysis.module';
 import { StateModule } from './modules/state/state.module';
 import { SandboxModule } from './services/sandbox/sandbox.module';
+import { FormsModule } from './services/features/forms/forms.module';
+import { DualPathModule } from './modules/dual-path/dual-path.module';
 
 // Check environment variables for Redis and Bull disabling
 const IS_REDIS_DISABLED = process.env.REDIS_DISABLED === 'true';
@@ -88,14 +88,16 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
   imports: [
     ConfigModule, // Add ConfigModule to provide ConfigService
     LLMModule, // LLM abstraction layer
+    VectorModule, // RE-ENABLED TO TEST
     ...conditionalImports,
-    forwardRef(() => ProcessorsModule),
+    ProcessorsModule, // Add back now that circular dependency is resolved
     forwardRef(() => IngestionModule),
-    forwardRef(() => DualPathModule),
 
     AnalysisModule,
     StateModule,
     SandboxModule,
+    FormsModule,
+    forwardRef(() => DualPathModule),
   ],
   providers: [
     // OpenAIService removed - migrated to LLM abstraction layer
@@ -129,6 +131,7 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     EnhancedRetrievalService,
     GenerationService,
     QueryAnalyzerService,
+    QueryRouterService,
     RerankingService,
     DirectRAGService,
     RagAggregationService,
@@ -178,58 +181,66 @@ const createForwardRefProvider = <T>(ServiceClass: new (...args: any[]) => T): P
     ElementChunkingService,
     SemanticChunkingService,
     ChunkingService,
-    QdrantSearchService,
     HybridSearchService,
-    QdrantCollectionService,
-    QdrantClientService,
-    QdrantIngestionService,
     IntentAnalysisService,
     ComplexityAnalysisService,
     EntityExtractionService,
-    DataSourceManagementService,
+    DataSourceManagementService, // Keeping this for now
     EnhancedMetadataService,
+    DocumentPipelineService,
     HubSpotService,
     WorkspaceService,
     PythonExecutorService,
     SandboxManagerService,
     AnalyticalRAGService,
+    {
+      provide: SnowflakeService,
+      useFactory: () => SnowflakeService.getInstance(),
+    },
+    {
+      provide: ServiceRegistry,
+      useFactory: () => new ServiceRegistry(),
+    },
   ],
   exports: [
     // OpenAIService removed - migrated to LLM abstraction layer
     LLMModule, // Export LLM module to make its services available
+    VectorModule, // Export VectorModule to make Qdrant services available
+    ProcessorsModule, // Export ProcessorsModule to make document processors available
     SocketService,
     AnalysisModule,
+    FormsModule,
     CodeExecutionService,
     CodeGenerationService,
     BaseRetrievalService,
     RetrievalService,
     EnhancedRetrievalService,
     GenerationService,
-    RagIntegrationService,
     QueryAnalyzerService,
+    QueryRouterService,
     RerankingService,
     DirectRAGService,
     RagAggregationService,
     QueryOrchestratorService,
+    RagIntegrationService,
     DocumentChunkingService,
     ElementChunkingService,
     SemanticChunkingService,
     ChunkingService,
-    QdrantSearchService,
     HybridSearchService,
-    QdrantCollectionService,
-    QdrantClientService,
-    QdrantIngestionService,
     IntentAnalysisService,
     ComplexityAnalysisService,
     EntityExtractionService,
     DataSourceManagementService,
     EnhancedMetadataService,
+    DocumentPipelineService,
     HubSpotService,
     WorkspaceService,
     PythonExecutorService,
     SandboxManagerService,
     AnalyticalRAGService,
+    SnowflakeService,
+    ServiceRegistry,
   ]
 })
 export class ServicesModule {}

@@ -23,53 +23,64 @@ export class QdrantClientService implements IQdrantClientService, OnModuleInit {
     this.connectionTimeout = this.configService.get<number>('QDRANT_CONNECTION_TIMEOUT', 5000);
     
     this.logger.info(`QdrantClientService constructor: API URL set to ${this.apiUrl}`);
+    
+    // Initialize client immediately in constructor instead of onModuleInit
+    this.logger.info('>>> QDRANT_CLIENT_SERVICE: Initializing client in constructor...');
+    this._initializeClientSync();
   }
 
   async onModuleInit(): Promise<void> {
-    if (!this.initializationPromise) {
-      this.initializationPromise = this._initializeClient().catch(error => {
-        this.logger.warn(`Qdrant initialization failed, but continuing: ${error.message}`);
-        this.isInitialized = false;
-        this.client = null;
-      });
-    }
+    this.logger.info('>>> QDRANT_CLIENT_SERVICE: Entering onModuleInit...');
     
     try {
-      await Promise.race([
-        this.initializationPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Qdrant connection timeout')), this.connectionTimeout)
-        )
-      ]);
-    } catch (error: any) {
-      this.logger.warn(`Qdrant client initialization process failed or timed out: ${error.message}`);
-      this.client = null;
-      this.isInitialized = false; 
+      if (!this.initializationPromise) {
+        this.logger.info('>>> QDRANT_CLIENT_SERVICE: Creating initialization promise...');
+        this.initializationPromise = Promise.resolve().then(() => {
+          this._initializeClientSync();
+        }).catch(error => {
+          this.logger.warn(`Qdrant initialization failed, but continuing: ${error.message}`);
+          this.isInitialized = false;
+          this.client = null;
+        });
+      }
+      
+      this.logger.info('>>> QDRANT_CLIENT_SERVICE: About to wait for initialization with timeout...');
+      
+      // Create timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('QdrantClientService onModuleInit timeout after 10 seconds'));
+        }, 10000);
+        return timeoutId;
+      });
+      
+      // Race between initialization and timeout
+      await Promise.race([this.initializationPromise, timeoutPromise]);
+      
+      this.logger.info('>>> QDRANT_CLIENT_SERVICE: onModuleInit completed successfully');
+    } catch (error) {
+      this.logger.error('>>> QDRANT_CLIENT_SERVICE: onModuleInit failed:', (error as Error).message);
+      // Don't throw - allow the application to continue even if Qdrant fails to initialize
     }
   }
 
-  private async _initializeClient(): Promise<void> {
-    if (this.isInitialized) {
-        this.logger.info('Qdrant client already initialized.');
-        return;
-    }
-    this.logger.info('Attempting to initialize Qdrant client...');
+  private _initializeClientSync(): void {
     try {
+      this.logger.info('>>> QDRANT_CLIENT_SERVICE: Creating QdrantClient synchronously...');
+      
       this.client = new QdrantClient({
         url: this.apiUrl,
         apiKey: this.apiKey
       });
       
-      await this.checkConnection();
-
       this.isInitialized = true;
-      this.logger.info('QdrantClientService initialized successfully.');
+      this.logger.info('>>> QDRANT_CLIENT_SERVICE: QdrantClient created and initialized synchronously');
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to initialize Qdrant client during _initializeClient: ${errorMessage}`);
+      this.logger.error(`>>> QDRANT_CLIENT_SERVICE: Failed to initialize synchronously: ${errorMessage}`);
       this.client = null;
       this.isInitialized = false;
-      throw error;
     }
   }
 

@@ -1,0 +1,307 @@
+
+> ciro-server@1.0.0 dev
+> nodemon --watch 'src/**/*.ts' --ignore 'src/**/*.spec.ts' --delay 2.5 --exec 'ts-node -r tsconfig-paths/register' src/main.ts
+
+[33m[nodemon] 3.1.10[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): src/**/*.ts[39m
+[33m[nodemon] watching extensions: ts,js,json[39m
+[32m[nodemon] starting `ts-node -r tsconfig-paths/register src/main.ts`[39m
+>>> CONFIG: REDIS_DISABLED = false
+>>> CONFIG: NO_BULL = false
+>>> CONFIG: ENABLE_MODULE_GROUPING = false
+>>> CONFIG: MODULE_GROUP = 0
+>>> CONFIG: USE_FIXED_AUTH = false
+>>> CONFIG: PROGRESSIVE_LOADING = false
+2025-05-28T06:14:29.751Z [[32MINFO[39M] [ConfigService]: ConfigService initialized
+>>> DATA-SOURCE MODULE: REDIS_DISABLED = false
+>>> DATA-SOURCE MODULE: NO_BULL = false
+>>> DATA-SOURCE MODULE: Importing BullModule.registerQueue
+>>> INGESTION MODULE: REDIS_DISABLED = false
+>>> INGESTION MODULE: NO_BULL = false
+>>> INGESTION MODULE: Importing BullModule.registerQueue
+>>> SERVICES MODULE: REDIS_DISABLED = false
+>>> SERVICES MODULE: NO_BULL = false
+>>> SERVICES MODULE: Importing BullModule.registerQueue
+>>> JOBS MODULE: REDIS_DISABLED = false
+>>> JOBS MODULE: NO_BULL = false
+>>> JOBS MODULE: Importing BullModule.registerQueue
+>>> DOCUMENT-PROCESSING MODULE: REDIS_DISABLED = false
+>>> DOCUMENT-PROCESSING MODULE: NO_BULL = false
+>>> DOCUMENT-PROCESSING MODULE: Importing BullModule.registerQueue
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mStarting server initialization...[39m
+===== DIAGNOSTIC EXPRESS SERVER =====
+Starting a simple Express server to diagnose port binding issues
+DIAGNOSTIC: Successfully bound to port 3001!
+This confirms the port is available and can be bound to.
+If NestJS is failing to bind, it is not a network or OS issue.
+DIAGNOSTIC: Server closed successfully, continuing with NestJS bootstrap
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mInitializing NestJS application...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mAbout to call NestFactory.create...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m[38;5;3m +1ms[39m
+>>> INFO: Initializing Bull Redis queues
+Snowflake OAuth credentials are not configured. Set SNOWFLAKE_CLIENT_ID and SNOWFLAKE_CLIENT_SECRET environment variables.
+[32minfo[39m: EventManager initialized {"timestamp":"2025-05-28T06:14:39.342Z"}
+>>> APP MODULE: Constructor called
+>>> APP MODULE: Running with full module set
+>>> PRISMA_SERVICE: Constructor starting...
+>>> PRISMA_SERVICE: Constructor finished (super called).
+{"level":"info","message":"DocumentChunkingService initialized"}
+{"level":"info","message":"ElementChunkingService initialized"}
+{"level":"info","message":"SemanticChunkingService initialized"}
+2025-05-28T06:14:39.347Z [WARN] [ChunkingService-DEPRECATED]: ChunkingService is DEPRECATED and should not be directly injected. Use specialized chunking services (DocumentChunkingService, ElementChunkingService, SemanticChunkingService) instead.
+2025-05-28T06:14:39.348Z [[32MINFO[39M] [EnhancedMetadataService]: EnhancedMetadataService initialized
+2025-05-28T06:14:39.348Z [[32MINFO[39M] [WorkspaceService]: WorkspaceService initialized by NestJS DI
+2025-05-28T06:14:39.349Z [[32MINFO[39M] [PythonExecutorService]: PythonExecutorService initialized
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InMemoryCacheService] [39m[32mInMemoryCacheService initialized[39m
+2025-05-28T06:14:39.350Z [[32MINFO[39M] [DocumentProcessorManager]: Document Processor Manager initialized
+2025-05-28T06:14:39.350Z [[32MINFO[39M] [ResponseParsingService]: ResponseParsingService initialized
+2025-05-28T06:14:39.351Z [[32MINFO[39M] [VisualizationPreparationService]: VisualizationPreparationService initialized
+2025-05-28T06:14:39.351Z [[32MINFO[39M] [DataPreprocessingService]: DataPreprocessingService initialized
+2025-05-28T06:14:39.352Z [[33MWARN[39M] [ConfigService]: ⚠️ Warning: ConfigService constructor called 2 times. Use getInstance() instead.
+{"level":"info","message":"DocumentChunkingService initialized"}
+2025-05-28T06:14:39.356Z [[32MINFO[39M] [WebSocketService]: WebSocketService constructor called
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPrismaModule dependencies initialized[39m[38;5;3m +7ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPassportModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCacheModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.357Z [[32MINFO[39M] [NlpProcessorService]: Initializing NlpProcessorService
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mStateModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDatasourcesProcessorsUtilsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mMulterModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.358Z [[32MINFO[39M] [WebSocketService]: WebSocketService constructor called
+>>> Creating DataSourceManagementService with delayed document pipeline access
+2025-05-28T06:14:39.359Z [[32MINFO[39M] [DataSourceManagementService]: DataSourceManagementService initialized
+2025-05-28T06:14:39.359Z [[33MWARN[39M] [DataSourceManagementService]: DocumentPipelineService is not provided - document processing will not be available
+2025-05-28T06:14:39.359Z [[32MINFO[39M] [DataSourceManagementService]: DataSourceManagementService initialized
+2025-05-28T06:14:39.359Z [[33MWARN[39M] [DataSourceManagementService]: DocumentPipelineService is not provided - document processing will not be available
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mHttpModule dependencies initialized[39m[38;5;3m +2ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigHostModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDiscoveryModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +7ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +1ms[39m
+2025-05-28T06:14:39.370Z [[32MINFO[39M] [SandboxManagerService]: SandboxManagerService initialized {"maxIdleTime":1800000,"maxContainers":10,"basePort":9000}
+2025-05-28T06:14:39.371Z [[32MINFO[39M] [QdrantClientService]: QdrantClientService constructor: API URL set to http://localhost:6333
+2025-05-28T06:14:39.371Z [[32MINFO[39M] [QdrantClientService]: >>> QDRANT_CLIENT_SERVICE: Initializing client in constructor...
+2025-05-28T06:14:39.371Z [[32MINFO[39M] [QdrantClientService]: >>> QDRANT_CLIENT_SERVICE: Creating QdrantClient synchronously...
+2025-05-28T06:14:39.384Z [[32MINFO[39M] [QdrantClientService]: >>> QDRANT_CLIENT_SERVICE: QdrantClient created and initialized synchronously
+2025-05-28T06:14:39.384Z [[32MINFO[39M] [SandboxManagerService]: SandboxManagerService initialized {"maxIdleTime":1800000,"maxContainers":10,"basePort":9000}
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[S3Service] [39m[32mS3Service initialized with bucket: [39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[QueueService] [39m[32mQueueService initialized[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: gpt-4o from provider: openai[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel gpt-4o registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: gpt-4o-mini from provider: openai[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel gpt-4o-mini registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: o1-preview from provider: openai[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel o1-preview registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: o1-mini from provider: openai[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel o1-mini registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: text-embedding-3-large from provider: openai[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel text-embedding-3-large registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: text-embedding-3-small from provider: openai[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel text-embedding-3-small registered successfully[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mDefault OpenAI models registered[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: claude-3-5-sonnet-20241022 from provider: anthropic[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel claude-3-5-sonnet-20241022 registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: claude-3-5-haiku-20241022 from provider: anthropic[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel claude-3-5-haiku-20241022 registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: claude-3-opus-20240229 from provider: anthropic[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel claude-3-opus-20240229 registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: claude-3-sonnet-20240229 from provider: anthropic[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel claude-3-sonnet-20240229 registered successfully[39m
+[95m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [95m  DEBUG[39m [38;5;3m[ModelRegistry] [39m[95mRegistering model: claude-3-haiku-20240307 from provider: anthropic[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mModel claude-3-haiku-20240307 registered successfully[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[ModelRegistry] [39m[32mDefault Anthropic models registered[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.394Z [[32MINFO[39M] [QdrantCollectionService]: QdrantCollectionService initialized via NestJS DI
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mSandboxModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mS3Module dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mQueueModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mJwtModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.396Z [[32MINFO[39M] [QdrantIngestionService]: QdrantIngestionService initialized
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[EmbeddingService] [39m[32mEmbeddingService initialized. Caching: true, Default Model: text-embedding-3-small[39m
+2025-05-28T06:14:39.397Z [[32MINFO[39M] [LlmAnalysisService]: LlmAnalysisService initialized with LLM abstraction layer
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDashboardModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.398Z [[32MINFO[39M] [QueryAnalysisService]: QueryAnalysisService initialized with LLM abstraction layer
+2025-05-28T06:14:39.398Z [[32MINFO[39M] [AnalyticalRAGService]: AnalyticalRAGService initialized with LLM abstraction layer {"maxIterations":10,"analyticalModel":"gpt-4-turbo-preview"}
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mChatModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAutomationModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mWorkspaceModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mFileModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mOrganizationModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mLLMModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDataSourceModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.400Z [[32MINFO[39M] [CustomDocxProcessorService]: Initializing CustomDocxProcessorService
+2025-05-28T06:14:39.400Z [[32MINFO[39M] [CustomDocxProcessorService]: CustomDocxProcessorService initialized
+2025-05-28T06:14:39.400Z [[32MINFO[39M] [enhanced-excel]: Initializing enhanced-excel
+2025-05-28T06:14:39.401Z [[32MINFO[39M] [JsonProcessorService]: Initializing JsonProcessorService
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAnalysisModule dependencies initialized[39m[38;5;3m +2ms[39m
+2025-05-28T06:14:39.401Z [[32MINFO[39M] [BaseSearchService]: BaseSearchService initialized
+2025-05-28T06:14:39.402Z [[32MINFO[39M] [QdrantSearchService]: QdrantSearchService initialized
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[SnowflakeService] [39m[32mSnowflakeService (Module) initialized with Connector service instance[39m
+2025-05-28T06:14:39.403Z [[32MINFO[39M] [QueryRouterService]: QueryRouterService initialized with LLM abstraction layer. Spellcheck: true, Model: o4-mini-2025-04-16, HighConf: 0.85, MidConf: 0.65
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mVectorModule dependencies initialized[39m[38;5;3m +1ms[39m
+2025-05-28T06:14:39.404Z [[32MINFO[39M] [CustomPdfProcessorService]: Initializing CustomPdfProcessorService
+2025-05-28T06:14:39.404Z [[32MINFO[39M] [CsvProcessorService]: Initializing CsvProcessorService
+2025-05-28T06:14:39.404Z [[32MINFO[39M] [CsvProcessorService]: CSV Processor Service initialized
+2025-05-28T06:14:39.405Z [[32MINFO[39M] [CsvProcessorService]: Initializing CsvProcessorService
+2025-05-28T06:14:39.405Z [[32MINFO[39M] [CsvProcessorService]: CSV Processor Service initialized
+2025-05-28T06:14:39.405Z [[32MINFO[39M] [EnhancedCsvProcessorService]: Enhanced CSV Processor Service initialized
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCodeExecutionModule dependencies initialized[39m[38;5;3m +2ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mOAuthModule dependencies initialized[39m[38;5;3m +1ms[39m
+2025-05-28T06:14:39.406Z [[32MINFO[39M] [DocumentProcessorFactory]: Initializing DocumentProcessorFactory - Registering injected processors...
+2025-05-28T06:14:39.406Z [[32MINFO[39M] [DocumentProcessorFactory]: Initialization complete. Registered processors: .pdf, pdf, .csv, csv, .docx, .doc, .xlsx, .xls, .ods, excel
+2025-05-28T06:14:39.406Z [[32MINFO[39M] [DocumentProcessorFactory]: DocumentProcessorFactory initialized. Constructor called 1 times.
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDocumentProcessingModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mProcessorsModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.407Z [[32MINFO[39M] [DocumentPipelineService]: DocumentPipelineService initialized with Queue injection and LLM abstraction layer.
+>>> DOCUMENT-PIPELINE: Queue is ENABLED - using Bull for document processing
+>>> DOCUMENT-PIPELINE: QdrantSearchService is not available - vector search will be unavailable
+>>> DOCUMENT-PIPELINE: QdrantCollectionService is not available - vector collections will be unavailable
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mSnowflakeModule dependencies initialized[39m[38;5;3m +1ms[39m
+2025-05-28T06:14:39.408Z [[32MINFO[39M] [DataSourceProcessorService]: Initializing Data Source Processor Service
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.409Z [[32MINFO[39M] [DataSourceManagementService]: DataSourceManagementService initialized
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mSearchModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mServicesModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[DocumentJobConsumer] [39m[32mDocumentJobConsumer initialized[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mJobsModule dependencies initialized[39m[38;5;3m +0ms[39m
+2025-05-28T06:14:39.410Z [[32MINFO[39M] [DataAnalysisOrchestrator]: DataAnalysisOrchestrator initialized with LLM abstraction layer
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mIngestionModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mVisualizationModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mNestFactory.create completed successfully![39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mAbout to configure app (middleware, pipes, etc.)...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mCORS configured successfully[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mGlobal validation pipe configured successfully[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mGlobal prefix configured successfully[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mAbout to call app.init() - this triggers onModuleInit hooks...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAppController {/api}:[39m[38;5;3m +2ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/test-analytical, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthController {/api/api/auth}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/register, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/login, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/verify-email, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/request-password-reset, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/reset-password, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/me, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/logout, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/auth/change-password, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mChatController {/api/api/chat/conversations}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/conversations/completion, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/conversations, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/conversations, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/conversations/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/conversations/:id/messages, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/conversations/:id/messages, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mChatSessionsController {/api/api/chat/sessions}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions/:id/messages, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions/:id/messages, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/chat/sessions/:id/history, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mWorkspaceController {/api/api/workspaces}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/workspaces, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/workspaces, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/workspaces/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/workspaces/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/workspaces/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mVisualizationController {/api/api/visualizations}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/visualizations/:dataSourceId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/visualizations/:dataSourceId, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/visualizations/:dataSourceId/qdrant, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mDataSourceController {/api/api/data-sources}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/data-sources, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/data-sources/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/data-sources, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/data-sources/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/data-sources/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/data-sources/:id/process, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mOrganizationController {/api/api/organizations}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/organizations, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/organizations, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/organizations/:id, PUT} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/organizations/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/organizations/:organizationId/teams, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/organizations/:organizationId/categories, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mSearchController {/api/api/search}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/search, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/search, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/search/user-files, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/search/analytical, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mDocumentProcessingController {/api/api/document-processing}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/document-processing/jobs, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/document-processing/jobs/:jobId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/document-processing/data-sources/:dataSourceId/jobs, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/document-processing/jobs/:jobId, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/document-processing/metrics, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mFileController {/api/api/files}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files/upload, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files/status/:fileId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files/:fileId, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files/search, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/files/:id/content, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mDashboardController {/api/api/dashboards}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards/:id, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards/:id/widgets, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards/:id/metrics, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/dashboards/user/stats, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mOAuthController {/api/api/oauth}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/oauth/hubspot, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/oauth/callback, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mSnowflakeController {/api/snowflake}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/test-connection, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/:id/databases, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/:id/databases/:database/schemas, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/:id/databases/:database/schemas/:schema/tables, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/:id/databases/:database/schemas/:schema/tables/:table, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/:id/execute, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/snowflake/:id/nl-query, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAutomationController {/api/api/automations}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/automations, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/automations, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/automations/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/automations/:id, DELETE} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/automations/:id/status, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/api/automations/:id/run, POST} route[39m[38;5;3m +5ms[39m
+>>> PRISMA_SERVICE: Entering onModuleInit...
+>>> PRISMA_SERVICE: Attempting this.$connect()...
+>>> Redis connection error: NOSCRIPT No matching script. Please use EVAL.
+>>> Redis connection error: NOSCRIPT No matching script. Please use EVAL.
+>>> PRISMA_SERVICE: Database connection successful.
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[LLMService] [39m[32mInitializing LLM Service...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[LLMService] [39m[32mLLM Service initialized successfully[39m
+2025-05-28T06:14:39.578Z [[32MINFO[39M] [QueryAnalysisService]: QueryAnalysisService configuration loaded successfully.
+2025-05-28T06:14:39.579Z [[32MINFO[39M] [QueryRouterService]: QueryRouterService onModuleInit called.
+2025-05-28T06:14:39.579Z [[33MWARN[39M] [QueryRouterService]: Spell checking is temporarily disabled due to cspell-lib compatibility issues
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +4ms[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mapp.init() completed successfully![39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mNestJS application created successfully[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mConfiguring middleware...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mAdding helmet...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32m[Bootstrap] Configuring CORS with origin: http://localhost:5173[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mEnabling CORS...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mAdding global filters...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mEnabling shutdown hooks...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mNestJS application configured, initializing...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mDIAGNOSTIC: AppModule is available[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mDIAGNOSTIC: PrismaService is available through DI - SUCCESS[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mAbout to call app.init()...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mApplication initialized successfully - app.init() completed[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mCreating manual HTTP server binding on port 3001...[39m
+[32m[Nest] 260994  - [39m05/28/2025, 12:14:39 AM [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mServer successfully bound to port 3001[39m

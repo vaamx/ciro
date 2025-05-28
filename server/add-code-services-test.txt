@@ -1,0 +1,31 @@
+
+> ciro-server@1.0.0 dev
+> nodemon --watch 'src/**/*.ts' --ignore 'src/**/*.spec.ts' --delay 2.5 --exec 'ts-node -r tsconfig-paths/register' src/main.ts
+
+[33m[nodemon] 3.1.10[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): src/**/*.ts[39m
+[33m[nodemon] watching extensions: ts,js,json[39m
+[32m[nodemon] starting `ts-node -r tsconfig-paths/register src/main.ts`[39m
+>>> CONFIG: REDIS_DISABLED = false
+>>> CONFIG: NO_BULL = false
+>>> CONFIG: ENABLE_MODULE_GROUPING = false
+>>> CONFIG: MODULE_GROUP = 0
+>>> CONFIG: USE_FIXED_AUTH = false
+>>> CONFIG: PROGRESSIVE_LOADING = false
+2025-05-28T06:19:32.430Z [[32MINFO[39M] [ConfigService]: ConfigService initialized
+>>> DATA-SOURCE MODULE: REDIS_DISABLED = false
+>>> DATA-SOURCE MODULE: NO_BULL = false
+>>> DATA-SOURCE MODULE: Importing BullModule.registerQueue
+>>> INGESTION MODULE: REDIS_DISABLED = false
+>>> INGESTION MODULE: NO_BULL = false
+>>> INGESTION MODULE: Importing BullModule.registerQueue
+>>> SERVICES MODULE: REDIS_DISABLED = false
+>>> SERVICES MODULE: NO_BULL = false
+>>> SERVICES MODULE: Importing BullModule.registerQueue
+>>> JOBS MODULE: REDIS_DISABLED = false
+>>> JOBS MODULE: NO_BULL = false
+>>> JOBS MODULE: Importing BullModule.registerQueue
+>>> DOCUMENT-PROCESSING MODULE: REDIS_DISABLED = false
+>>> DOCUMENT-PROCESSING MODULE: NO_BULL = false
+>>> DOCUMENT-PROCESSING MODULE: Importing BullModule.registerQueue

@@ -8,7 +8,7 @@ export type DataSourceType =
   | 'excel' 
   | 'csv' 
   | 'snowflake' 
-  | '***REMOVED***ql' 
+  | 'postgresql' 
   | 'mysql' 
   | 'file' 
   | 'unknown';

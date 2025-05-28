@@ -25,7 +25,7 @@ const FILE_TYPE_ICONS = {
 
 // Database logos
 const DATABASE_LOGOS = {
-  ***REMOVED***ql: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg',
+  postgresql: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg',
   mysql: 'https://www.mysql.com/common/logos/logo-mysql-170x115.png',
   mongodb: 'https://www.mongodb.com/assets/images/global/leaf.png',
   clickhouse: 'https://cdn.worldvectorlogo.com/logos/clickhouse.svg',

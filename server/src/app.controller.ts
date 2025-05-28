@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
+import { Controller, Get, Post, Body, Optional } from '@nestjs/common';
 import { AppService } from './app.service';
 import { QueryRouterService } from './services/code-execution/query-router.service';
 
@@ -6,7 +6,7 @@ import { QueryRouterService } from './services/code-execution/query-router.servi
 export class AppController {
   constructor(
     private readonly appService: AppService,
-    private readonly queryRouterService: QueryRouterService,
+    @Optional() private readonly queryRouterService?: QueryRouterService,
   ) {}
 
   // Basic endpoint to confirm controller is working
@@ -17,6 +17,13 @@ export class AppController {
 
   @Post('test-analytical')
   async testAnalyticalRAG(@Body() body: { query: string; sessionId?: string }) {
+    if (!this.queryRouterService) {
+      return {
+        success: false,
+        error: 'QueryRouterService not available - CodeExecutionModule not loaded'
+      };
+    }
+
     const sessionId = body.sessionId || `test-${Date.now()}`;
     
     try {

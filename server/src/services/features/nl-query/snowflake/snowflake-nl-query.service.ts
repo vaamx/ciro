@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { createServiceLogger } from '../../../../common/utils/logger-factory';
 import { SnowflakeService, SnowflakeQueryResult } from '../../../datasources/connectors/snowflake/snowflake.service';
 import { LLMService, ChatMessage } from '../../../llm';
@@ -39,14 +39,17 @@ interface NLQueryOptions {
 @Injectable()
 export class SnowflakeNLQueryService {
   private readonly logger = createServiceLogger('SnowflakeNLQueryService');
+  private readonly snowflakeService: SnowflakeService;
   
   constructor(
-    private snowflakeService: SnowflakeService,
     private llmService: LLMService,
     private qdrantService: QdrantClientService,
     private chunkingService: ChunkingService,
-    private schemaIndexerService: SnowflakeSchemaIndexerService
-  ) {}
+    @Optional() private schemaIndexerService?: SnowflakeSchemaIndexerService
+  ) {
+    // Get the singleton instance of the connector service
+    this.snowflakeService = SnowflakeService.getInstance();
+  }
   
   /**
    * Execute a natural language query against Snowflake

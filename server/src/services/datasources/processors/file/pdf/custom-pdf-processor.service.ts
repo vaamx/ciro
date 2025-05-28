@@ -1,34 +1,24 @@
 // Migrated to LLM abstraction layer - using EmbeddingService instead of OpenAIService
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseDocumentProcessor, ProcessingResult } from '../base-document.processor';
 import { ConfigService } from '../../../../core/config.service';
 import { DocumentChunkingService } from '../../../../rag/chunking/document-chunking.service';
 import { QdrantSearchService } from '../../../../vector/search.service';
-import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
-import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { DataSourceManagementService } from '../../../management/datasource-management.service';
-import { LLMService } from '../../../../llm';
 import { EmbeddingService } from '../../../../llm';
 import { SocketService } from '../../../../util/socket.service';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
 import { DataSourceProcessingStatus } from '../../../../../types';
-import * as util from 'util';
 import { v4 as uuidv4 } from 'uuid';
-// Commented out problematic imports to allow the application to start
-// These will need to be uncommented when the PDF functionality is needed
-import * as pdfjs from 'pdfjs-dist';
-import * as cheerio from 'cheerio';
-import { PDFDocument } from 'pdf-lib';
-import { SocketService as OldSocketService } from '../../../../util/socket.service';
 import * as os from 'os';
 import pdfParse from 'pdf-parse';
 import { PDFExtract } from 'pdf.js-extract';
 import { createWorker } from 'tesseract.js';
 // Comment out the PDFPoppler import that was causing issues
-// import { PDFPoppler } from 'pdf-poppler';
+// import PDFPoppler from 'pdf-poppler';
 import { execSync } from 'child_process';
 import * as crypto from 'crypto';
 
@@ -42,7 +32,7 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
     private documentChunkingService: DocumentChunkingService;
     private pdfExtract: PDFExtract;
     private embeddingService: EmbeddingService;
-    private qdrantService: QdrantSearchService;
+    private qdrantService: QdrantSearchService | null;
     
     // Batch size for embedding generation to avoid rate limits
     private readonly EMBEDDING_BATCH_SIZE = 20;
@@ -52,17 +42,14 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
         socketService: SocketService,
         private readonly configService: ConfigService,
         documentChunkingService: DocumentChunkingService,
-        qdrantService: QdrantSearchService,
+        @Optional() qdrantService: QdrantSearchService | null,
         embeddingService: EmbeddingService,
     ) {
         super('CustomPdfProcessorService', socketService);
-        
         this.documentChunkingService = documentChunkingService;
-        this.qdrantService = qdrantService;
-        this.embeddingService = embeddingService;
-        
         this.pdfExtract = new PDFExtract();
-        this.logger.info('CustomPdfProcessorService initialized');
+        this.embeddingService = embeddingService;
+        this.qdrantService = qdrantService || null; // Handle null case
     }
     
     /**
@@ -317,18 +304,23 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
             } catch (pdfError) {
                 this.logger.warn(`pdftoppm failed: ${pdfError instanceof Error ? pdfError.message : String(pdfError)}`);
                 
-                // Comment out the pdf-poppler usage that was causing issues
+                // Comment out the pdf-poppler usage that was causing issues - Linux not supported
                 /*
                 // Fallback to pdf-poppler if pdftoppm fails
-                await PDFPoppler.convert(safeFilePath, {
-                    format: 'png',
-                    out_dir: tempDir,
-                    out_prefix: 'page',
-                });
+                try {
+                    await PDFPoppler.convert(safeFilePath, {
+                        format: 'png',
+                        out_dir: tempDir,
+                        out_prefix: 'page',
+                    });
+                } catch (popplerError) {
+                    this.logger.error(`Both pdftoppm and pdf-poppler failed: ${popplerError instanceof Error ? popplerError.message : String(popplerError)}`);
+                    return '';
+                }
                 */
                 
                 // Instead, just log the error and return empty result
-                this.logger.error('PDF conversion with pdftoppm failed and pdf-poppler fallback is disabled');
+                this.logger.error('PDF conversion with pdftoppm failed and pdf-poppler fallback is disabled (Linux not supported)');
                 return '';
             }
             
@@ -538,7 +530,7 @@ export class CustomPdfProcessorService extends BaseDocumentProcessor {
                 vector: vector,
                 payload: elementMetadata[index]
             }));
-            await this.qdrantService.upsert(collectionName, points);
+            await this.qdrantService?.upsert(collectionName, points);
 
             this.logger.info(`Successfully processed and ingested ${elements.length} elements.`);
             return { status: 'success', chunks: elements.length, metadata: { collectionName } };

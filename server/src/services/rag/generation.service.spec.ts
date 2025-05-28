@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { LLMService } from '../llm/llm.service';
 import { GenerationService } from './generation.service';
-import { LLMService } from '@services/llm/llm.service';
-import { createServiceLogger } from '@common/utils/logger-factory';
-import { Document, GenerationOptions, ContextBuilderOptions, ContextFormat } from '@services/vector/vector.interfaces';
-import { ChatMessage } from '@services/llm/types/llm-types';
+import { ConfigService } from '@nestjs/config';
+import { createServiceLogger } from '../../common/utils/logger-factory';
+import { Document, GenerationOptions, ContextBuilderOptions, ContextFormat } from '../vector/vector.interfaces';
+import { ChatMessage } from '../llm/types/llm-types';
 
 jest.mock('@common/utils/logger-factory', () => {
   const innerMockLogger = {
@@ -78,8 +79,8 @@ describe('GenerationService', () => {
       const result = await service.generateResponse(sampleQuery, sampleDocuments, options);
       expect(result.content).toBe('Mocked LLM Response');
       expect(result.model).toBe('gpt-test');
-      expect(mockOpenAIService.generateChatCompletion).toHaveBeenCalledTimes(1);
-      const calledMessages = (mockOpenAIService.generateChatCompletion as jest.Mock).mock.calls[0][0] as ChatMessage[];
+      expect(mockLLMService.generateChatCompletion).toHaveBeenCalledTimes(1);
+      const calledMessages = (mockLLMService.generateChatCompletion as jest.Mock).mock.calls[0][0] as ChatMessage[];
       expect(calledMessages[0].role).toBe('system');
       expect(calledMessages[1].role).toBe('user');
       expect(calledMessages[1].content).toContain(sampleQuery);
@@ -91,7 +92,7 @@ describe('GenerationService', () => {
       const result = await service.generateResponse(sampleQuery, sampleEmptyDocuments);
       expect(result.content).toBe("I couldn't find any relevant information to answer your question. Please try rephrasing or selecting a different data source.");
       expect(result.model).toBe('fallback');
-      expect(mockOpenAIService.generateChatCompletion).not.toHaveBeenCalled();
+      expect(mockLLMService.generateChatCompletion).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith('No documents provided for generating response');
     });
 
@@ -100,14 +101,14 @@ describe('GenerationService', () => {
       jest.spyOn(service as any, 'selectAppropriateModel').mockReturnValue('default-dynamic-model');
       const result = await service.generateResponse(sampleQuery, sampleDocuments);
       expect(result.model).toBe('default-dynamic-model');
-      expect(mockOpenAIService.generateChatCompletion).toHaveBeenCalledWith(
+      expect(mockLLMService.generateChatCompletion).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({ model: 'default-dynamic-model' })
       );
     });
 
     it('should handle errors from OpenAI service gracefully', async () => {
-      mockOpenAIService.generateChatCompletion.mockRejectedValueOnce(new Error('OpenAI API Error'));
+      mockLLMService.generateChatCompletion.mockRejectedValueOnce(new Error('OpenAI API Error'));
       const result = await service.generateResponse(sampleQuery, sampleDocuments);
       expect(result.content).toBe('I encountered an error while generating a response. Please try again.');
       expect(result.model).toBe('error');
@@ -116,8 +117,11 @@ describe('GenerationService', () => {
 
     it('should handle non-JSON responses from OpenAI service if text() is not JSON parsable', async () => {
       // @ts-ignore
-      mockOpenAIService.generateChatCompletion.mockResolvedValueOnce({
-        text: jest.fn().mockResolvedValue("This is not JSON"),
+      mockLLMService.generateChatCompletion.mockResolvedValueOnce({
+        content: "This is not JSON",
+        finishReason: 'stop',
+        metadata: { model: 'test-model', provider: 'test' },
+        usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 }
       });
       const result = await service.generateResponse(sampleQuery, sampleDocuments);
       expect(result.content).toBe('There was an error generating a response. Please try again.');
@@ -133,8 +137,8 @@ describe('GenerationService', () => {
       const options: GenerationOptions = { model: 'gpt-prompt-model' };
       const result = await service.generateFromPreformattedPrompt(preformattedPrompt, options);
       expect(result).toBe('Mocked LLM Response');
-      expect(mockOpenAIService.generateChatCompletion).toHaveBeenCalledTimes(1);
-      const calledMessages = (mockOpenAIService.generateChatCompletion as jest.Mock).mock.calls[0][0] as ChatMessage[];
+      expect(mockLLMService.generateChatCompletion).toHaveBeenCalledTimes(1);
+      const calledMessages = (mockLLMService.generateChatCompletion as jest.Mock).mock.calls[0][0] as ChatMessage[];
       expect(calledMessages[0].role).toBe('system'); // System message is still prepended
       expect(calledMessages[1].role).toBe('user');
       expect(calledMessages[1].content).toBe(preformattedPrompt);
@@ -144,25 +148,29 @@ describe('GenerationService', () => {
     it('should return error for empty preformatted prompt', async () => {
       const result = await service.generateFromPreformattedPrompt('');
       expect(result).toBe("Error: Prompt cannot be empty.");
-      expect(mockOpenAIService.generateChatCompletion).not.toHaveBeenCalled();
+      expect(mockLLMService.generateChatCompletion).not.toHaveBeenCalled();
       expect(mockLogger.warn).toHaveBeenCalledWith('generateFromPreformattedPrompt called with an empty prompt.');
     });
     
     it('should handle plain string responses correctly if JSON parsing fails but response is a string', async () => {
-      // @ts-ignore
-      mockOpenAIService.generateChatCompletion.mockResolvedValueOnce({
-        text: jest.fn().mockResolvedValue("Simple string LLM response."),
-      });
+      mockLLMService.generateChatCompletion.mockResolvedValueOnce({
+        content: "Simple string LLM response.",
+        finishReason: 'stop',
+        metadata: { model: 'test-model', provider: 'test' },
+        usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 }
+      } as any);
       const result = await service.generateFromPreformattedPrompt(preformattedPrompt);
       expect(result).toBe("Simple string LLM response.");
       expect(mockLogger.info).toHaveBeenCalledWith("Response appears to be a plain string, using as content.");
     });
 
     it('should return error if JSON parsing fails and response is not a recoverable string', async () => {
-       // @ts-ignore
-      mockOpenAIService.generateChatCompletion.mockResolvedValueOnce({
-        text: jest.fn().mockResolvedValue("<html><body>Invalid</body></html>"), // Not simple string, not JSON
-      });
+      mockLLMService.generateChatCompletion.mockResolvedValueOnce({
+        content: "<html><body>Invalid</body></html>",
+        finishReason: 'stop',
+        metadata: { model: 'test-model', provider: 'test' },
+        usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 }
+      } as any);
       const result = await service.generateFromPreformattedPrompt(preformattedPrompt);
       expect(result).toBe("<html><body>Invalid</body></html>"); // Adjusted expectation
       expect(mockLogger.error).toHaveBeenCalledWith("Failed to parse JSON response from pre-formatted prompt", { response: "<html><body>Invalid</body></html>" });

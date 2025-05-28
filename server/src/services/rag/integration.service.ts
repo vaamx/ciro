@@ -15,7 +15,7 @@ export type DataSourceType =
   | 'excel' 
   | 'csv' 
   | 'snowflake' 
-  | '***REMOVED***ql' 
+  | 'postgresql' 
   | 'mysql' 
   | 'file' 
   | 'unknown';
@@ -367,7 +367,7 @@ export class RagIntegrationService {
     if (firstDoc.metadata?.database) {
       const db = String(firstDoc.metadata.database).toLowerCase();
       if (db.includes('snowflake')) return 'snowflake';
-      if (db.includes('***REMOVED***')) return '***REMOVED***ql';
+      if (db.includes('postgresql')) return 'postgresql';
       if (db.includes('mysql')) return 'mysql';
     }
     

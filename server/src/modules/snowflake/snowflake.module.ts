@@ -3,34 +3,35 @@ import { SnowflakeController } from './snowflake.controller';
 import { SnowflakeService } from './snowflake.service';
 import { SnowflakeNLQueryService } from '../../services/features/nl-query/snowflake/snowflake-nl-query.service';
 import { AuthModule } from '../../core/auth/auth.module';
+import { LLMModule } from '../../services/llm/llm.module';
+import { ServicesModule } from '../../services.module';
+import { SnowflakeSchemaIndexerService } from '../../services/datasources/processors/schema/snowflake/snowflake-schema-indexer.service';
+import { RowLevelIndexerService } from '../../services/datasources/processors/schema/snowflake/row-level-indexer.service';
+import { EventManager } from '../../services/util/event-manager';
+import { WebSocketService } from '../../services/util/websocket.service';
 
 @Module({
   imports: [
     AuthModule, // For authentication guards
+    LLMModule, // For embedding services
+    ServicesModule, // For QdrantCollectionService, QdrantIngestionService, DocumentChunkingService, EnhancedMetadataService
   ],
   controllers: [SnowflakeController],
   providers: [
+    Logger,
     SnowflakeService,
-    // Create a provider for Logger
+    SnowflakeNLQueryService,
+    // SnowflakeSchemaIndexerService, // Temporarily disabled due to RowLevelIndexerService dependency issues
     {
-      provide: Logger,
-      useValue: new Logger('Snowflake')
+      provide: EventManager,
+      useFactory: () => EventManager.getInstance(),
     },
-    // Provide the existing SnowflakeNLQueryService
-    {
-      provide: SnowflakeNLQueryService,
-      useFactory: () => {
-        try {
-          // Import dynamically to avoid circular dependency issues
-          const { SnowflakeNLQueryService } = require('../../services/features/nl-query/snowflake/snowflake-nl-query.service');
-          return SnowflakeNLQueryService.getInstance();
-        } catch (error) {
-          console.error('Failed to load SnowflakeNLQueryService:', error);
-          return null;
-        }
-      }
-    }
+    WebSocketService,
   ],
-  exports: [SnowflakeService]
+  exports: [
+    SnowflakeService,
+    SnowflakeNLQueryService,
+    // SnowflakeSchemaIndexerService, // Temporarily disabled
+  ],
 })
 export class SnowflakeModule {} 

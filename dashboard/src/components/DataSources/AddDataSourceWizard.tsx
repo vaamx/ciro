@@ -152,7 +152,7 @@ const DATA_SOURCE_TYPES: DataSourceUIType[] = [
     category: 'database',
     options: [
       {
-        id: '***REMOVED***ql',
+        id: 'postgresql',
         name: 'PostgreSQL',
         logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg',
         description: 'Open source relational database'

@@ -62,6 +62,10 @@ export class OpenAIProvider implements ILLMProvider {
       return;
     }
     
+    // Temporarily disable the connection test to see if it's causing the hang
+    this.logger.log('OpenAI provider initialized successfully (connection test disabled)');
+    return;
+    
     // Test the connection
     try {
       await (this.client as any).models.list();

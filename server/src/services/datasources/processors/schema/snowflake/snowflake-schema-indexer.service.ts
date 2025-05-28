@@ -3,9 +3,9 @@ import path from 'path';
 import fs from 'fs-extra';
 import { injectable } from 'inversify';
 import { createServiceLogger } from '../../../../../common/utils/logger-factory';
-import { EmbeddingService } from '@services/llm';
-import { QdrantCollectionService } from '@services/vector/collection-manager.service';
-import { QdrantIngestionService } from '@services/vector/ingestion.service';
+import { EmbeddingService } from '../../../../llm/embedding.service';
+import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
+import { QdrantIngestionService } from '../../../../vector/ingestion.service';
 import { SnowflakeService } from '../../../connectors/snowflake/snowflake.service';
 import { WebSocketService } from '../../../../util/websocket.service';
 import { DocumentChunkingService } from '../../../../rag/chunking/document-chunking.service';
@@ -98,13 +98,13 @@ interface ExtendedMetadataOptions {
 @injectable()
 export class SnowflakeSchemaIndexerService {
   private readonly logger = createServiceLogger('SnowflakeSchemaIndexerService');
+  private readonly snowflakeService: SnowflakeService;
   private metadataCache = new Map<string, TableMetadata>();
   private METADATA_CACHE_DIR = path.join(process.cwd(), '.cache', 'schema-metadata');
   private KNOWLEDGE_DIR = path.join(process.cwd(), 'knowledge');
   private SNOWFLAKE_KNOWLEDGE_DIR = path.join(this.KNOWLEDGE_DIR, 'snowflake');
 
   constructor(
-    private readonly snowflakeService: SnowflakeService,
     private readonly embeddingService: EmbeddingService,
     private readonly qdrantCollectionService: QdrantCollectionService,
     private readonly qdrantIngestionService: QdrantIngestionService,
@@ -114,6 +114,9 @@ export class SnowflakeSchemaIndexerService {
     private readonly eventManager: EventManager,
     private readonly websocketService: WebSocketService
   ) {
+    // Get the singleton instance of the connector service
+    this.snowflakeService = SnowflakeService.getInstance();
+    
     // Create cache directories if they don't exist
     if (!fs.existsSync(this.METADATA_CACHE_DIR)) {
       fs.mkdirpSync(this.METADATA_CACHE_DIR);

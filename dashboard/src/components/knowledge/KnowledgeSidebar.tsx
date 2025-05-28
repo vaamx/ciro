@@ -93,7 +93,7 @@ const DATA_SOURCE_TYPES: Record<string, { icon: string, label: string, color: st
   },
   
   // Database types
-  ***REMOVED***: { 
+  postgresql: { 
     icon: 'https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg', 
     label: 'PostgreSQL', 
     color: 'text-blue-500 dark:text-blue-300' 

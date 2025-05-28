@@ -4,6 +4,9 @@ import * as net from 'net';
 import * as os from 'os';
 import * as fs from 'fs';
 import express from 'express';
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
 
 // Add global handlers EARLY
 process.on('unhandledRejection', (reason, promise) => {
@@ -133,10 +136,7 @@ function ensureLoggerMethods(logger: winston.Logger): winston.Logger {
   return logger;
 }
 
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { createServiceLogger } from './common/utils/logger-factory'; // Assuming logger factory exists
-import { ValidationPipe } from '@nestjs/common'; // Import ValidationPipe
 import { SocketService } from './services/util/socket.service'; // Import SocketService
 import helmet from 'helmet';
 import cors from 'cors';
@@ -293,21 +293,63 @@ async function bootstrap() {
 
     logger.log('Initializing NestJS application...');
     
-    // Regular NestJS initialization
-    const app = await NestFactory.create(AppModule, {
-      logger: ['error', 'warn', 'log', 'debug'],
+    logger.log('About to call NestFactory.create...');
+    // Regular NestJS initialization with separate timeout for create vs init
+    const app = await Promise.race([
+      NestFactory.create(AppModule, {
+        logger: ['error', 'warn', 'log', 'debug'],
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('NestFactory.create timeout after 30 seconds')), 30000)
+      )
+    ]) as any;
+    logger.log('NestFactory.create completed successfully!');
+    
+    logger.log('About to configure app (middleware, pipes, etc.)...');
+    
+    // Configure CORS
+    app.enableCors({
+      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      credentials: true,
     });
+    logger.log('CORS configured successfully');
+    
+    // Global validation pipe
+    app.useGlobalPipes(new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }));
+    logger.log('Global validation pipe configured successfully');
+    
+    // Global prefix
+    app.setGlobalPrefix('api');
+    logger.log('Global prefix configured successfully');
+    
+    logger.log('About to call app.init() - this triggers onModuleInit hooks...');
+    // Add a custom timeout with more detailed error information
+    await Promise.race([
+      app.init(),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('app.init() timeout after 20 seconds - likely hanging during onModuleInit hooks'));
+        }, 20000);
+      })
+    ]);
+    logger.log('app.init() completed successfully!');
     
     logger.log('NestJS application created successfully');
     
     // Configure Express middleware
     logger.log('Configuring middleware...');
+    logger.log('Adding helmet...');
     app.use(helmet());
     
     const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
     logger.log(`[Bootstrap] Configuring CORS with origin: ${corsOrigin}`); // Log the origin being used
     
     // Update CORS configuration to handle credentials and specify frontend origin
+    logger.log('Enabling CORS...');
     app.enableCors({
       origin: corsOrigin,
       credentials: true,
@@ -316,7 +358,9 @@ async function bootstrap() {
     });
     
     // Apply global filters and enable shutdown hooks before initializing
+    logger.log('Adding global filters...');
     app.useGlobalFilters(new AllExceptionsFilter());
+    logger.log('Enabling shutdown hooks...');
     app.enableShutdownHooks();
     
     logger.log('NestJS application configured, initializing...');
@@ -342,8 +386,9 @@ async function bootstrap() {
     }
     
     // Initialize the application explicitly first
+    logger.log('About to call app.init()...');
     await app.init();
-    logger.log('Application initialized successfully');
+    logger.log('Application initialized successfully - app.init() completed');
     
     // CRITICAL: Use native HTTP server approach which is more reliable
     logger.log(`Creating manual HTTP server binding on port ${portNumber}...`);

@@ -15,7 +15,7 @@ import { SnowflakeService } from './snowflake.service';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
 import { User } from '../../core/database/prisma-types';
-import { TestConnectionDto, ExecuteQueryDto, NaturalLanguageQueryDto, CreateEmbeddingsDto, FindTablesDto } from './dto';
+import { TestConnectionDto, ExecuteQueryDto, NaturalLanguageQueryDto } from './dto';
 
 @ApiTags('snowflake')
 @Controller('snowflake')
@@ -98,32 +98,6 @@ export class SnowflakeController {
       id,
       nlQueryDto.query,
       nlQueryDto.options
-    );
-  }
-
-  @Post(':id/embeddings')
-  @HttpCode(200)
-  async createTableEmbeddings(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() createEmbeddingsDto: CreateEmbeddingsDto,
-    @GetUser() user: User
-  ) {
-    this.logger.log(`Creating table embeddings for data source ID: ${id}, user: ${user.id}`, 'SnowflakeController');
-    return await this.snowflakeService.createTableEmbeddings(id, createEmbeddingsDto.tables);
-  }
-
-  @Post(':id/relevant-tables')
-  @HttpCode(200)
-  async findRelevantTables(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() findTablesDto: FindTablesDto,
-    @GetUser() user: User
-  ) {
-    this.logger.log(`Finding relevant tables for data source ID: ${id}, user: ${user.id}`, 'SnowflakeController');
-    return await this.snowflakeService.findRelevantTables(
-      id,
-      findTablesDto.query,
-      findTablesDto.limit
     );
   }
 } 

@@ -10,13 +10,12 @@ import { JsonProcessorService } from './json/json-processor.service';
 import { DocumentProcessorFactory } from './document-processor.factory';
 import { DocumentChunkingService } from '../../../rag/chunking/document-chunking.service';
 
-// Import modules providing dependencies needed by processors
-import { ServicesModule } from '../../../../services.module'; // Corrected path
+// Import specific modules instead of ServicesModule to break circular dependency
+import { VectorModule } from '../../../vector/vector.module'; // Provides Qdrant services
+import { LLMModule } from '../../../llm/llm.module'; // Provides EmbeddingService
 import { ConfigModule } from '@nestjs/config';
 import { ConfigService as CoreConfigService } from '../../../core/config.service';
-// import { ChunkingService } from '../../../rag/chunking.service'; // Removed import
 import { WebSocketService } from '../../../util/websocket.service';
-import { LLMModule } from '../../../llm/llm.module'; // Updated import
 import { EmbeddingService, LLMService } from '../../../llm';
 import { DataSourceManagementService } from '../../management/datasource-management.service';
 import { QdrantSearchService } from '../../../vector/search.service';
@@ -28,12 +27,22 @@ import { SocketService } from '../../../util/socket.service'; // Import SocketSe
 @Module({
   imports: [
     ConfigModule,
-    forwardRef(() => ServicesModule),
-    LLMModule, // Updated import
+    VectorModule, // Direct import instead of through ServicesModule
+    LLMModule, // Direct import instead of through ServicesModule
   ],
   providers: [
     // Make sure CoreConfigService is provided
     CoreConfigService,
+    
+    // Provide DataSourceManagementService directly since we can't get it from ServicesModule
+    DataSourceManagementService,
+    
+    // Provide DocumentChunkingService directly
+    DocumentChunkingService,
+    
+    // Provide SocketService directly
+    SocketService,
+    
     // Add EventManager as a singleton provider
     {
       provide: EventManager,

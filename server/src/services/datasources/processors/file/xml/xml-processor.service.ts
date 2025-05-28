@@ -2,14 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { createServiceLogger } from '@common/utils/logger-factory';
 import { BaseDocumentProcessor, ProcessingResult } from '../base-document.processor';
 import { ConfigService } from '@services/core/config.service';
-import { QdrantCollectionService } from '@services/vector/collection-manager.service';
-import { QdrantIngestionService } from '@services/vector/ingestion.service';
-import { EmbeddingService } from '@services/llm';
+import { QdrantCollectionService } from '../../../../vector/collection-manager.service';
+import { QdrantIngestionService } from '../../../../vector/ingestion.service';
+import { EmbeddingService } from '../../../../llm/embedding.service';
 import { SocketService } from '@services/util/socket.service';
 import { DocumentChunkingService } from '@services/rag/chunking/document-chunking.service';
-import * as fs from 'fs';
+import { promises as fs } from 'fs';
 import * as xml2js from 'xml2js';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
 
 /**
  * Service for processing XML files
@@ -60,7 +61,7 @@ export class XmlProcessorService extends BaseDocumentProcessor {
     
     try {
       // Read and parse XML file
-      const xmlContent = fs.readFileSync(filePath, 'utf-8');
+      const xmlContent = await fs.readFile(filePath, 'utf-8');
       const parser = new xml2js.Parser({
         explicitArray: false,
         mergeAttrs: true,

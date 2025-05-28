@@ -123,7 +123,7 @@ export class DataSourceProcessorService {
       const dataSourceTypePatterns = [
         'snowflake',
         'mysql',
-        '***REMOVED***',
+        'postgresql',
         'mongodb',
         'bigquery',
         'redshift',
