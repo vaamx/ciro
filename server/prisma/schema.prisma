@@ -7,124 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id                        Int                         @id @default(autoincrement())
-  email                     String                      @unique
-  hashedPassword            String?                     @map("hashed_password")
-  name                      String?
-  role                      Role                        @default(USER)
-  createdAt                 DateTime                    @default(now()) @map("created_at")
-  updatedAt                 DateTime                    @updatedAt @map("updated_at")
-  conversation_participants conversation_participants[]
-  conversations             conversations[]
-  dataSources               DataSource[]                @relation("UserDataSources")
-  dashboards                Dashboard[]
-  messages                  messages[]
-  organizationMemberships   OrganizationMember[]
-  workspaces                workspaces[]
-
-  @@map("users")
+model automations {
+  id              String        @id
+  name            String
+  description     String?
+  config          Json?
+  active          Boolean       @default(true)
+  organization_id Int
+  created_at      DateTime      @default(now())
+  updated_at      DateTime
+  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 }
 
-model Organization {
-  id            Int                  @id @default(autoincrement())
-  name          String
-  createdAt     DateTime             @default(now()) @map("created_at")
-  updatedAt     DateTime             @updatedAt @map("updated_at")
-  automations   Automation[]
-  chat_sessions chat_sessions[]
-  conversations conversations[]
-  dashboards    Dashboard[]
-  dataSources   DataSource[]         @relation("OrganizationDataSources")
-  files         File[]               @relation("OrganizationFiles")
-  members       OrganizationMember[]
-  workspaces    workspaces[]
-
-  @@map("organizations")
-}
-
-model OrganizationMember {
-  userId         Int          @map("user_id")
-  organizationId Int          @map("organization_id")
-  joinedAt       DateTime     @default(now()) @map("joined_at")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([userId, organizationId])
-  @@map("organization_members")
-}
-
-model Automation {
-  id             String       @id @default(cuid())
-  name           String
-  description    String?
-  config         Json?
-  active         Boolean      @default(true)
-  organizationId Int          @map("organization_id")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@map("automations")
-}
-
-model DataSource {
-  id             Int             @id @default(autoincrement())
-  name           String
-  type           String
-  config         Json?
-  status         String
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
-  creatorId      Int             @map("creator_id")
-  workspaceId    Int             @map("workspace_id")
-  creator        User            @relation("UserDataSources", fields: [creatorId], references: [id])
-  workspace      Organization    @relation("OrganizationDataSources", fields: [workspaceId], references: [id])
-  processingJobs ProcessingJob[]
-  documentChunks DocumentChunk[] @relation("DataSourceToDocumentChunks")
-
-  @@map("data_sources")
-}
-
-model ProcessingJob {
-  id           String     @id @default(uuid())
-  dataSourceId Int        @map("data_source_id")
-  status       String
-  fileName     String?    @map("file_name")
-  s3Key        String?    @map("s3_key")
-  metadata     Json?
-  content      String?
-  fileType     String?    @map("file_type")
-  progress     Float?
-  error        String?
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-  completedAt  DateTime?  @map("completed_at")
-  dataSource   DataSource @relation(fields: [dataSourceId], references: [id])
-
-  @@map("processing_jobs")
-}
-
-model File {
-  id               String        @id @default(uuid())
-  filename         String
-  originalFilename String        @map("original_filename")
-  fileType         String        @map("file_type")
-  mimeType         String        @map("mime_type")
-  size             BigInt
-  metadata         Json?
-  uploadedBy       String?       @map("uploaded_by")
-  organizationId   Int?          @map("organization_id")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
-  error            String?
-  content          Bytes?
-  organization     Organization? @relation("OrganizationFiles", fields: [organizationId], references: [id])
-
-  @@map("files")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model chat_messages {
   id            Int           @id @default(autoincrement())
   session_id    Int
@@ -153,7 +47,7 @@ model chat_sessions {
   is_active       Boolean?        @default(true)
   metadata        Json?           @default("{}")
   chat_messages   chat_messages[]
-  organizations   Organization?   @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations   organizations?  @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([organization_id], map: "idx_chat_sessions_org_id")
   @@index([user_id], map: "idx_chat_sessions_user_id")
@@ -165,7 +59,7 @@ model conversation_participants {
   user_id         Int
   created_at      DateTime?     @default(now()) @db.Timestamptz(6)
   conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users           User          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([conversation_id, user_id])
 }
@@ -178,9 +72,84 @@ model conversations {
   created_at                DateTime?                   @default(now()) @db.Timestamptz(6)
   updated_at                DateTime?                   @default(now()) @db.Timestamptz(6)
   conversation_participants conversation_participants[]
-  users                     User                        @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  organizations             Organization                @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                     users                       @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations             organizations               @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   messages                  messages[]
+}
+
+model dashboard_widgets {
+  id           Int        @id @default(autoincrement())
+  dashboard_id Int
+  widget_type  String
+  title        String?
+  size         String?
+  settings     Json?      @default("{}")
+  position     Json?
+  created_at   DateTime   @default(now())
+  updated_at   DateTime
+  dashboards   dashboards @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+}
+
+model dashboards {
+  id                Int                 @id @default(autoincrement())
+  name              String
+  description       String?
+  team              String?
+  category          String?
+  created_by        Int?
+  organization_id   Int
+  created_at        DateTime            @default(now())
+  updated_at        DateTime
+  dashboard_widgets dashboard_widgets[]
+  users             users?              @relation(fields: [created_by], references: [id])
+  organizations     organizations       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  metrics           metrics[]
+}
+
+model data_sources {
+  id              Int               @id @default(autoincrement())
+  name            String
+  type            String
+  config          Json?
+  status          String
+  created_at      DateTime          @default(now())
+  updated_at      DateTime
+  creator_id      Int
+  workspace_id    Int
+  users           users             @relation(fields: [creator_id], references: [id])
+  organizations   organizations     @relation(fields: [workspace_id], references: [id])
+  document_chunks document_chunks[]
+  processing_jobs processing_jobs[]
+}
+
+model document_chunks {
+  id             String       @id
+  data_source_id Int
+  content        String
+  embedding      Json?
+  metadata       Json?
+  created_at     DateTime     @default(now())
+  updated_at     DateTime
+  data_sources   data_sources @relation(fields: [data_source_id], references: [id], onDelete: Cascade)
+
+  @@index([data_source_id])
+}
+
+model files {
+  id                String         @id
+  filename          String
+  original_filename String
+  file_type         String
+  mime_type         String
+  size              BigInt
+  metadata          Json?
+  uploaded_by       String?
+  organization_id   Int?
+  created_at        DateTime       @default(now())
+  updated_at        DateTime
+  error             String?
+  content           Bytes?
+  organizations     organizations? @relation(fields: [organization_id], references: [id])
 }
 
 model messages {
@@ -193,85 +162,96 @@ model messages {
   created_at      DateTime?     @default(now()) @db.Timestamptz(6)
   updated_at      DateTime?     @default(now()) @db.Timestamptz(6)
   conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users           User          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model metrics {
+  id           Int        @id @default(autoincrement())
+  dashboard_id Int
+  title        String
+  value        String?
+  type         String?
+  timeframe    String?
+  trend        Json?
+  created_at   DateTime   @default(now())
+  updated_at   DateTime
+  dashboards   dashboards @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+}
+
+model organization_members {
+  user_id         Int
+  organization_id Int
+  joined_at       DateTime      @default(now())
+  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, organization_id])
+}
+
+model organizations {
+  id                   Int                    @id @default(autoincrement())
+  name                 String
+  created_at           DateTime               @default(now())
+  updated_at           DateTime
+  logo_url             String?
+  automations          automations[]
+  chat_sessions        chat_sessions[]
+  conversations        conversations[]
+  dashboards           dashboards[]
+  data_sources         data_sources[]
+  files                files[]
+  organization_members organization_members[]
+  workspaces           workspaces[]
+}
+
+model processing_jobs {
+  id             String       @id
+  data_source_id Int
+  status         String
+  file_name      String?
+  s3_key         String?
+  metadata       Json?
+  content        String?
+  file_type      String?
+  progress       Float?
+  error          String?
+  created_at     DateTime     @default(now())
+  updated_at     DateTime
+  completed_at   DateTime?
+  data_sources   data_sources @relation(fields: [data_source_id], references: [id], onDelete: Cascade)
+}
+
+model users {
+  id                        Int                         @id @default(autoincrement())
+  email                     String                      @unique
+  hashed_password           String?
+  name                      String?
+  role                      Role                        @default(USER)
+  created_at                DateTime                    @default(now())
+  updated_at                DateTime
+  conversation_participants conversation_participants[]
+  conversations             conversations[]
+  dashboards                dashboards[]
+  data_sources              data_sources[]
+  messages                  messages[]
+  organization_members      organization_members[]
+  workspaces                workspaces[]
 }
 
 model workspaces {
-  id              Int           @id @default(autoincrement())
-  name            String        @db.VarChar(255)
+  id              Int            @id @default(autoincrement())
+  name            String         @db.VarChar(255)
   description     String?
   user_id         Int?
   organization_id Int?
-  is_shared       Boolean?      @default(false)
-  created_at      DateTime?     @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime?     @default(now()) @db.Timestamptz(6)
-  organizations   Organization? @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users           User?         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  is_shared       Boolean?       @default(false)
+  created_at      DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime?      @default(now()) @db.Timestamptz(6)
+  organizations   organizations? @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           users?         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([organization_id], map: "idx_workspaces_org_id")
   @@index([user_id], map: "idx_workspaces_user_id")
-}
-
-model Dashboard {
-  id             Int               @id @default(autoincrement())
-  name           String
-  description    String?
-  team           String?
-  category       String?
-  createdBy      Int?              @map("created_by")
-  organizationId Int               @map("organization_id")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-  widgets        DashboardWidget[]
-  metrics        Metric[]
-  creator        User?             @relation(fields: [createdBy], references: [id], onDelete: SetNull)
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@map("dashboards")
-}
-
-model DashboardWidget {
-  id          Int       @id @default(autoincrement())
-  dashboardId Int       @map("dashboard_id")
-  widgetType  String    @map("widget_type")
-  title       String?
-  size        String?
-  settings    Json?     @default("{}")
-  position    Json?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
-
-  @@map("dashboard_widgets")
-}
-
-model Metric {
-  id          Int       @id @default(autoincrement())
-  dashboardId Int       @map("dashboard_id")
-  title       String
-  value       String?
-  type        String?
-  timeframe   String?
-  trend       Json?
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
-
-  @@map("metrics")
-}
-
-model DocumentChunk {
-  id           String     @id @default(uuid())
-  dataSourceId Int        @map("data_source_id")
-  dataSource   DataSource @relation("DataSourceToDocumentChunks", fields: [dataSourceId], references: [id], onDelete: Cascade)
-  content      String
-  embedding    Json? // The service stores this as a JSON string, Prisma can handle it as Json
-  metadata     Json?
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-
-  @@index([dataSourceId])
-  @@map("document_chunks")
 }
 
 enum Role {

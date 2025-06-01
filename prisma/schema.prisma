@@ -2,7 +2,7 @@
 
 // 1. Define the database connection
 datasource db {
-  provider = "***REMOVED***ql" // CHANGE THIS if you use MySQL, SQLite, etc.
+  provider = "postgresql" // CHANGE THIS if you use MySQL, SQLite, etc.
   url      = env("DATABASE_URL") // Make sure DATABASE_URL is set in your .env file
 }
 

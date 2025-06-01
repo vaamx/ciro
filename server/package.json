@@ -22,7 +22,8 @@
     "migrate:convert-js": "ts-node -r tsconfig-paths/register migrations/utils/migration-converter.ts",
     "reset-db": "ts-node -r tsconfig-paths/register src/infrastructure/database/reset.ts",
     "seed": "ts-node -r tsconfig-paths/register src/infrastructure/database/seed.ts",
-    "start:no-bull": "REDIS_DISABLED=true NO_BULL=true node -r tsconfig-paths/register dist/main.js"
+    "start:no-bull": "REDIS_DISABLED=true NO_BULL=true node -r tsconfig-paths/register dist/main.js",
+    "qdrant:clean": "ts-node -r tsconfig-paths/register scripts/delete-all-qdrant-collections.ts"
   },
   "_moduleAliases": {
     "@core": "dist/core",

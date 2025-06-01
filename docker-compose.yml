@@ -48,7 +48,7 @@ services:
       - QDRANT_ALLOW_CORS=true
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readiness"]
+      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
       interval: 30s
       timeout: 10s
       retries: 3
