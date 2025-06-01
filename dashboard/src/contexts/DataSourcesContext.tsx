@@ -12,8 +12,10 @@ import { API_URL } from '../api-config';
 // Use the imported API URL instead of the environment variable
 const API_BASE_URL = API_URL;
 
-// Increase polling interval to reduce refresh frequency
-const POLLING_INTERVAL = 15000; // 15 seconds instead of 5
+// Increase polling interval to reduce refresh frequency, but use dynamic polling for processing items
+const POLLING_INTERVAL = 30000; // 30 seconds for normal polling (reduced from 15)
+const PROCESSING_POLLING_INTERVAL = 10000; // 10 seconds when items are processing (reduced from 5)
+const MIN_FETCH_INTERVAL = 5000; // Minimum 5 seconds between fetches (increased from 2)
 
 // Helper function to normalize IDs for comparison (handles both UUID and numeric IDs)
 const normalizeId = (id: string | number | undefined): string => 
@@ -46,12 +48,12 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [showSnowflakeForm, setShowSnowflakeForm] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   
-  // Add a ref to track the last fetch time
+  // Add a ref to track the last fetch time and prevent overlapping fetches
   const lastFetchTimeRef = useRef<number>(0);
+  const isFetchingRef = useRef<boolean>(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // Add a ref to store the last data hash to detect actual changes
   const lastDataHashRef = useRef<string>('');
-  // Socket.io connection reference - commented out as unused
-  // const socketRef = useRef<Socket | null>(null);
   
   const { currentOrganization } = useOrganization();
   const { showNotification } = useNotification();
@@ -67,38 +69,55 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Helper function to generate a simple hash of the data sources
   const generateDataHash = useCallback((data: DataSource[]): string => {
-    return JSON.stringify(data.map(ds => ({
+    return JSON.stringify(data.map((ds: DataSource) => ({
       id: ds.id,
-      lastSync: ds.lastSync // Use lastSync which is guaranteed to exist
+      status: ds.status, // Include status in hash
+      lastSync: ds.lastSync,
+      metrics: ds.metrics // Include metrics for progress updates
     })));
   }, []);
 
-  // Fetch data sources
-  const fetchDataSources = useCallback(async (force = false) => {
+  // Fetch data sources from API
+  const fetchDataSources = useCallback(async (forceRefresh = false, isInitialLoad = false): Promise<void> => {
     if (!currentOrganization) {
       setIsLoading(false);
       return;
     }
 
+    // Prevent overlapping fetches
+    if (isFetchingRef.current) {
+      console.log('Fetch already in progress, skipping...');
+      return;
+    }
+
+    // Skip fetching if polling is paused (unless force refresh)
+    if (isPaused && !forceRefresh) {
+      console.log('Polling paused, skipping fetch...');
+      return;
+    }
+
     // Skip if we fetched too recently (debounce) unless forced
     const now = Date.now();
-    if (!force && now - lastFetchTimeRef.current < 2000) { // 2 second debounce
+    if (!forceRefresh && now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL) {
+      console.log(`Fetch debounced: ${now - lastFetchTimeRef.current}ms since last fetch`);
       return;
     }
     
+    console.log('Starting data source fetch...');
     lastFetchTimeRef.current = now;
+    isFetchingRef.current = true;
 
     try {
+      setError(null);
+      if (forceRefresh || isInitialLoad) {
       setIsLoading(true);
-      const response = await fetch(
-        `${API_BASE_URL}/api/data-sources?organization_id=${currentOrganization.id}`,
-        {
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/data-sources?organization_id=${currentOrganization.id}`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-            'Content-Type': 'application/json'
-          }
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
         }
-      );
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch data sources: ${response.statusText}`);
@@ -106,83 +125,84 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       const data = await response.json();
       
-      // Check if data has actually changed
-      const newDataHash = generateDataHash(data);
-      if (newDataHash !== lastDataHashRef.current) {
-        lastDataHashRef.current = newDataHash;
-        setDataSources(data);
+      if (data) {
+        // Always update state on initial load, or if data actually changed
+        const currentHash = generateDataHash(data);
+        const hashChanged = currentHash !== lastDataHashRef.current;
         
-        // Only refresh knowledge base if data actually changed
-        setTimeout(() => {
-          refreshKnowledgeBase(false);
-        }, 0);
+        if (hashChanged || forceRefresh || isInitialLoad) {
+          console.log('Data sources updated:', data);
+          setDataSources(data);
+          lastDataHashRef.current = currentHash;
+          
+          // CRITICAL FIX: Only dispatch knowledgeBaseUpdate for MANUAL refreshes
+          // NOT for initial loads or regular polling
+          if (forceRefresh && !isInitialLoad) {
+            console.log('Preparing knowledgeBaseUpdate event to refresh Knowledge Base');
+            window.dispatchEvent(new CustomEvent('knowledgeBaseUpdate', { 
+              detail: { 
+                type: 'sources_updated', 
+                sources: data,
+                timestamp: Date.now()
+              } 
+            }));
+          }
+        } else {
+          console.log('No data source changes detected, skipping update');
+        }
       }
-      
-      setError(null);
-    } catch (err: any) {
-      console.error('Error fetching data sources:', err);
-      setError(err.message || 'Failed to load data sources');
-      showNotification({ 
-        type: 'error', 
-        message: 'Failed to load data sources' 
-      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Error fetching data sources:', errorMessage);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
+      isFetchingRef.current = false;
+      console.log('Data source fetch completed');
     }
-  }, [currentOrganization, showNotification, generateDataHash]);
+  }, [currentOrganization, generateDataHash, isPaused]);
 
-  // Set up WebSocket connection or polling for data source updates
+  // Set up polling for data source updates with dynamic intervals
   useEffect(() => {
-    console.log('Setting up data source polling and WebSocket connection');
-    
-    if (!currentOrganization) {
-      console.log('No current organization, skipping WebSocket setup');
+    if (!currentOrganization || isPaused) {
+      setIsLoading(false);
       return;
     }
     
-    // Set up polling interval for data sources (15 second interval)
-    console.log('Setting up data source polling (15 second interval)');
-    const pollingInterval = setInterval(() => {
-      fetchDataSources().catch(console.error);
-    }, 15000);
+    // Clear any existing interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
     
-    // Clean up on component unmount
-    return () => {
-      console.log('Data source polling stopped');
-      clearInterval(pollingInterval);
-    };
-  }, [currentOrganization]);
-
-  // Initial load and polling setup
-  useEffect(() => {
-    fetchDataSources(true); // Force initial load
+    // Initial load - do NOT trigger knowledgeBaseUpdate
+    fetchDataSources(false, true); // isInitialLoad = true
     
-    // Set up polling with increased interval
-    console.log(`Setting up data source polling (${POLLING_INTERVAL/1000} second interval)`);
-    const pollingInterval = setInterval(() => {
-      // Skip polling if paused
-      if (isPaused) {
-        // Reduce logging - don't log every skipped poll
-        return;
+    // Determine polling interval based on processing items
+    const hasProcessingItems = dataSources.some((ds: DataSource) => 
+      ['processing', 'syncing', 'uploading'].includes(ds.status)
+    );
+    
+    const currentInterval = hasProcessingItems ? PROCESSING_POLLING_INTERVAL : POLLING_INTERVAL;
+    
+    console.log(`Setting up data source polling (${currentInterval/1000} second interval, processing items: ${hasProcessingItems})`);
+    
+    // Set up polling with dynamic interval - regular polling, NOT manual refresh
+    pollingIntervalRef.current = setInterval(() => {
+      if (!isPaused) {
+        fetchDataSources(false, false); // forceRefresh = false, isInitialLoad = false
       }
-      
-      // Skip polling if there are no data sources - no need to keep checking
-      if (dataSources.length === 0) {
-        return;
-      }
-      
-      // Reduce logging - don't log every poll attempt
-      fetchDataSources().catch(err => {
-        console.error('Error during data source polling:', err);
-      });
-    }, POLLING_INTERVAL);
+    }, currentInterval);
     
     // Cleanup function
     return () => {
-      clearInterval(pollingInterval);
+      if (pollingIntervalRef.current) {
       console.log('Data source polling stopped');
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     };
-  }, [fetchDataSources, isPaused, dataSources.length]);
+  }, [currentOrganization, isPaused, fetchDataSources, dataSources]);
 
   // Add a method to create a placeholder data source while file is processing
   const addPlaceholderDataSource = (fileInfo: { id: string; name: string; type: string; size: number }): DataSource => {
@@ -242,9 +262,57 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
         return {} as DataSource; // Placeholder return
       }
 
-      // For file uploads, create a placeholder immediately if we have file info
+      // For file uploads that already have a dataSourceId (created during upload), 
+      // just refresh the data sources list instead of creating a duplicate
       if (dataSource.type?.startsWith('local-files') && dataSource.metadata) {
         const metadata = dataSource.metadata as Record<string, any>;
+        
+        // If the file already has a dataSourceId, it was created during upload
+        if (metadata.dataSourceId) {
+          console.log('File upload completed with existing dataSourceId:', metadata.dataSourceId, 'triggering refresh');
+          
+          // Force refresh the data sources to show the newly uploaded file
+          await fetchDataSources(true, false);
+          
+          // Try to find the data source that was just created
+          const existingDataSource = dataSources.find(ds => 
+            normalizeId(ds.id) === normalizeId(metadata.dataSourceId)
+          );
+          
+          if (existingDataSource) {
+            showNotification({ 
+              type: 'success', 
+              message: `Successfully added ${metadata.filename || 'file'}` 
+            });
+            
+            // Refresh the knowledge base
+            setTimeout(() => {
+              refreshKnowledgeBase(false);
+            }, 0);
+            
+            return existingDataSource;
+          } else {
+            // If we can't find it immediately, create a placeholder and let polling pick it up
+            console.log('Data source not found immediately after refresh, creating placeholder');
+            const fileInfo = {
+              id: metadata.dataSourceId,
+              name: metadata.filename as string,
+              type: dataSource.type.replace('local-files-', '') || 'file',
+              size: Number(metadata.size) || 0
+            };
+            
+            const placeholder = addPlaceholderDataSource(fileInfo);
+            
+            showNotification({ 
+              type: 'success', 
+              message: `Processing ${metadata.filename || 'file'}...` 
+            });
+            
+            return placeholder;
+          }
+        }
+        
+        // If no dataSourceId, create a placeholder and make API call
         if (metadata.filename) {
           console.log('Creating placeholder for file upload:', metadata.filename);
           const fileInfo = {
@@ -347,8 +415,12 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Update an existing data source
   const updateDataSource = async (id: string, updates: Partial<DataSource>): Promise<DataSource> => {
+    if (!currentOrganization) {
+      throw new Error('No organization selected');
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/data-sources/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/data-sources/${id}?organization_id=${currentOrganization.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -394,8 +466,14 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Delete a data source
   const deleteDataSource = async (id: string): Promise<void> => {
+    if (!currentOrganization) {
+      throw new Error('No organization selected');
+    }
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/data-sources/${id}`, {
+      console.log(`Deleting data source ${id} for organization ${currentOrganization.id}`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/data-sources/${id}?organization_id=${currentOrganization.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
@@ -407,20 +485,42 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
         throw new Error(errorData.message || 'Failed to delete data source');
       }
 
+      console.log(`Successfully deleted data source ${id} from backend`);
+
       // Helper function to normalize IDs for comparison
       const normalizedId = normalizeId(id);
       
-      setDataSources(prev => prev.filter(ds => normalizeId(ds.id) !== normalizedId));
+      // Immediately update local state
+      setDataSources(prev => {
+        const newDataSources = prev.filter(ds => normalizeId(ds.id) !== normalizedId);
+        console.log(`Updated local state: removed data source ${id}, ${newDataSources.length} remaining`);
+        return newDataSources;
+      });
       
       showNotification({ 
         type: 'success', 
         message: 'Data source deleted successfully' 
       });
       
-      // Refresh the knowledge base when a data source is deleted
-      setTimeout(() => {
-        refreshKnowledgeBase(false);
-      }, 0);
+      // Force an immediate refresh to sync with backend (but don't trigger knowledgeBaseUpdate)
+      console.log('Forcing immediate data sources refresh after deletion');
+      try {
+        await fetchDataSources(false, false); // Just sync state, don't trigger events
+        console.log('Successfully refreshed data sources after deletion');
+      } catch (refreshError) {
+        console.error('Error refreshing data sources after deletion:', refreshError);
+      }
+      
+      // Trigger knowledge base update specifically for deletions
+      console.log('Triggering knowledge base refresh after data source deletion');
+      window.dispatchEvent(new CustomEvent('knowledgeBaseUpdate', { 
+        detail: { 
+          type: 'source_deleted', 
+          sourceId: id,
+          timestamp: Date.now()
+        } 
+      }));
+      
     } catch (err: any) {
       console.error('Error deleting data source:', err);
       showNotification({ 
@@ -441,7 +541,8 @@ export const DataSourcesProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Add a function to force refresh (for when we know data has changed)
   const forceRefresh = useCallback(() => {
-    return fetchDataSources(true);
+    console.log('Manual refresh triggered by user');
+    return fetchDataSources(true, false); // forceRefresh = true, isInitialLoad = false
   }, [fetchDataSources]);
 
   // Generate visualization from data source
