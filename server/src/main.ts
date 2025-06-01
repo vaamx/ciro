@@ -7,6 +7,7 @@ import express from 'express';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { NestExpressApplication } from '@nestjs/platform-express'; // Import NestExpressApplication for static assets
 
 // Add global handlers EARLY
 process.on('unhandledRejection', (reason, promise) => {
@@ -326,24 +327,30 @@ async function bootstrap() {
     app.setGlobalPrefix('api');
     logger.log('Global prefix configured successfully');
     
-    logger.log('About to call app.init() - this triggers onModuleInit hooks...');
-    // Add a custom timeout with more detailed error information
-    await Promise.race([
-      app.init(),
-      new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error('app.init() timeout after 20 seconds - likely hanging during onModuleInit hooks'));
-        }, 20000);
-      })
-    ]);
-    logger.log('app.init() completed successfully!');
-    
-    logger.log('NestJS application created successfully');
-    
-    // Configure Express middleware
+    // Configure Express middleware BEFORE app.init()
     logger.log('Configuring middleware...');
-    logger.log('Adding helmet...');
-    app.use(helmet());
+    
+    // Add compression middleware for API responses (should be early in middleware stack)
+    logger.log('Adding compression middleware...');
+    app.use(compression({
+      threshold: 1024, // Only compress responses > 1KB
+      level: 6, // Balanced compression level (1-9, higher = more compression but slower)
+      filter: (req, res) => {
+        // Don't compress if response is already compressed or if client doesn't support it
+        if (req.headers['x-no-compression']) {
+          return false;
+        }
+        // Always use compression for JSON responses and large data
+        const contentType = res.getHeader('content-type');
+        if (typeof contentType === 'string') {
+          return contentType.includes('json') || contentType.includes('text') || contentType.includes('xml');
+        }
+        return compression.filter(req, res);
+      }
+    }));
+    
+    logger.log('Adding security headers...');
+    app.use(securityHeaders);
     
     const corsOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
     logger.log(`[Bootstrap] Configuring CORS with origin: ${corsOrigin}`); // Log the origin being used
@@ -357,13 +364,37 @@ async function bootstrap() {
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'cache-control']
     });
     
-    // Apply global filters and enable shutdown hooks before initializing
+    // Configure static file serving for uploads BEFORE app.init()
+    logger.log('Configuring static file serving...');
+    app.useStaticAssets(join(process.cwd(), 'uploads'), {
+      prefix: '/files/',
+      setHeaders: (res, path) => {
+        // Add cache headers for images
+        if (path.match(/\.(jpg|jpeg|png|gif|svg|webp)$/i)) {
+          res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day cache
+        }
+      }
+    });
+    
+    // Apply global filters and enable shutdown hooks
     logger.log('Adding global filters...');
     app.useGlobalFilters(new AllExceptionsFilter());
     logger.log('Enabling shutdown hooks...');
     app.enableShutdownHooks();
     
-    logger.log('NestJS application configured, initializing...');
+    logger.log('About to call app.init() - this triggers onModuleInit hooks...');
+    // Add a custom timeout with more detailed error information
+    await Promise.race([
+      app.init(),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('app.init() timeout after 20 seconds - likely hanging during onModuleInit hooks'));
+        }, 20000);
+      })
+    ]);
+    logger.log('app.init() completed successfully!');
+    
+    logger.log('NestJS application created and configured successfully');
     
     // DIAGNOSTIC: Check if PrismaService is available
     try {
@@ -384,11 +415,6 @@ async function bootstrap() {
     } catch (error: any) {
       logger.error(`DIAGNOSTIC: Module lookup failed: ${error.message}`);
     }
-    
-    // Initialize the application explicitly first
-    logger.log('About to call app.init()...');
-    await app.init();
-    logger.log('Application initialized successfully - app.init() completed');
     
     // CRITICAL: Use native HTTP server approach which is more reliable
     logger.log(`Creating manual HTTP server binding on port ${portNumber}...`);

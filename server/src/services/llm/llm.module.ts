@@ -71,6 +71,11 @@ export class LLMModule {
         )
       ]);
       console.log('>>> LLM_MODULE: OpenAI provider initialized successfully');
+      
+      // Register the provider with LLMService after successful initialization
+      console.log('>>> LLM_MODULE: Registering OpenAI provider with LLMService...');
+      this.llmService.registerProvider(this.openaiProvider);
+      console.log('>>> LLM_MODULE: OpenAI provider registered successfully');
     } catch (error) {
       console.log('>>> LLM_MODULE: OpenAI provider initialization failed:', (error as Error).message);
     }
@@ -84,6 +89,11 @@ export class LLMModule {
         )
       ]);
       console.log('>>> LLM_MODULE: Anthropic provider initialized successfully');
+      
+      // Register the provider with LLMService after successful initialization
+      console.log('>>> LLM_MODULE: Registering Anthropic provider with LLMService...');
+      this.llmService.registerProvider(this.anthropicProvider);
+      console.log('>>> LLM_MODULE: Anthropic provider registered successfully');
     } catch (error) {
       console.log('>>> LLM_MODULE: Anthropic provider initialization failed:', (error as Error).message);
     }

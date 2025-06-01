@@ -1,8 +1,8 @@
 import { Role } from '../auth/role.enum';
-import { User, Organization, OrganizationMember } from '@prisma/client';
+import { users, organizations, organization_members } from '@prisma/client';
 
 // Export the imported Prisma types so they can be used by other modules
-export { User, Organization, OrganizationMember };
+export { users, organizations, organization_members };
 
 // Define our own DataSource interface that matches the Prisma model
 export interface DataSource {
@@ -38,22 +38,22 @@ export enum FileStatus {
 // export type DataSource = data_sources;
 
 // Extended interfaces with relationships for better TypeScript support
-export interface UserWithRelations extends User {
-  organizations?: Organization | null;
-  organization_members?: OrganizationMember[];
+export interface UserWithRelations extends users {
+  organizations?: organizations | null;
+  organization_members?: organization_members[];
 }
 
-export interface OrganizationWithRelations extends Organization {
-  members?: OrganizationMember[];
+export interface OrganizationWithRelations extends organizations {
+  members?: organization_members[];
   data_sources?: DataSource[];
 }
 
 export interface DataSourceWithRelations extends DataSource {
-  organization?: Organization | null;
+  organization?: organizations | null;
 }
 
 // Helper types for controllers that need simpler return types
-export type SafeUser = Omit<User, 'password_hash'>;
+export type SafeUser = Omit<users, 'password_hash'>;
 
 // Role type from enum for compatibility
 export enum OrganizationRole {

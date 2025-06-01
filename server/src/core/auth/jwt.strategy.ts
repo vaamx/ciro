@@ -45,7 +45,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     // Validate the user exists in the database
     // console.log(`JWT Strategy: Validating user ID from payload: ${userId}`);
-    const user = await this.prisma.user.findUnique({ // Changed users to user
+    const user = await this.prisma.users.findUnique({ // Fixed: Changed user to users
       where: { id: parseInt(userId as any, 10) }, // Explicitly parse userId to number
       // Select only necessary fields to attach to request.user
       select: {

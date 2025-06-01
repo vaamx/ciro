@@ -77,6 +77,10 @@ const REDIS_DEPENDENT_MODULES = (IS_REDIS_DISABLED || IS_BULL_DISABLED) ? [] : [
       };
     },
   }),
+  // Register the document-processing queue
+  BullModule.registerQueue({
+    name: 'document-processing',
+  }),
 ];
 
 // Define core modules that are always needed
@@ -323,7 +327,7 @@ function getFullModuleSet() {
   const dataSourceModule = require('./modules/data-source/data-source.module').DataSourceModule;
   const documentProcessingModule = require('./modules/document-processing/document-processing.module').DocumentProcessingModule;
   const visualizationModule = require('./modules/visualization/visualization.module').VisualizationModule;
-  // const dualPathModule = require('./modules/dual-path/dual-path.module').DualPathModule;
+  const dualPathModule = require('./modules/dual-path/dual-path.module').DualPathModule;
   const oauthModule = require('./modules/oauth/oauth.module').OAuthModule;
   const snowflakeModule = require('./modules/snowflake/snowflake.module').SnowflakeModule;
   const automationModule = require('./modules/automation/automation.module').AutomationModule;
@@ -341,6 +345,7 @@ function getFullModuleSet() {
     dataSourceModule,
     documentProcessingModule,
     visualizationModule,
+    dualPathModule,
     oauthModule,
     snowflakeModule,
     automationModule,

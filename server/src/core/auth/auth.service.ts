@@ -36,34 +36,28 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Check if user already exists
-    const existingUser = await this.prisma.user.findFirst({
+    const existingUser = await this.prisma.users.findFirst({
       where: {
-        OR: [
-          { email: registerDto.email },
-          // Add other unique fields if necessary, e.g., username if you have one
-          // { username: registerDto.username } 
-        ],
+        email: email,
       },
     });
 
     if (existingUser) {
-      this.logger.warn(`Registration attempt with existing email: ${registerDto.email}`);
-      throw new ConflictException('Email already exists');
+      this.logger.warn(`Registration attempt with existing email: ${email}`);
+      throw new ConflictException('User with this email already exists');
     }
 
     // Create and save the new user
     const verificationToken = this.generateToken();
     const tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    const newUser = this.prisma.user.create({
+    const newUser = this.prisma.users.create({
       data: {
         name: username,
         email,
-        hashedPassword: hashedPassword,
-        // email_verification_token: verificationToken, // Field not in current schema
-        // email_verification_token_expires_at: tokenExpiresAt, // Field not in current schema
-        // email_verified: false, // Field not in current schema
+        hashed_password: hashedPassword,
         role: Role.USER,
+        updated_at: new Date(),
       },
     });
 
@@ -79,7 +73,7 @@ export class AuthService {
       }
       
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { hashedPassword, ...result } = savedUser as any; // Remove password before returning
+      const { hashed_password, ...result } = savedUser as any; // Remove password before returning
       return result;
     } catch (error) {
       console.error("Registration Error:", error);
@@ -95,7 +89,7 @@ export class AuthService {
    * @returns User object without password hash if valid, otherwise null
    */
   async validateUser(email: string, pass: string): Promise<any | null> {
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.users.findFirst({
       where: {
         OR: [
           { email: email },
@@ -106,36 +100,27 @@ export class AuthService {
         id: true,
         email: true,
         name: true,
-        hashedPassword: true,
-        // email_verified: true, // Field not in current schema
-        // organization_id: true, // Field not in current schema
+        hashed_password: true,
         role: true,
-        createdAt: true, // Example
+        created_at: true, // Fixed from createdAt
       },
     });
     
     if (!user) return null;
     
     // Validate password
-    if (!user.hashedPassword) {
+    if (!user.hashed_password) {
       this.logger.warn(`Login attempt for user without password: ${email}`);
       return null;
     }
-    const isPasswordValid = await bcrypt.compare(pass, user.hashedPassword);
+    const isPasswordValid = await bcrypt.compare(pass, user.hashed_password);
     if (!isPasswordValid) {
       this.logger.warn(`Invalid password attempt for user: ${email}`);
       return null;
     }
     
-    // Check if email is verified (if applicable and field exists)
-    // if (!user.email_verified) { // Field not in current schema, commented out
-    //   // Return user with special flag to handle unverified users
-    //   const { hashedPassword, ...result } = user;
-    //   return { ...result, emailVerified: false };
-    // }
-    
     // Return user object without the password hash
-    const { hashedPassword, ...result } = user;
+    const { hashed_password, ...result } = user;
     this.logger.verbose(`User validation successful for: ${email}`);
     return result;
   }
@@ -168,23 +153,18 @@ export class AuthService {
     }
 
     // Find user by the verification token
-    const user = await this.prisma.user.findFirst({
-      // where: { email_verification_token: token }, // Field not in current schema, commented out
+    const user = await this.prisma.users.findFirst({
       where: { id: parseInt(token) } // Placeholder - NEED TOKEN FIELD!
     });
 
-    // if (!user || !user.email_verification_token_expires_at || user.email_verification_token_expires_at < new Date()) { // Fields not in current schema
     if (!user) { // Simplified check as token/expiry fields don't exist
       throw new BadRequestException('Invalid or expired verification token');
     }
 
     // Update user to verified status
-    const updatedUser = await this.prisma.user.update({
+    const updatedUser = await this.prisma.users.update({
       where: { id: user.id },
       data: {
-        // email_verified: true, // Field not in current schema
-        // email_verification_token: null, // Field not in current schema
-        // email_verification_token_expires_at: null, // Field not in current schema
       }
     });
     
@@ -203,7 +183,7 @@ export class AuthService {
       throw new BadRequestException('Email is required');
     }
 
-    const user = await this.prisma.user.findFirst({ where: { email } });
+    const user = await this.prisma.users.findFirst({ where: { email } });
     
     // Always return success to prevent email enumeration
     if (!user) {
@@ -271,7 +251,7 @@ export class AuthService {
     await this.prisma.$executeRaw`
       UPDATE users
       SET 
-        hashedPassword = ${hashedPassword},
+        hashed_password = ${hashedPassword},
         settings = settings - 'passwordReset'
       WHERE id = ${user.id}
     `;
@@ -281,17 +261,15 @@ export class AuthService {
 
   async getCurrentUser(userId: number): Promise<any> {
     this.logger.debug(`Fetching current user details for ID: ${userId}`);
-    const user = await this.prisma.user.findUnique({ 
+    const user = await this.prisma.users.findUnique({ 
       where: { id: userId },
       select: {
         id: true,
         email: true,
         name: true,
-        // avatar_url: true, // Field not in current schema
         role: true,
-        // organization_id: true, // Field not in current schema
-        createdAt: true,
-        updatedAt: true,
+        created_at: true,
+        updated_at: true,
       }
     });
     
@@ -311,21 +289,21 @@ export class AuthService {
   async changePassword(userId: number, currentPassword: string, newPassword: string): Promise<{ message: string }> {
     this.logger.debug(`Attempting password change for user ID: ${userId}`);
     // Get the user with password hash
-    const user = await this.prisma.user.findUnique({ 
+    const user = await this.prisma.users.findUnique({ 
       where: { id: userId },
       select: {
         id: true,
-        hashedPassword: true,
+        hashed_password: true,
       }
     });
     
-    if (!user || !user.hashedPassword) {
+    if (!user || !user.hashed_password) {
       this.logger.error(`Attempt to change password for non-existent user or user without password: ${userId}`);
       throw new NotFoundException('User not found or password not set.');
     }
     
     // Verify current password
-    const isPasswordValid = await bcrypt.compare(currentPassword, user.hashedPassword);
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.hashed_password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Current password is incorrect');
     }
@@ -335,9 +313,9 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
     
     // Update the password
-    await this.prisma.user.update({
+    await this.prisma.users.update({
       where: { id: userId },
-      data: { hashedPassword: hashedPassword }
+      data: { hashed_password: hashedPassword }
     });
     
     return { message: 'Password changed successfully' };

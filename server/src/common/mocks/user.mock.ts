@@ -1,11 +1,11 @@
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 
-export const mockUser: User = {
+export const mockUser: users = {
   id: 1,
   email: 'test@example.com',
-  hashedPassword: 'hashed_password',
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  hashed_password: 'hashed_password',
+  created_at: new Date(),
+  updated_at: new Date(),
   role: 'USER',
   name: 'Test User',
   // settings: null, // Removed - not part of User type
