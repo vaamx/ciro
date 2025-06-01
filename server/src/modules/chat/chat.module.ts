@@ -1,12 +1,22 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ChatController } from './chat.controller';
 import { ChatSessionsController } from './chat-sessions.controller';
 import { ChatSessionsService } from './chat-sessions.service';
 import { ChatService } from './chat.service';
+import { LLMModule } from '../../services/llm/llm.module';
+import { ServicesModule } from '../../services.module';
+import { DualPathModule } from '../dual-path/dual-path.module';
 
 @Module({
+  imports: [
+    ConfigModule,
+    LLMModule,
+    forwardRef(() => ServicesModule),
+    forwardRef(() => DualPathModule),
+  ],
   controllers: [
-    ChatController, // Declare the controller for this module
+    ChatController,
     ChatSessionsController,
   ],
   providers: [

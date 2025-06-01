@@ -15,7 +15,7 @@ import {
 import { VisualizationService } from './visualization.service';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator'; // Assuming this exists
-import { User } from '../../core/database/prisma-types'; // Assuming this exists
+import { users } from '../../core/database/prisma-types'; // Assuming this exists
 import { VisualizationResponseDto } from './dto/visualization.response.dto';
 import { VisualizationRequestDto } from './dto/visualization.request.dto';
 import { Request } from 'express';
@@ -32,7 +32,7 @@ export class VisualizationController {
   @Get(':dataSourceId')
   async generateVisualization(
     @Param('dataSourceId') dataSourceId: string, // Use appropriate pipe if ID is numeric/UUID
-    @GetUser() user: User, // Get authenticated user
+    @GetUser() user: users, // Get authenticated user
     @Query() query: VisualizationRequestDto, // Use DTO for query params
     @Req() req: Request // Inject request to potentially get org ID later
   ): Promise<VisualizationResponseDto> {
@@ -78,7 +78,7 @@ export class VisualizationController {
   @Post(':dataSourceId')
   async generateCustomVisualization(
     @Param('dataSourceId') dataSourceId: string,
-    @GetUser() user: User,
+    @GetUser() user: users,
     @Body() options: VisualizationRequestDto,
   ): Promise<VisualizationResponseDto> {
     this.logger.log(
@@ -118,7 +118,7 @@ export class VisualizationController {
   @Get(':dataSourceId/qdrant')
   async getQdrantVisualization(
     @Param('dataSourceId') dataSourceId: string,
-    @GetUser() user: User
+    @GetUser() user: users
   ) {
     this.logger.log(`Received Qdrant visualization request for dataSourceId: ${dataSourceId} by user: ${user.id}`);
     // Assuming default options for this specific endpoint

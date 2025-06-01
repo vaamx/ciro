@@ -11,29 +11,37 @@ import {
     NotFoundException, 
     BadRequestException, 
     ForbiddenException,
-    Logger
+    Logger,
+    Inject,
+    forwardRef,
+    Optional
 } from '@nestjs/common';
 import { db } from '../../config/database'; // Will be replaced with proper service
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
-import { User } from '../../core/database/prisma-types'; // Updated to use Prisma types
+import { users } from '../../core/database/prisma-types'; // Updated to use Prisma types
 import { CreateConversationDto, SendMessageDto, ConversationResponseDto, MessageResponseDto } from './dto/conversation.dto';
 import { ChatService } from './chat.service';
 import { ChatMessageDto } from './dto/chat-session.dto';
+import { DualPathController } from '../dual-path/dual-path.controller';
 
-@Controller('api/chat/conversations')
 @UseGuards(JwtAuthGuard)
+@Controller('api/chat')
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
   
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    @Inject(forwardRef(() => DualPathController))
+    @Optional() private readonly dualPathController?: DualPathController
+  ) {}
   
   // Add chat completion endpoints
   
   @Post('/completion')
   @HttpCode(HttpStatus.OK)
   async chatCompletion(
-    @GetUser() user: User,
+    @GetUser() user: users,
     @Body() body: { messages: ChatMessageDto[], model?: string, temperature?: number }
   ): Promise<any> {
     if (!user?.id) {
@@ -58,8 +66,37 @@ export class ChatController {
   }
   
   @Get()
+  async getChatInfo(): Promise<{ message: string }> {
+    return { message: 'Chat API is running' };
+  }
+
+  @Post('dual-path')
+  async processDualPathChatMessage(
+    @GetUser() user: users,
+    @Body() requestDto: any
+  ): Promise<any> {
+    this.logger.log('Received chat message for dual-path processing');
+    this.logger.log(`Request data:`, JSON.stringify(requestDto, null, 2));
+    
+    // If we have the dual-path controller, delegate to it
+    if (this.dualPathController) {
+      return this.dualPathController.processChatMessage(requestDto);
+    }
+    
+    // Fallback response if dual-path controller is unavailable
+    this.logger.warn('DualPathController unavailable, providing fallback response');
+    return {
+      response: "I'm currently processing your request. The enhanced chat system is being configured.",
+      path: 'fallback',
+      metadata: {
+        message: 'Dual-path processing temporarily unavailable'
+      }
+    };
+  }
+
+  @Get()
   async getConversations(
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<ConversationResponseDto[]> {
     if (!user?.id) {
       throw new ForbiddenException('Authentication required');
@@ -82,7 +119,7 @@ export class ChatController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createConversation(
-    @GetUser() user: User,
+    @GetUser() user: users,
     @Body() createConversationDto: CreateConversationDto
   ): Promise<ConversationResponseDto> {
     if (!user?.id) {
@@ -131,7 +168,7 @@ export class ChatController {
 
   @Get(':id')
   async getConversationById(
-    @GetUser() user: User, 
+    @GetUser() user: users, 
     @Param('id') conversationId: string
   ): Promise<ConversationResponseDto> {
     if (!user?.id) {
@@ -173,7 +210,7 @@ export class ChatController {
 
   @Get(':id/messages')
   async getMessages(
-    @GetUser() user: User, 
+    @GetUser() user: users, 
     @Param('id') conversationId: string
   ): Promise<MessageResponseDto[]> {
     if (!user?.id) {
@@ -210,7 +247,7 @@ export class ChatController {
   @Post(':id/messages')
   @HttpCode(HttpStatus.CREATED)
   async sendMessage(
-    @GetUser() user: User, 
+    @GetUser() user: users, 
     @Param('id') conversationId: string, 
     @Body() sendMessageDto: SendMessageDto
   ): Promise<MessageResponseDto> {

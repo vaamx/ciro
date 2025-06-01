@@ -7,7 +7,7 @@ import {
   MetricDto, 
   DashboardResponseDto 
 } from './dto/dashboard.dto';
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 
 // Define interfaces for the models we need
 interface DashboardModel {
@@ -16,36 +16,36 @@ interface DashboardModel {
   description?: string;
   team?: string;
   category?: string;
-  createdBy?: number;
-  organizationId: number;
-  createdAt: Date;
-  updatedAt: Date;
+  created_by?: number;
+  organization_id: number;
+  created_at: Date;
+  updated_at: Date;
   widgets: DashboardWidgetModel[];
   metrics: MetricModel[];
 }
 
 interface DashboardWidgetModel {
   id: number;
-  dashboardId: number;
-  widgetType: string;
+  dashboard_id: number;
+  widget_type: string;
   title?: string;
   size?: string;
   settings?: any;
   position?: any;
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 interface MetricModel {
   id: number;
-  dashboardId: number;
+  dashboard_id: number;
   title: string;
   value?: string;
   type?: string;
   timeframe?: string;
   trend?: any;
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 @Injectable()
@@ -57,17 +57,17 @@ export class DashboardService {
   /**
    * Get all dashboards for an organization
    */
-  async getDashboards(user: User, organizationId: number): Promise<DashboardResponseDto[]> {
+  async getDashboards(user: users, organizationId: number): Promise<DashboardResponseDto[]> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
       }
 
       // Verify user is a member of the organization
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId,
-          userId: user.id 
+          organization_id: organizationId,
+          user_id: user.id 
         }
       });
 
@@ -77,28 +77,42 @@ export class DashboardService {
       }
 
       // Get all dashboards with their widgets and metrics
-      const dashboards = await (this.prisma as any).dashboard.findMany({
-        where: { organizationId },
+      const dashboards = await this.prisma.dashboards.findMany({
+        where: { organization_id: organizationId },
         include: {
-          widgets: true,
+          dashboard_widgets: true,
           metrics: true
         }
       });
 
       // Process and return the results
-      return dashboards.map((dashboard: DashboardModel) => {
-        return {
-          ...dashboard,
-          widgets: dashboard.widgets.map((widget: DashboardWidgetModel) => ({
-            ...widget,
-            settings: widget.settings || {}
-          })),
-          metrics: dashboard.metrics.map((metric: MetricModel) => ({
-            ...metric,
-            trend: metric.trend || null
-          }))
-        };
-      });
+      return dashboards.map((dashboard) => ({
+        id: dashboard.id.toString(),
+        name: dashboard.name,
+        description: dashboard.description || undefined,
+        team: dashboard.team || undefined,
+        category: dashboard.category || undefined,
+        created_by: dashboard.created_by.toString(),
+        organization_id: dashboard.organization_id,
+        created_at: dashboard.created_at,
+        updated_at: dashboard.updated_at,
+        widgets: dashboard.dashboard_widgets.map((widget) => ({
+          id: widget.id.toString(),
+          widget_type: widget.widget_type as any,
+          title: widget.title,
+          size: widget.size as any,
+          position: widget.position as any,
+          settings: widget.settings as any || {}
+        })),
+        metrics: dashboard.metrics.map((metric) => ({
+          id: metric.id.toString(),
+          title: metric.title,
+          value: parseFloat(metric.value || '0'),
+          type: metric.type as any,
+          timeframe: metric.timeframe as any,
+          trend: metric.trend as any || undefined
+        }))
+      }));
     } catch (error) {
       this.logger.error(`Error fetching dashboards for organization ${organizationId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
@@ -108,7 +122,7 @@ export class DashboardService {
   /**
    * Get a dashboard by ID with its widgets and metrics
    */
-  async getDashboardById(user: User, dashboardId: string | number): Promise<DashboardResponseDto> {
+  async getDashboardById(user: users, dashboardId: string | number): Promise<DashboardResponseDto> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
@@ -116,10 +130,10 @@ export class DashboardService {
 
       const id = typeof dashboardId === 'string' ? parseInt(dashboardId, 10) : dashboardId;
       
-      const dashboard = await (this.prisma as any).dashboard.findUnique({
+      const dashboard = await this.prisma.dashboards.findUnique({
         where: { id },
         include: {
-          widgets: true,
+          dashboard_widgets: true,
           metrics: true
         }
       });
@@ -129,10 +143,10 @@ export class DashboardService {
       }
 
       // Verify user is a member of the organization that owns the dashboard
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId: dashboard.organizationId,
-          userId: user.id 
+          organization_id: dashboard.organization_id,
+          user_id: user.id 
         }
       });
 
@@ -142,14 +156,30 @@ export class DashboardService {
       }
 
       return {
-        ...dashboard,
-        widgets: dashboard.widgets.map((w: DashboardWidgetModel) => ({
-          ...w,
-          settings: w.settings || {}
+        id: dashboard.id.toString(),
+        name: dashboard.name,
+        description: dashboard.description || undefined,
+        team: dashboard.team || undefined,
+        category: dashboard.category || undefined,
+        created_by: dashboard.created_by.toString(),
+        organization_id: dashboard.organization_id,
+        created_at: dashboard.created_at,
+        updated_at: dashboard.updated_at,
+        widgets: dashboard.dashboard_widgets.map((widget) => ({
+          id: widget.id.toString(),
+          widget_type: widget.widget_type as any,
+          title: widget.title,
+          size: widget.size as any,
+          position: widget.position as any,
+          settings: widget.settings as any || {}
         })),
-        metrics: dashboard.metrics.map((m: MetricModel) => ({
-          ...m,
-          trend: m.trend || null
+        metrics: dashboard.metrics.map((metric) => ({
+          id: metric.id.toString(),
+          title: metric.title,
+          value: parseFloat(metric.value || '0'),
+          type: metric.type as any,
+          timeframe: metric.timeframe as any,
+          trend: metric.trend as any || undefined
         }))
       };
     } catch (error) {
@@ -161,7 +191,7 @@ export class DashboardService {
   /**
    * Create a new dashboard
    */
-  async createDashboard(user: User, createDashboardDto: CreateDashboardDto): Promise<DashboardResponseDto> {
+  async createDashboard(user: users, createDashboardDto: CreateDashboardDto): Promise<DashboardResponseDto> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
@@ -173,23 +203,23 @@ export class DashboardService {
       let orgId = organization_id;
       if (!orgId) {
         // Get the user's default organization
-        const userOrg = await this.prisma.organizationMember.findFirst({
-          where: { userId: user.id },
-          select: { organization: { select: { id: true } } }
+        const userOrg = await this.prisma.organization_members.findFirst({
+          where: { user_id: user.id },
+          select: { organizations: { select: { id: true } } }
         });
         
         if (userOrg) {
-          orgId = userOrg.organization.id;
+          orgId = userOrg.organizations.id;
         } else {
           throw new BadRequestException('Organization ID is required');
         }
       }
 
       // Verify user is a member of the organization
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId: orgId,
-          userId: user.id 
+          organization_id: orgId,
+          user_id: user.id 
         }
       });
 
@@ -199,30 +229,47 @@ export class DashboardService {
       }
 
       // Create the dashboard
-      const newDashboard = await (this.prisma as any).dashboard.create({
+      const dashboard = await this.prisma.dashboards.create({
         data: {
           name,
-          description: description || '',
-          team: team || '',
-          category: category || '',
-          creator: { connect: { id: user.id } },
-          organization: { connect: { id: orgId } }
+          description: description || null,
+          team: team || null,
+          category: category || null,
+          created_by: user.id,
+          organization_id: orgId,
+          updated_at: new Date()
         },
         include: {
-          widgets: true,
+          dashboard_widgets: true,
           metrics: true
         }
       });
 
       return {
-        ...newDashboard,
-        widgets: newDashboard.widgets.map((w: DashboardWidgetModel) => ({
-          ...w,
-          settings: w.settings || {}
+        id: dashboard.id.toString(),
+        name: dashboard.name,
+        description: dashboard.description || undefined,
+        team: dashboard.team || undefined,
+        category: dashboard.category || undefined,
+        created_by: dashboard.created_by.toString(),
+        organization_id: dashboard.organization_id,
+        created_at: dashboard.created_at,
+        updated_at: dashboard.updated_at,
+        widgets: dashboard.dashboard_widgets.map((widget) => ({
+          id: widget.id.toString(),
+          widget_type: widget.widget_type as any,
+          title: widget.title,
+          size: widget.size as any,
+          position: widget.position as any,
+          settings: widget.settings as any || {}
         })),
-        metrics: newDashboard.metrics.map((m: MetricModel) => ({
-          ...m,
-          trend: m.trend || null
+        metrics: dashboard.metrics.map((metric) => ({
+          id: metric.id.toString(),
+          title: metric.title,
+          value: parseFloat(metric.value || '0'),
+          type: metric.type as any,
+          timeframe: metric.timeframe as any,
+          trend: metric.trend as any || undefined
         }))
       };
     } catch (error) {
@@ -232,21 +279,18 @@ export class DashboardService {
   }
 
   /**
-   * Update a dashboard
+   * Update an existing dashboard
    */
-  async updateDashboard(user: User, dashboardId: string | number, updateDashboardDto: UpdateDashboardDto): Promise<DashboardResponseDto> {
+  async updateDashboard(user: users, dashboardId: string | number, updateDashboardDto: UpdateDashboardDto): Promise<DashboardResponseDto> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
       }
 
-      // Get current dashboard
-      const dashboard = await (this.prisma as any).dashboard.findUnique({
-        where: { id: dashboardId },
-        include: {
-          widgets: true,
-          metrics: true
-        }
+      const id = typeof dashboardId === 'string' ? parseInt(dashboardId, 10) : dashboardId;
+      
+      const dashboard = await this.prisma.dashboards.findUnique({
+        where: { id }
       });
 
       if (!dashboard) {
@@ -254,10 +298,10 @@ export class DashboardService {
       }
 
       // Verify user is a member of the organization that owns the dashboard
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId: dashboard.organizationId,
-          userId: user.id 
+          organization_id: dashboard.organization_id,
+          user_id: user.id 
         }
       });
 
@@ -267,32 +311,43 @@ export class DashboardService {
       }
 
       // Update the dashboard
-      const updateData: any = {};
-
-      // Only include fields that were provided
-      if (updateDashboardDto.name !== undefined) updateData.name = updateDashboardDto.name;
-      if (updateDashboardDto.description !== undefined) updateData.description = updateDashboardDto.description;
-      if (updateDashboardDto.team !== undefined) updateData.team = updateDashboardDto.team;
-      if (updateDashboardDto.category !== undefined) updateData.category = updateDashboardDto.category;
-
-      const updatedDashboard = await (this.prisma as any).dashboard.update({
-        where: { id: dashboardId },
-        data: updateData,
+      const updatedDashboard = await this.prisma.dashboards.update({
+        where: { id },
+        data: {
+          ...updateDashboardDto,
+          updated_at: new Date()
+        },
         include: {
-          widgets: true,
+          dashboard_widgets: true,
           metrics: true
         }
       });
 
       return {
-        ...updatedDashboard,
-        widgets: updatedDashboard.widgets.map((w: DashboardWidgetModel) => ({
-          ...w,
-          settings: w.settings || {}
+        id: updatedDashboard.id.toString(),
+        name: updatedDashboard.name,
+        description: updatedDashboard.description || undefined,
+        team: updatedDashboard.team || undefined,
+        category: updatedDashboard.category || undefined,
+        created_by: updatedDashboard.created_by.toString(),
+        organization_id: updatedDashboard.organization_id,
+        created_at: updatedDashboard.created_at,
+        updated_at: updatedDashboard.updated_at,
+        widgets: updatedDashboard.dashboard_widgets.map((widget) => ({
+          id: widget.id.toString(),
+          widget_type: widget.widget_type as any,
+          title: widget.title,
+          size: widget.size as any,
+          position: widget.position as any,
+          settings: widget.settings as any || {}
         })),
-        metrics: updatedDashboard.metrics.map((m: MetricModel) => ({
-          ...m,
-          trend: m.trend || null
+        metrics: updatedDashboard.metrics.map((metric) => ({
+          id: metric.id.toString(),
+          title: metric.title,
+          value: parseFloat(metric.value || '0'),
+          type: metric.type as any,
+          timeframe: metric.timeframe as any,
+          trend: metric.trend as any || undefined
         }))
       };
     } catch (error) {
@@ -304,19 +359,16 @@ export class DashboardService {
   /**
    * Delete a dashboard
    */
-  async deleteDashboard(user: User, dashboardId: string | number): Promise<void> {
+  async deleteDashboard(user: users, dashboardId: string | number): Promise<void> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
       }
 
-      // Get current dashboard
-      const dashboard = await (this.prisma as any).dashboard.findUnique({
-        where: { id: dashboardId },
-        include: {
-          widgets: true,
-          metrics: true
-        }
+      const id = typeof dashboardId === 'string' ? parseInt(dashboardId, 10) : dashboardId;
+      
+      const dashboard = await this.prisma.dashboards.findUnique({
+        where: { id }
       });
 
       if (!dashboard) {
@@ -324,10 +376,10 @@ export class DashboardService {
       }
 
       // Verify user is a member of the organization that owns the dashboard
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId: dashboard.organizationId,
-          userId: user.id 
+          organization_id: dashboard.organization_id,
+          user_id: user.id 
         }
       });
 
@@ -336,10 +388,21 @@ export class DashboardService {
         throw new ForbiddenException('Not authorized to delete this dashboard');
       }
 
-      // Delete the dashboard (cascades to widgets and metrics due to foreign key constraints)
-      await (this.prisma as any).dashboard.delete({
-        where: { id: dashboardId }
+      // Delete associated widgets and metrics first
+      await this.prisma.dashboard_widgets.deleteMany({
+        where: { dashboard_id: dashboard.id }
       });
+
+      await this.prisma.metrics.deleteMany({
+        where: { dashboard_id: dashboard.id }
+      });
+
+      // Delete the dashboard
+      await this.prisma.dashboards.delete({
+        where: { id }
+      });
+
+      this.logger.log(`Dashboard ${dashboardId} deleted successfully`);
     } catch (error) {
       this.logger.error(`Error deleting dashboard ${dashboardId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
@@ -349,19 +412,16 @@ export class DashboardService {
   /**
    * Update dashboard widgets
    */
-  async updateDashboardWidgets(user: User, dashboardId: string | number, widgets: WidgetDto[]): Promise<DashboardResponseDto> {
+  async updateDashboardWidgets(user: users, dashboardId: string | number, widgets: WidgetDto[]): Promise<DashboardResponseDto> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
       }
 
-      // Get current dashboard
-      const dashboard = await (this.prisma as any).dashboard.findUnique({
-        where: { id: dashboardId },
-        include: {
-          widgets: true,
-          metrics: true
-        }
+      const id = typeof dashboardId === 'string' ? parseInt(dashboardId, 10) : dashboardId;
+      
+      const dashboard = await this.prisma.dashboards.findUnique({
+        where: { id }
       });
 
       if (!dashboard) {
@@ -369,54 +429,76 @@ export class DashboardService {
       }
 
       // Verify user is a member of the organization that owns the dashboard
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId: dashboard.organizationId,
-          userId: user.id 
+          organization_id: dashboard.organization_id,
+          user_id: user.id 
         }
       });
 
       if (membershipCount === 0) {
-        this.logger.warn('Unauthorized dashboard widgets update attempt:', { userId: user.id, dashboardId });
-        throw new ForbiddenException('Not authorized to update this dashboard');
+        this.logger.warn('Unauthorized dashboard widget update attempt:', { userId: user.id, dashboardId });
+        throw new ForbiddenException('Not authorized to update widgets for this dashboard');
       }
 
-      // Start a transaction to update widgets
-      await this.prisma.$transaction(async (tx: any) => {
-        // Delete existing widgets
-        await tx.dashboardWidget.deleteMany({
-          where: { dashboardId }
-        });
-
-        // Insert new widgets if any
-        if (widgets && widgets.length > 0) {
-          for (const widget of widgets) {
-            await tx.dashboardWidget.create({
-              data: {
-                dashboardId,
-                widgetType: widget.widget_type,
-                title: widget.title,
-                size: widget.size,
-                settings: widget.settings,
-                position: widget.position,
-                createdAt: new Date(),
-                updatedAt: new Date()
-              }
-            });
-          }
-        }
-
-        // Update dashboard last modified time
-        await tx.dashboard.update({
-          where: { id: dashboardId },
-          data: { updatedAt: new Date() }
-        });
+      // Delete existing widgets
+      await this.prisma.dashboard_widgets.deleteMany({
+        where: { dashboard_id: dashboard.id }
       });
 
-      // Get dashboard with updated widgets
-      return await this.getDashboardById(user, dashboardId);
+      // Create new widgets
+      if (widgets.length > 0) {
+        await this.prisma.dashboard_widgets.createMany({
+          data: widgets.map((widget) => ({
+            dashboard_id: dashboard.id,
+            widget_type: widget.widget_type,
+            title: widget.title,
+            size: widget.size,
+            position: widget.position,
+            settings: widget.settings,
+            updated_at: new Date()
+          }))
+        });
+      }
+
+      // Get updated dashboard with widgets and metrics
+      const updatedDashboard = await this.prisma.dashboards.findUnique({
+        where: { id },
+        include: {
+          dashboard_widgets: true,
+          metrics: true
+        }
+      });
+
+      return {
+        id: updatedDashboard!.id.toString(),
+        name: updatedDashboard!.name,
+        description: updatedDashboard!.description || undefined,
+        team: updatedDashboard!.team || undefined,
+        category: updatedDashboard!.category || undefined,
+        created_by: updatedDashboard!.created_by.toString(),
+        organization_id: updatedDashboard!.organization_id,
+        created_at: updatedDashboard!.created_at,
+        updated_at: updatedDashboard!.updated_at,
+        widgets: updatedDashboard!.dashboard_widgets.map((widget) => ({
+          id: widget.id.toString(),
+          widget_type: widget.widget_type as any,
+          title: widget.title,
+          size: widget.size as any,
+          position: widget.position as any,
+          settings: widget.settings as any || {}
+        })),
+        metrics: updatedDashboard!.metrics.map((metric) => ({
+          id: metric.id.toString(),
+          title: metric.title,
+          value: parseFloat(metric.value || '0'),
+          type: metric.type as any,
+          timeframe: metric.timeframe as any,
+          trend: metric.trend as any || undefined
+        }))
+      };
     } catch (error) {
-      this.logger.error(`Error updating widgets for dashboard ${dashboardId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(`Error updating dashboard widgets ${dashboardId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
@@ -424,19 +506,16 @@ export class DashboardService {
   /**
    * Update dashboard metrics
    */
-  async updateDashboardMetrics(user: User, dashboardId: string | number, metrics: MetricDto[]): Promise<DashboardResponseDto> {
+  async updateDashboardMetrics(user: users, dashboardId: string | number, metrics: MetricDto[]): Promise<DashboardResponseDto> {
     try {
       if (!user?.id) {
         throw new ForbiddenException('Authentication required');
       }
 
-      // Get current dashboard
-      const dashboard = await (this.prisma as any).dashboard.findUnique({
-        where: { id: dashboardId },
-        include: {
-          widgets: true,
-          metrics: true
-        }
+      const id = typeof dashboardId === 'string' ? parseInt(dashboardId, 10) : dashboardId;
+      
+      const dashboard = await this.prisma.dashboards.findUnique({
+        where: { id }
       });
 
       if (!dashboard) {
@@ -444,54 +523,76 @@ export class DashboardService {
       }
 
       // Verify user is a member of the organization that owns the dashboard
-      const membershipCount = await this.prisma.organizationMember.count({
+      const membershipCount = await this.prisma.organization_members.count({
         where: { 
-          organizationId: dashboard.organizationId,
-          userId: user.id 
+          organization_id: dashboard.organization_id,
+          user_id: user.id 
         }
       });
 
       if (membershipCount === 0) {
         this.logger.warn('Unauthorized dashboard metrics update attempt:', { userId: user.id, dashboardId });
-        throw new ForbiddenException('Not authorized to update this dashboard');
+        throw new ForbiddenException('Not authorized to update metrics for this dashboard');
       }
 
-      // Start a transaction to update metrics
-      await this.prisma.$transaction(async (tx: any) => {
-        // Delete existing metrics
-        await tx.metric.deleteMany({
-          where: { dashboardId }
-        });
-
-        // Insert new metrics if any
-        if (metrics && metrics.length > 0) {
-          for (const metric of metrics) {
-            await tx.metric.create({
-              data: {
-                dashboardId,
-                title: metric.title,
-                value: metric.value,
-                type: metric.type,
-                timeframe: metric.timeframe,
-                trend: metric.trend,
-                createdAt: new Date(),
-                updatedAt: new Date()
-              }
-            });
-          }
-        }
-
-        // Update dashboard last modified time
-        await tx.dashboard.update({
-          where: { id: dashboardId },
-          data: { updatedAt: new Date() }
-        });
+      // Delete existing metrics
+      await this.prisma.metrics.deleteMany({
+        where: { dashboard_id: dashboard.id }
       });
 
-      // Get dashboard with updated metrics
-      return await this.getDashboardById(user, dashboardId);
+      // Create new metrics
+      if (metrics.length > 0) {
+        await this.prisma.metrics.createMany({
+          data: metrics.map((metric) => ({
+            dashboard_id: dashboard.id,
+            title: metric.title,
+            value: metric.value.toString(),
+            type: metric.type,
+            timeframe: metric.timeframe,
+            trend: metric.trend || null,
+            updated_at: new Date()
+          }))
+        });
+      }
+
+      // Get updated dashboard with widgets and metrics
+      const updatedDashboard = await this.prisma.dashboards.findUnique({
+        where: { id },
+        include: {
+          dashboard_widgets: true,
+          metrics: true
+        }
+      });
+
+      return {
+        id: updatedDashboard!.id.toString(),
+        name: updatedDashboard!.name,
+        description: updatedDashboard!.description || undefined,
+        team: updatedDashboard!.team || undefined,
+        category: updatedDashboard!.category || undefined,
+        created_by: updatedDashboard!.created_by.toString(),
+        organization_id: updatedDashboard!.organization_id,
+        created_at: updatedDashboard!.created_at,
+        updated_at: updatedDashboard!.updated_at,
+        widgets: updatedDashboard!.dashboard_widgets.map((widget) => ({
+          id: widget.id.toString(),
+          widget_type: widget.widget_type as any,
+          title: widget.title,
+          size: widget.size as any,
+          position: widget.position as any,
+          settings: widget.settings as any || {}
+        })),
+        metrics: updatedDashboard!.metrics.map((metric) => ({
+          id: metric.id.toString(),
+          title: metric.title,
+          value: parseFloat(metric.value || '0'),
+          type: metric.type as any,
+          timeframe: metric.timeframe as any,
+          trend: metric.trend as any || undefined
+        }))
+      };
     } catch (error) {
-      this.logger.error(`Error updating metrics for dashboard ${dashboardId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.error(`Error updating dashboard metrics ${dashboardId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }

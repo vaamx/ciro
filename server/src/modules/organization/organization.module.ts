@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { OrganizationController } from './organization.controller';
 import { OrganizationService } from './organization.service';
 import { MulterModule } from '@nestjs/platform-express';
-import { join } from 'path';
+import { memoryStorage } from 'multer';
 
 @Module({
   imports: [
     MulterModule.register({
-      dest: join(__dirname, '..', '..', '..', 'uploads'),
+      storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
   ],

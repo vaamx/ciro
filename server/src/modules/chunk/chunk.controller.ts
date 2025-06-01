@@ -28,7 +28,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 import { ChunkService } from './chunk.service';
 import { getContentType } from '../../common/utils/file-utils';
 import { UploadChunkHeaders, UploadChunkResponse } from './dto/upload-chunk.dto';
@@ -134,7 +134,7 @@ export class ChunkController {
   @ApiInternalServerErrorResponse({ description: 'Failed to process completed upload' })
   async completeChunkedUpload(
     @Body() completeDto: CompleteChunkDto,
-    @GetUser() user: User,
+    @GetUser() user: users,
   ): Promise<CompleteChunkResponse> {
     this.logger.log(`Received completion request for file ${completeDto.fileId}`, {
       dataSourceId: completeDto.dataSourceId,

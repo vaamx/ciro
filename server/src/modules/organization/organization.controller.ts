@@ -19,10 +19,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { OrganizationService } from './organization.service';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard'; // Import the real guard
-import { GetUser } from '../../core/auth/get-user.decorator'; // Import GetUser decorator
-import { User } from '../../core/database/prisma-types'; // Import User type
+import { GetUser } from '../../core/auth/get-user.decorator'; // Corrected path
+import { users } from '../../core/database/prisma-types'; // Import User type
 import { CreateOrganizationDto } from './dto/create-organization.dto'; // Import DTO
 import { UpdateOrganizationDto } from './dto/update-organization.dto'; // Import DTO
+import { ApiTags } from '@nestjs/swagger';
 
 // Define MulterFile placeholder (or import Express.Multer.File)
 interface MulterFile {
@@ -36,13 +37,14 @@ interface MulterFile {
     path?: string;
 }
 
-@Controller('api/organizations')
+@Controller('organizations')
+@ApiTags('Organizations')
 @UseGuards(JwtAuthGuard) // Apply guard to the entire controller
 export class OrganizationController {
     constructor(private readonly organizationService: OrganizationService) {}
 
     @Get()
-    async getOrganizations(@GetUser() user: Omit<User, 'password_hash'>) {
+    async getOrganizations(@GetUser() user: Omit<users, 'password_hash'>) {
         // User ID is directly available from the decorator
         return this.organizationService.findAllByUser(user.id);
     }
@@ -60,7 +62,7 @@ export class OrganizationController {
     }))
     @HttpCode(HttpStatus.CREATED)
     async createOrganization(
-        @GetUser() user: Omit<User, 'password_hash'>, 
+        @GetUser() user: Omit<users, 'password_hash'>, 
         @Body() createDto: CreateOrganizationDto,
         @UploadedFile() logo?: MulterFile // Logo is optional
     ) {
@@ -76,7 +78,7 @@ export class OrganizationController {
          }
     }))
     async updateOrganization(
-        @GetUser() user: Omit<User, 'password_hash'>,
+        @GetUser() user: Omit<users, 'password_hash'>,
         @Param('id', ParseIntPipe) orgId: number,
         @Body() updateDto: UpdateOrganizationDto,
         @UploadedFile() logo?: MulterFile // Logo is optional
@@ -87,7 +89,7 @@ export class OrganizationController {
     @Delete(':id')
     @HttpCode(HttpStatus.NO_CONTENT)
     async deleteOrganization(
-        @GetUser() user: Omit<User, 'password_hash'>, 
+        @GetUser() user: Omit<users, 'password_hash'>, 
         @Param('id', ParseIntPipe) orgId: number
     ): Promise<void> {
         await this.organizationService.delete(user.id, orgId);
@@ -97,7 +99,7 @@ export class OrganizationController {
 
     @Get(':organizationId/teams')
     async getOrganizationTeams(
-        @GetUser() user: Omit<User, 'password_hash'>, 
+        @GetUser() user: Omit<users, 'password_hash'>, 
         @Param('organizationId', ParseIntPipe) orgId: number
     ) {
         // Permission checks inside the service will use user.id
@@ -106,10 +108,11 @@ export class OrganizationController {
 
     @Get(':organizationId/categories')
     async getOrganizationCategories(
-        @GetUser() user: Omit<User, 'password_hash'>, 
+        @GetUser() user: Omit<users, 'password_hash'>, 
         @Param('organizationId', ParseIntPipe) orgId: number
     ) {
-        // Permission checks inside the service will use user.id
-        return this.organizationService.findCategories(user.id, orgId);
+        // TODO: Implement findCategories method in OrganizationService
+        // return this.organizationService.findCategories(user.id, orgId);
+        throw new Error('findCategories method not implemented yet');
     }
 } 

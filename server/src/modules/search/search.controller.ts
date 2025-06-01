@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 import { SearchService } from './search.service';
 import { SearchResponseDto } from './dto/search-response.dto';
 import { SearchQueryParamsDto } from './dto/search-query-params.dto';
@@ -36,7 +36,7 @@ export class SearchController {
   @Get()
   async searchSimilarDocuments(
     @Query() queryParams: SearchQueryParamsDto,
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<SearchResponseDto> {
     const { query, fileIds, limit } = queryParams;
     
@@ -82,7 +82,7 @@ export class SearchController {
   @Post()
   async searchSimilarDocumentsPost(
     @Body() searchRequestDto: SearchRequestDto,
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<SearchResponseDto> {
     const { query, fileIds, limit, userId } = searchRequestDto;
     
@@ -122,7 +122,7 @@ export class SearchController {
   }
 
   @Get('user-files')
-  async getUserFiles(@GetUser() user: User) {
+  async getUserFiles(@GetUser() user: users) {
     this.logger.info(`Retrieving files for user ${user.id}`);
     
     try {
@@ -147,7 +147,7 @@ export class SearchController {
   @Post('analytical')
   async analyticalSearch(
     @Body() analyticalSearchDto: AnalyticalSearchDto,
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<AnalyticalSearchResponseDto> {
     try {
       // Validate required fields

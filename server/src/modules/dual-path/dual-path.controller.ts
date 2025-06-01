@@ -22,6 +22,8 @@ import { RagIntegrationService } from '../../services/rag/integration.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@prisma/client';
 import { RouterDecision, RouterPath } from '../../types/router.types';
+import { LLMService } from '../../services/llm/llm.service';
+import { ChatMessage } from '../../services/llm/types';
 
 interface DataSourceInfo {
   id: string | number;
@@ -50,6 +52,7 @@ export class DualPathController {
     @Optional() private readonly ragIntegrationService: RagIntegrationService,
     
     private readonly prisma: PrismaService,
+    private readonly llmService: LLMService,
   ) {
     this.logger.log('DualPathController initializing...');
     
@@ -79,6 +82,96 @@ export class DualPathController {
     }
     
     this.logger.log('DualPathController initialization complete');
+  }
+
+  @Post()
+  async processChatMessage(@Body() requestDto: any): Promise<any> {
+    this.logger.log('Received chat message via dual-path root endpoint');
+    this.logger.log(`Request data: ${JSON.stringify(requestDto, null, 2)}`);
+    
+    // Transform request into chat message format
+    const query = requestDto?.message || requestDto?.query || requestDto?.content || '';
+    const dataSourceIds = requestDto?.dataSourceIds || [];
+    
+    if (!query) {
+      throw new BadRequestException('No query content provided');
+    }
+
+    try {
+      // Create a chat message from the query
+      const chatMessage: ChatMessage = {
+        role: 'user',
+        content: query,
+        timestamp: Date.now() // Use number timestamp
+      };
+
+      this.logger.log(`Processing chat message through enhanced LLMService: "${query}"`);
+      
+      // Use the LLMService to generate the response
+      const aiResponse = await this.llmService.generateChatCompletion([chatMessage], {
+        model: 'claude-3-sonnet-20240229',
+        temperature: 0.7,
+        maxTokens: 4000
+      });
+
+      this.logger.log(`LLMService generated response with ${aiResponse.content.length} characters`);
+
+      // Transform the LLMService response to match dual-path expected format
+      const dualPathResponse = {
+        routing: {
+          path: QueryProcessingPath.RAG,
+          confidence: 0.95, // High confidence since we used our enhanced system
+          processingTime: 0 // Could be tracked if needed
+        },
+        result: {
+          content: aiResponse.content,
+          sources: [],
+          artifacts: [],
+          executionResults: null,
+          metadata: {
+            model: aiResponse.metadata?.model || 'claude-3-sonnet-20240229',
+            usage: aiResponse.usage,
+            path: 'llm_only'
+          }
+        }
+      };
+
+      this.logger.log(`Returning dual-path response with content length: ${aiResponse.content.length}`);
+      return dualPathResponse;
+
+    } catch (error) {
+      this.logger.error(`Error in processChatMessage: ${error instanceof Error ? error.message : 'Unknown error'}`, error instanceof Error ? error.stack : undefined);
+      
+      // Return error in dual-path format
+      return {
+        routing: {
+          path: QueryProcessingPath.RAG,
+          confidence: 0,
+          processingTime: 0
+        },
+        result: {
+          content: `I apologize, but I encountered an error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
+          sources: [],
+          artifacts: [],
+          executionResults: null
+        }
+      };
+    }
+  }
+
+  /**
+   * Map ChatService path to DualPath QueryProcessingPath
+   */
+  private mapChatPathToDualPath(chatPath?: string): QueryProcessingPath {
+    switch (chatPath) {
+      case 'direct_rag':
+      case 'analytical_rag':
+        return QueryProcessingPath.RAG;
+      case 'llm_only':
+        return QueryProcessingPath.RAG; // Still map to RAG for consistency
+      default:
+        return QueryProcessingPath.RAG;
+    }
   }
 
   @Post('query')
@@ -437,7 +530,7 @@ export class DualPathController {
       }
       
       // Query database for data sources
-      const dataSources = await this.prisma.dataSource.findMany({
+      const dataSources = await this.prisma.data_sources.findMany({
         where: whereClause,
         select: {
           id: true,
@@ -445,10 +538,10 @@ export class DualPathController {
           type: true,
           config: true,
           status: true,
-          createdAt: true,
-          updatedAt: true,
-          creatorId: true,
-          workspaceId: true,
+          created_at: true,
+          updated_at: true,
+          creator_id: true,
+          workspace_id: true,
         }
       });
       
@@ -473,8 +566,8 @@ export class DualPathController {
           collection_name: `datasource_${ds.id}`,
           metadata: {
             ...config,
-            createdAt: ds.createdAt,
-            updatedAt: ds.updatedAt,
+            createdAt: ds.created_at,
+            updatedAt: ds.updated_at,
             status: ds.status
           }
         };

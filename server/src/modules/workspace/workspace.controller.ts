@@ -22,11 +22,11 @@ import { WorkspaceService, Workspace } from '../../services/workspace/workspace.
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
 // TODO: Confirm correct User type/entity path after refactoring User/Auth potentially
-import { User } from '../../core/database/prisma-types'; // Placeholder path
+import { users } from '../../core/database/prisma-types';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
 import { UpdateWorkspaceDto } from './dto/update-workspace.dto';
 
-@Controller('api/workspaces') // Base path from Express router
+@Controller('workspaces') // Changed from 'api/workspaces'
 @UseGuards(JwtAuthGuard) // Apply auth guard to all routes
 export class WorkspaceController {
     private readonly logger = new Logger(WorkspaceController.name);
@@ -36,7 +36,7 @@ export class WorkspaceController {
 
     @Get()
     async getWorkspaces(
-        @GetUser() user: User,
+        @GetUser() user: users,
         @Query('organization_id', new ParseIntPipe({ optional: true })) organizationId?: number, // Use optional ParseIntPipe
     ): Promise<Workspace[]> {
          if (!user?.id) {
@@ -58,7 +58,7 @@ export class WorkspaceController {
     @Post()
     @HttpCode(HttpStatus.CREATED)
     async createWorkspace(
-        @GetUser() user: User,
+        @GetUser() user: users,
         @Body() createDto: CreateWorkspaceDto,
     ): Promise<Workspace> {
         if (!user?.id) {
@@ -98,7 +98,7 @@ export class WorkspaceController {
 
     @Get(':id')
     async getWorkspaceById(
-        @GetUser() user: User,
+        @GetUser() user: users,
         @Param('id') workspaceId: string,
     ): Promise<Workspace> {
         if (!user?.id) {
@@ -132,7 +132,7 @@ export class WorkspaceController {
 
     @Put(':id')
     async updateWorkspace(
-        @GetUser() user: User,
+        @GetUser() user: users,
         @Param('id') workspaceId: string,
         @Body() updateDto: UpdateWorkspaceDto,
     ): Promise<Workspace> {
@@ -189,7 +189,7 @@ export class WorkspaceController {
     @Delete(':id')
     @HttpCode(HttpStatus.NO_CONTENT)
     async deleteWorkspace(
-        @GetUser() user: User,
+        @GetUser() user: users,
         @Param('id') workspaceId: string,
     ): Promise<void> {
          if (!user?.id) {

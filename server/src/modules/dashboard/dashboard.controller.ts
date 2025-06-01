@@ -40,7 +40,7 @@ interface RequestWithUser extends Request {
 @ApiTags('dashboards')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('api/dashboards')
+@Controller('dashboards')
 export class DashboardController {
     constructor(private readonly dashboardService: DashboardService) {}
 

@@ -1,7 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
-  Automation,
+  automations,
   Prisma,
 } from '@prisma/client';
 import { CreateAutomationDto } from './dto/create-automation.dto';
@@ -14,22 +15,23 @@ export class AutomationService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(organizationId: number /*, userId?: number */): Promise<Automation[]> {
+  async findAll(organizationId: number /*, userId?: number */): Promise<automations[]> {
     this.logger.log(`Finding all automations for org ${organizationId}`);
     // Implement logic using Prisma Client
-    return this.prisma.automation.findMany({
+    return this.prisma.automations.findMany({
       where: {
-        organizationId: organizationId,
+        organization_id: organizationId,
       },
     });
   }
 
-  async create(createDto: CreateAutomationDto, organizationId: number): Promise<Automation> {
+  async create(createDto: CreateAutomationDto, organizationId: number): Promise<automations> {
     this.logger.log(`Creating automation '${createDto.name}' for org ${organizationId}`);
     
     // Use Prisma Client create method
-    return this.prisma.automation.create({
+    return this.prisma.automations.create({
       data: {
+        id: uuidv4(), // Generate UUID for id
         name: createDto.name,
         description: createDto.description,
         // Store trigger and actions within the config JSON field
@@ -37,17 +39,18 @@ export class AutomationService {
           trigger: createDto.trigger,
           actions: createDto.actions,
         },
-        organizationId: organizationId,
-        // created_at and updated_at are handled by @default(now())
+        organization_id: organizationId,
+        updated_at: new Date(), // Set current timestamp
+        // created_at is handled by @default(now())
       },
     });
   }
 
-  async update(id: string, updateDto: UpdateAutomationDto, organizationId: number): Promise<Automation> {
+  async update(id: string, updateDto: UpdateAutomationDto, organizationId: number): Promise<automations> {
     this.logger.log(`Updating automation ${id} for org ${organizationId}`);
 
     // Use safer type approach to access updateDto properties
-    const updateData: Prisma.AutomationUpdateInput = {};
+    const updateData: Prisma.automationsUpdateInput = {};
     
     // Use type assertion to tell TypeScript these properties might exist
     const dto = updateDto as Partial<CreateAutomationDto>;
@@ -67,8 +70,8 @@ export class AutomationService {
 
             if (trigger !== undefined || actions !== undefined) {
                 // Merge with existing config
-                const existing = await this.prisma.automation.findUnique({
-                    where: { id: id, organizationId: organizationId },
+                const existing = await this.prisma.automations.findUnique({
+                    where: { id: id, organization_id: organizationId },
                     select: { config: true },
                 });
                 if (!existing) throw new NotFoundException(`Automation with ID "${id}" not found`);
@@ -88,12 +91,12 @@ export class AutomationService {
     // Prevent update if no data is provided
     if (Object.keys(updateData).length === 0) {
         this.logger.warn(`Update called for automation ${id} with no actual data to update.`);
-        return this.prisma.automation.findUniqueOrThrow({ where: { id, organizationId: organizationId } });
+        return this.prisma.automations.findUniqueOrThrow({ where: { id, organization_id: organizationId } });
     }
 
     try {
-        const result = await this.prisma.automation.updateMany({
-            where: { id: id, organizationId: organizationId },
+        const result = await this.prisma.automations.updateMany({
+            where: { id: id, organization_id: organizationId },
             data: updateData,
         });
 
@@ -101,7 +104,7 @@ export class AutomationService {
             throw new NotFoundException(`Automation with ID "${id}" not found for organization ${organizationId}`);
         }
         
-        return this.prisma.automation.findUniqueOrThrow({ where: { id } });
+        return this.prisma.automations.findUniqueOrThrow({ where: { id } });
 
     } catch (error: any) {
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -117,10 +120,10 @@ export class AutomationService {
   async delete(id: string, organizationId: number): Promise<void> {
     this.logger.log(`Deleting automation ${id} for org ${organizationId}`);
     try {
-      const result = await this.prisma.automation.deleteMany({
+      const result = await this.prisma.automations.deleteMany({
         where: {
           id: id,
-          organizationId: organizationId,
+          organization_id: organizationId,
         },
       });
 
@@ -136,15 +139,15 @@ export class AutomationService {
     }
   }
 
-  async toggleStatus(id: string, dto: ToggleStatusDto, organizationId: number): Promise<Automation> {
+  async toggleStatus(id: string, dto: ToggleStatusDto, organizationId: number): Promise<automations> {
     this.logger.log(`Toggling status for automation ${id} to ${dto.active} for org ${organizationId}`);
     
     // TODO: Need to confirm if the 'status' field exists and its type on the Automation model.
     // The original code used $executeRaw, suggesting potential type issues or a non-standard field.
     // Assuming an 'active' boolean field for now based on the DTO.
     try {
-      const result = await this.prisma.automation.updateMany({
-        where: { id: id, organizationId: organizationId },
+      const result = await this.prisma.automations.updateMany({
+        where: { id: id, organization_id: organizationId },
         data: { active: dto.active }, // Assuming 'active' boolean field exists
       });
 
@@ -153,7 +156,7 @@ export class AutomationService {
       }
 
       // Return the updated automation
-      return this.prisma.automation.findUniqueOrThrow({ where: { id } });
+      return this.prisma.automations.findUniqueOrThrow({ where: { id } });
       
     } catch (error: any) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -171,10 +174,10 @@ export class AutomationService {
     
     try {
       // First check if the automation exists and belongs to the organization
-      const automation = await this.prisma.automation.findFirst({
+      const automation = await this.prisma.automations.findFirst({
         where: {
           id: id,
-          organizationId: organizationId,
+          organization_id: organizationId,
         },
       });
 

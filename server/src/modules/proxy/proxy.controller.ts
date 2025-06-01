@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 import { ProxyRequestDto, ProxyResponseDto } from './dto/proxy-request.dto';
 import { HubSpotService } from '../../services/datasources/connectors/hubspot/HubSpotService';
 
@@ -30,7 +30,7 @@ export class ProxyController {
 
   @All('hubspot/*')
   async proxyHubspotRequest(
-    @GetUser() user: User, 
+    @GetUser() user: users, 
     @Req() request: any,
     @Body() body: any
   ): Promise<ProxyResponseDto> {
@@ -61,7 +61,7 @@ export class ProxyController {
   @Post('hubspot/contact')
   @HttpCode(HttpStatus.OK)
   async createHubspotContact(
-    @GetUser() user: User,
+    @GetUser() user: users,
     @Body() proxyRequest: ProxyRequestDto
   ): Promise<ProxyResponseDto> {
     try {

@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../../config/database';
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 import {
   CreateChatSessionDto,
   UpdateChatSessionDto,
@@ -14,11 +14,13 @@ import {
 export class ChatSessionsService {
   private readonly logger = new Logger(ChatSessionsService.name);
 
+  constructor() {}
+
   /**
    * Get all chat sessions for a user with optional organization and dashboard filters
    */
   async getChatSessions(
-    user: User,
+    user: users,
     organizationId?: string,
     dashboardId?: string
   ): Promise<ChatSessionResponseDto[]> {
@@ -67,7 +69,7 @@ export class ChatSessionsService {
    * Create a new chat session
    */
   async createChatSession(
-    user: User,
+    user: users,
     createChatSessionDto: CreateChatSessionDto
   ): Promise<ChatSessionResponseDto> {
     if (!user?.id) {
@@ -137,7 +139,7 @@ export class ChatSessionsService {
    * Get a chat session by ID
    */
   async getChatSessionById(
-    user: User,
+    user: users,
     sessionId: string
   ): Promise<ChatSessionResponseDto> {
     if (!user?.id) {
@@ -189,7 +191,7 @@ export class ChatSessionsService {
    * Update a chat session
    */
   async updateChatSession(
-    user: User,
+    user: users,
     sessionId: string,
     updateChatSessionDto: UpdateChatSessionDto
   ): Promise<ChatSessionResponseDto> {
@@ -247,7 +249,7 @@ export class ChatSessionsService {
    * Delete a chat session
    */
   async deleteChatSession(
-    user: User,
+    user: users,
     sessionId: string
   ): Promise<void> {
     if (!user?.id) {
@@ -280,10 +282,11 @@ export class ChatSessionsService {
   }
 
   /**
-   * Add messages to a chat session's history
+   * Add messages to a chat session's history - simplified version without AI generation
+   * The AI response generation will be handled by the controller calling ChatService separately
    */
   async addMessagesToHistory(
-    user: User,
+    user: users,
     sessionId: string,
     addMessagesDto: AddMessagesToHistoryDto
   ): Promise<ChatSessionResponseDto> {
@@ -305,7 +308,7 @@ export class ChatSessionsService {
           created_at: new Date(),
           updated_at: new Date(),
           metadata: {
-            history: addMessagesDto.messages
+            messages: addMessagesDto.messages
           }
         };
       }
@@ -328,26 +331,26 @@ export class ChatSessionsService {
         metadata = typeof session.metadata === 'string' 
           ? JSON.parse(session.metadata) 
           : session.metadata || {};
-      } catch (e) {
-        this.logger.warn(`Failed to parse existing metadata as JSON for session ${sessionId}`);
+      } catch (error) {
+        this.logger.warn(`Failed to parse session metadata: ${(error as Error).message}`);
         metadata = {};
       }
 
-      // Ensure history array exists
-      if (!metadata.history) {
-        metadata.history = [];
+      // Initialize messages array if it doesn't exist
+      if (!metadata.messages) {
+        metadata.messages = [];
       }
 
-      // Add new messages
-      // Add timestamps if missing
-      const messagesWithTimestamps = addMessagesDto.messages.map(message => ({
-        ...message,
-        timestamp: message.timestamp || new Date().toISOString()
+      // Add new messages to the metadata
+      const newMessages = addMessagesDto.messages.map(msg => ({
+        ...msg,
+        id: uuidv4(),
+        timestamp: msg.timestamp || new Date().toISOString()
       }));
-      
-      metadata.history = [...metadata.history, ...messagesWithTimestamps];
 
-      // Update session with new metadata
+      metadata.messages.push(...newMessages);
+
+      // Update the session with new metadata
       const [updatedSession] = await db('chat_sessions')
         .where('id', sessionId)
         .update({
@@ -355,13 +358,17 @@ export class ChatSessionsService {
           metadata: JSON.stringify(metadata)
         })
         .returning('*');
-      
-      return this.parseSessionMetadata(updatedSession);
-    } catch (error) {
-      this.logger.error(`Error adding messages to session ${sessionId} for user ${user.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
+
+      if (!updatedSession) {
+        throw new Error('Failed to update chat session');
       }
+
+      this.logger.log(`Added ${newMessages.length} message(s) to session ${sessionId}`);
+
+      return this.parseSessionMetadata(updatedSession);
+
+    } catch (error) {
+      this.logger.error(`Error adding messages to session ${sessionId}: ${(error as Error).message}`, (error as Error).stack);
       throw error;
     }
   }
@@ -370,7 +377,7 @@ export class ChatSessionsService {
    * Get messages from a chat session's history
    */
   async getMessages(
-    user: User,
+    user: users,
     sessionId: string
   ): Promise<ChatMessageDto[]> {
     if (!user?.id) {
@@ -395,7 +402,7 @@ export class ChatSessionsService {
         throw new NotFoundException('Chat session not found');
       }
 
-      // Parse metadata to get history
+      // Parse metadata to get messages
       let metadata: any = {};
       try {
         metadata = typeof session.metadata === 'string' 
@@ -406,7 +413,10 @@ export class ChatSessionsService {
         metadata = {};
       }
 
-      return metadata.history || [];
+      // Return messages (not history) to match how we store them in addMessagesToHistory
+      const messages = metadata.messages || metadata.history || [];
+      this.logger.log(`Retrieved ${messages.length} messages for session ${sessionId}`);
+      return messages;
     } catch (error) {
       this.logger.error(`Error fetching messages for session ${sessionId} for user ${user.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       if (error instanceof NotFoundException) {
