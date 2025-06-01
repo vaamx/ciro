@@ -227,6 +227,7 @@ import { SocketService } from '../../../util/socket.service'; // Import SocketSe
         qdrantCollectionService: QdrantCollectionService,
         qdrantIngestionService: QdrantIngestionService,
         socketService: SocketService,
+        dataSourceManagementService: DataSourceManagementService,
       ) => {
         return new EnhancedExcelProcessorService(
           coreConfigService as any,
@@ -235,6 +236,7 @@ import { SocketService } from '../../../util/socket.service'; // Import SocketSe
           qdrantCollectionService,
           qdrantIngestionService,
           socketService,
+          dataSourceManagementService,
         );
       },
       inject: [
@@ -244,6 +246,7 @@ import { SocketService } from '../../../util/socket.service'; // Import SocketSe
         QdrantCollectionService,
         QdrantIngestionService,
         SocketService,
+        DataSourceManagementService,
       ],
     },
     // JSON Processor

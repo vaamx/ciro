@@ -123,25 +123,74 @@ export abstract class BaseDocumentProcessor {
     error?: string
   ): Promise<void> {
     try {
-      // Convert DataSourceProcessingStatus to DataSourceStatus 
-      // (or cast to string if that's what the service expects)
-      // await this.dataSourceService.updateStatus( // TODO: Reinstate when DataSourceService is refactored
-      //   dataSourceId, 
-      //   organizationId, 
-      //   status as unknown as DataSourceStatus, 
-      //   error
-      // );
+      // Convert DataSourceProcessingStatus to a status string for the database
+      let statusString: string;
+      switch (status) {
+        case DataSourceProcessingStatus.PROCESSING:
+          statusString = 'processing';
+          break;
+        case DataSourceProcessingStatus.COMPLETED:
+          statusString = 'ready'; // Set to 'ready' when completed
+          break;
+        case DataSourceProcessingStatus.ERROR:
+          statusString = 'error';
+          break;
+        default:
+          statusString = status.toString();
+      }
       
-      this.logger.info(`Status updated for data source ${dataSourceId} to ${status}`);
+      this.logger.info(`Status updated for data source ${dataSourceId} to ${statusString}`);
+      
       // Emit event via SocketService to the specific organization room
       const room = `org_${organizationId}`;
       this.socketService.getIO().to(room).emit(
         'dataSourceUpdate', 
-        { id: dataSourceId, status: status.toString(), metrics, error }
+        { 
+          id: dataSourceId, 
+          status: statusString, 
+          metrics, 
+          error,
+          timestamp: new Date().toISOString()
+        }
       );
+
+      // Also emit a general status update for immediate UI feedback
+      this.socketService.getIO().to(room).emit(
+        'processingUpdate',
+        {
+          dataSourceId,
+          status: statusString,
+          progress: metrics?.step === 'completed' ? 100 : undefined,
+          message: this.getStatusMessage(status, metrics),
+          metadata: metrics
+        }
+      );
+      
     } catch (err) {
       this.logger.error(`Error in updateStatus for data source ${dataSourceId}: ${err instanceof Error ? err.message : String(err)}`);
       // Avoid throwing error from status update itself
+    }
+  }
+
+  /**
+   * Get a user-friendly status message
+   */
+  private getStatusMessage(status: DataSourceProcessingStatus, metrics?: Record<string, any>): string {
+    switch (status) {
+      case DataSourceProcessingStatus.PROCESSING:
+        if (metrics?.rowsProcessed && metrics?.chunksCreated) {
+          return `Processing... ${metrics.rowsProcessed} rows processed, ${metrics.chunksCreated} chunks created`;
+        }
+        return 'Processing document...';
+      case DataSourceProcessingStatus.COMPLETED:
+        if (metrics?.totalRows && metrics?.totalChunks) {
+          return `Processing completed: ${metrics.totalRows} rows processed into ${metrics.totalChunks} chunks`;
+        }
+        return 'Processing completed successfully';
+      case DataSourceProcessingStatus.ERROR:
+        return 'Processing failed';
+      default:
+        return status.toString();
     }
   }
 

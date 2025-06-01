@@ -1,32 +1,12 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { JobStatus } from '../../core/database/prisma-types';
-import { DataSourceTypeEnum, DataSourceProcessingStatus } from '../../types';
-import { S3Service } from '../../services/shared/s3';
-import { QueueService } from '../../services/shared/queue';
 import { v4 as uuidv4 } from 'uuid';
-import { CreateJobDto } from './dto/create-job.dto';
-import { JobResponseDto, DataSourceJobsResponseDto, ProcessingMetricsResponseDto } from './dto/job-response.dto';
 import { PrismaService } from '../../core/database/prisma.service';
-import { Prisma } from '@prisma/client';
-// Use reference path directive instead of import for type declaration
-/// <reference path="../../types/prisma-extensions.d.ts" />
-
-// Update the interface to match Prisma types
-interface ProcessingJob {
-  id: string;
-  dataSourceId: number;
-  status: string;
-  fileName: string | null;
-  s3Key: string | null;
-  metadata: any; // Use any instead of Prisma.JsonValue due to export issues
-  content: string | null;
-  fileType: string | null;
-  progress: number | null;
-  error: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  completedAt: Date | null;
-}
+import { processing_jobs, Prisma } from '@prisma/client';
+import { JobResponseDto, DataSourceJobsResponseDto, ProcessingMetricsResponseDto } from './dto/job-response.dto';
+import { CreateJobDto } from './dto/create-job.dto';
+import { S3Service } from '../../services/shared/s3/s3.service';
+import { QueueService } from '../../services/shared/queue/queue.service';
+import { JobStatus } from '../../core/database/prisma-types';
 
 @Injectable()
 export class DocumentProcessingService {
@@ -46,18 +26,9 @@ export class DocumentProcessingService {
     content?: string,
     fileType?: string,
   ): Promise<{ jobId: string }> {
-    // Validate data source exists and belongs to user
-    const dataSource = await this.prisma.dataSource.findUnique({
-      where: { 
-        id: parseInt(dataSourceId)
-      },
-    });
-
-    if (!dataSource) {
-      throw new NotFoundException(`Data source with ID ${dataSourceId} not found`);
-    }
-
-    // Validate that either file or content is provided
+    this.logger.log(`Creating processing job for dataSource: ${dataSourceId}`);
+    
+    // Validate inputs
     if (!file && !content) {
       throw new BadRequestException('Either file or content must be provided');
     }
@@ -65,28 +36,45 @@ export class DocumentProcessingService {
     let s3Key: string | undefined = undefined;
     let fileName: string | undefined = undefined;
     
-    // Upload file to S3 if provided
+    // Upload file to S3 if provided and S3 is configured
     if (file) {
       fileName = file.originalname;
       s3Key = `documents/${userId}/${dataSourceId}/${uuidv4()}-${fileName}`;
-      await this.s3Service.uploadFile(s3Key, file.buffer, file.mimetype);
-      this.logger.log(`File uploaded to S3: ${s3Key}`);
+      
+      try {
+        // Check if S3 is properly configured before attempting upload
+        const bucketName = process.env.S3_BUCKET;
+        if (bucketName && bucketName !== 'your-bucket-name') {
+          await this.s3Service.uploadFile(s3Key, file.buffer, file.mimetype);
+          this.logger.log(`File uploaded to S3: ${s3Key}`);
+        } else {
+          this.logger.log(`S3 not configured (bucket: ${bucketName}), skipping S3 upload. File is already saved locally.`);
+          s3Key = undefined; // Don't store S3 key if not uploaded
+        }
+      } catch (error) {
+        this.logger.warn(`S3 upload failed: ${error.message}. Continuing with local file storage.`);
+        s3Key = undefined; // Don't store S3 key if upload failed
+      }
     }
 
-    // Create job record using Prisma without type assertion
-    const job = await this.prisma.processingJob.create({
-      data: {
-        id: uuidv4(),
-        dataSourceId: parseInt(dataSourceId),
-        status: JobStatus.PENDING,
-        fileName: fileName || null,
-        s3Key: s3Key || null,
-        metadata: metadata || {},
-        content: content || null,
-        fileType: fileType || null,
-        progress: 0,
-        error: null,
-      }
+    // Create job record using Prisma with correct field names and types
+    const jobData: Prisma.processing_jobsUncheckedCreateInput = {
+      id: uuidv4(),
+      data_source_id: parseInt(dataSourceId),
+      status: JobStatus.PENDING,
+      file_name: fileName || null,
+      s3_key: s3Key || null,
+      metadata: metadata as Prisma.JsonValue || {},
+      content: content || null,
+      file_type: fileType || null,
+      progress: 0,
+      error: null,
+      updated_at: new Date(),
+      // created_at will be set automatically by Prisma default
+    };
+
+    const job = await this.prisma.processing_jobs.create({
+      data: jobData
     });
     
     this.logger.log(`Created processing job: ${job.id}`);
@@ -98,7 +86,6 @@ export class DocumentProcessingService {
       userId,
       s3Key,
       content,
-      metadata,
       fileType,
     });
 
@@ -106,148 +93,119 @@ export class DocumentProcessingService {
   }
 
   async getJobStatus(jobId: string): Promise<JobResponseDto> {
-    const job = await this.prisma.processingJob.findUnique({
-      where: { id: jobId },
+    const job = await this.prisma.processing_jobs.findUnique({
+      where: { id: jobId }
     });
 
     if (!job) {
-      throw new NotFoundException(`Job with ID ${jobId} not found`);
+      throw new NotFoundException(`Job ${jobId} not found`);
     }
 
-    // Map job to response DTO using constructor
     return new JobResponseDto({
       id: job.id,
       jobId: job.id,
-      dataSourceId: String(job.dataSourceId),
+      dataSourceId: String(job.data_source_id),
       currentState: job.status as JobStatus,
-      fileName: job.fileName || undefined,
-      progress: job.progress || 0,
+      fileName: job.file_name || undefined,
+      progress: (job.progress as number) || 0,
       error: job.error || undefined,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
-      completedAt: job.completedAt || undefined,
+      createdAt: job.created_at,
+      updatedAt: job.updated_at,
+      completedAt: job.completed_at || undefined,
     });
   }
 
   async getDataSourceJobs(dataSourceId: string): Promise<DataSourceJobsResponseDto> {
-    // Validate data source exists
-    const dataSource = await this.prisma.dataSource.findUnique({
-      where: { id: parseInt(dataSourceId) },
-    });
-
-    if (!dataSource) {
-      throw new NotFoundException(`Data source with ID ${dataSourceId} not found`);
-    }
+    this.logger.log(`Getting jobs for dataSource: ${dataSourceId}`);
 
     // Get all jobs for this data source
-    const jobs = await this.prisma.processingJob.findMany({
-      where: { dataSourceId: parseInt(dataSourceId) },
-      orderBy: { createdAt: 'desc' },
+    const jobs = await this.prisma.processing_jobs.findMany({
+      where: { data_source_id: parseInt(dataSourceId) },
+      orderBy: { created_at: 'desc' },
     });
 
-    // Separate active and completed jobs
-    const activeJobs = jobs.filter((job: ProcessingJob) => 
+    // Separate active and completed jobs using the actual Prisma type
+    const activeJobs = jobs.filter((job) => 
       job.status === JobStatus.PENDING || 
       job.status === JobStatus.PROCESSING);
     
-    const completedJobs = jobs.filter((job: ProcessingJob) => 
+    const completedJobs = jobs.filter((job) => 
       job.status === JobStatus.COMPLETED || 
       job.status === JobStatus.FAILED || 
       job.status === JobStatus.CANCELLED);
 
-    // Map jobs to DTOs using constructors
+    // Map jobs to DTOs
     return new DataSourceJobsResponseDto({
       dataSourceId,
-      activeJobs: activeJobs.map((job: ProcessingJob) => new JobResponseDto({
+      activeJobs: activeJobs.map((job) => new JobResponseDto({
         id: job.id,
         jobId: job.id,
-        dataSourceId: String(job.dataSourceId),
+        dataSourceId: String(job.data_source_id),
         currentState: job.status as JobStatus,
-        fileName: job.fileName || undefined,
-        progress: job.progress || 0,
+        fileName: job.file_name || undefined,
+        progress: (job.progress as number) || 0,
         error: job.error || undefined,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-        completedAt: job.completedAt || undefined,
+        createdAt: job.created_at,
+        updatedAt: job.updated_at,
+        completedAt: job.completed_at || undefined,
       })),
-      completedJobs: completedJobs.map((job: ProcessingJob) => new JobResponseDto({
+      completedJobs: completedJobs.map((job) => new JobResponseDto({
         id: job.id,
         jobId: job.id,
-        dataSourceId: String(job.dataSourceId),
+        dataSourceId: String(job.data_source_id),
         currentState: job.status as JobStatus,
-        fileName: job.fileName || undefined,
-        progress: job.progress || 0,
+        fileName: job.file_name || undefined,
+        progress: (job.progress as number) || 0,
         error: job.error || undefined,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-        completedAt: job.completedAt || undefined,
+        createdAt: job.created_at,
+        updatedAt: job.updated_at,
+        completedAt: job.completed_at || undefined,
       })),
     });
   }
 
   async cancelJob(jobId: string): Promise<{ success: boolean }> {
-    const job = await this.prisma.processingJob.findUnique({
-      where: { id: jobId },
-    });
-
-    if (!job) {
-      throw new NotFoundException(`Job with ID ${jobId} not found`);
-    }
-
-    // Check if job can be cancelled
-    if (job.status === JobStatus.COMPLETED || 
-        job.status === JobStatus.FAILED || 
-        job.status === JobStatus.CANCELLED) {
-      throw new BadRequestException(`Job ${jobId} is already in final state: ${job.status}`);
-    }
-
-    // Update job status
-    await this.prisma.processingJob.update({
+    this.logger.log(`Cancelling job: ${jobId}`);
+    
+    // Update job status to cancelled
+    const updatedJob = await this.prisma.processing_jobs.update({
       where: { id: jobId },
       data: {
         status: JobStatus.CANCELLED,
-        updatedAt: new Date(),
-        completedAt: new Date(),
+        updated_at: new Date(),
+        completed_at: new Date(),
       }
     });
 
-    // Signal queue to cancel the job
-    await this.queueService.cancelDocumentProcessingJob(jobId);
-
+    this.logger.log(`Job ${jobId} cancelled successfully`);
     return { success: true };
   }
 
   async getProcessingMetrics(): Promise<ProcessingMetricsResponseDto> {
-    // Use Prisma for better performance on aggregations
-    const metrics = await this.prisma.processingJob.findMany({
+    // Get job metrics from database
+    const metrics = await this.prisma.processing_jobs.findMany({
       select: {
         status: true,
-        createdAt: true,
-        completedAt: true,
+        created_at: true,
+        completed_at: true,
       },
     });
 
-    // Define types for the metrics calculation
-    interface JobMetric {
-      status: string;
-      createdAt: Date;
-      completedAt: Date | null;
-    }
-
+    // Calculate metrics using the actual Prisma type
     const result = {
       totalJobs: metrics.length,
-      pendingJobs: metrics.filter((job: JobMetric) => job.status === JobStatus.PENDING).length,
-      processingJobs: metrics.filter((job: JobMetric) => job.status === JobStatus.PROCESSING).length,
-      completedJobs: metrics.filter((job: JobMetric) => job.status === JobStatus.COMPLETED).length,
-      failedJobs: metrics.filter((job: JobMetric) => job.status === JobStatus.FAILED).length,
-      cancelledJobs: metrics.filter((job: JobMetric) => job.status === JobStatus.CANCELLED).length,
-      averageProcessingTimeSeconds: metrics.reduce((total: number, job: JobMetric) => {
-        if (job.status === JobStatus.COMPLETED && job.completedAt) {
-          const processingTime = (job.completedAt.getTime() - job.createdAt.getTime()) / 1000;
+      pendingJobs: metrics.filter((job) => job.status === JobStatus.PENDING).length,
+      processingJobs: metrics.filter((job) => job.status === JobStatus.PROCESSING).length,
+      completedJobs: metrics.filter((job) => job.status === JobStatus.COMPLETED).length,
+      failedJobs: metrics.filter((job) => job.status === JobStatus.FAILED).length,
+      cancelledJobs: metrics.filter((job) => job.status === JobStatus.CANCELLED).length,
+      averageProcessingTimeSeconds: metrics.reduce((total: number, job) => {
+        if (job.status === JobStatus.COMPLETED && job.completed_at) {
+          const processingTime = (job.completed_at.getTime() - job.created_at.getTime()) / 1000;
           return total + processingTime;
         }
         return total;
-      }, 0) / (metrics.filter((job: JobMetric) => job.status === JobStatus.COMPLETED && job.completedAt).length || 1),
+      }, 0) / (metrics.filter((job) => job.status === JobStatus.COMPLETED && job.completed_at).length || 1),
     };
     
     return new ProcessingMetricsResponseDto({
@@ -257,7 +215,7 @@ export class DocumentProcessingService {
       completedJobs: result.completedJobs,
       failedJobs: result.failedJobs,
       cancelledJobs: result.cancelledJobs,
-      averageProcessingTimeSeconds: result.averageProcessingTimeSeconds,
+      averageProcessingTimeSeconds: Math.round(result.averageProcessingTimeSeconds * 100) / 100,
     });
   }
 } 

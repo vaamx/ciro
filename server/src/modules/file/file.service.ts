@@ -10,15 +10,15 @@ import { v4 as uuidv4 } from 'uuid';
 export interface DbFileRecord {
     id: string;
     filename: string;
-    originalFilename: string;
-    fileType: string;
-    mimeType: string;
+    original_filename: string;
+    file_type: string;
+    mime_type: string;
     size: number;
     metadata?: any;
-    uploadedBy: string | null;
-    organizationId: number | null;
-    createdAt: Date;
-    updatedAt: Date;
+    uploaded_by?: string | null;
+    organization_id?: number | null;
+    created_at: Date;
+    updated_at: Date;
     error?: string | null;
     content?: Uint8Array | null;
 }
@@ -77,21 +77,23 @@ export class FileService {
             // Write file to disk
             await fs.writeFile(filePath, fileData.file.buffer);
             
-            // Create database record
-            const newFile = await this.prisma.file.create({
+            // Create database record - handle organization relationship properly
+            const newFile = await this.prisma.files.create({
                 data: {
+                    id: uuidv4(),
                     filename: uniqueFilename,
-                    originalFilename: fileData.file.originalname,
-                    mimeType: fileData.file.mimetype,
-                    fileType: fileData.file.mimetype,
+                    original_filename: fileData.file.originalname,
+                    mime_type: fileData.file.mimetype,
+                    file_type: fileData.file.mimetype,
                     size: BigInt(fileData.file.size),
                     metadata: fileData.metadata ? fileData.metadata : {},
-                    uploadedBy: fileData.userId.toString(),
-                    organizationId: fileData.organizationId
+                    uploaded_by: fileData.userId.toString(),
+                    organization_id: fileData.organizationId,
+                    updated_at: new Date()
                 }
             });
             
-            // Convert BigInt size to Number for JSON serialization
+            // Convert BigInt size to Number and ensure proper field structure
             return {
                 ...newFile,
                 size: Number(newFile.size)
@@ -107,10 +109,10 @@ export class FileService {
         this.logger.log(`Getting status for file ${fileId}`);
         
         try {
-            const file = await this.prisma.file.findFirst({
+            const file = await this.prisma.files.findUnique({
                 where: {
                     id: fileId,
-                    organizationId: organizationId
+                    organization_id: organizationId
                 }
             });
             
@@ -143,32 +145,32 @@ export class FileService {
         
         try {
             // Get total count
-            const totalCount = await this.prisma.file.count({
+            const totalCount = await this.prisma.files.count({
                 where: {
-                    organizationId: organizationId
+                    organization_id: organizationId
                 }
             });
             
             // Get files
-            const files = await this.prisma.file.findMany({
+            const files = await this.prisma.files.findMany({
                 where: {
-                    organizationId: organizationId
+                    organization_id: organizationId
                 },
                 skip: offset,
                 take: limit,
                 orderBy: {
-                    createdAt: 'desc'
+                    created_at: 'desc'
                 }
             });
             
-            // Format response
+            // Format response with correct field names for DTO
             return {
                 files: files.map((file: any) => ({
                     id: file.id,
-                    originalFilename: file.originalFilename,
+                    originalFilename: file.original_filename,
                     size: Number(file.size),
-                    mimeType: file.mimeType,
-                    uploadedAt: file.createdAt.toISOString(),
+                    mimeType: file.mime_type,
+                    uploadedAt: file.created_at.toISOString(),
                     status: 'ready' // Default status
                 })),
                 total: totalCount,
@@ -186,10 +188,10 @@ export class FileService {
         this.logger.log(`Fetching file ${fileId} for org ${organizationId}`);
         
         try {
-            const file = await this.prisma.file.findFirst({
+            const file = await this.prisma.files.findUnique({
                 where: {
                     id: fileId,
-                    organizationId: organizationId
+                    organization_id: organizationId
                 }
             });
             
@@ -254,7 +256,7 @@ export class FileService {
             const fileRecord = await this.getFileById(fileId, organizationId);
 
             // Delete from database first
-            await this.prisma.file.delete({
+            await this.prisma.files.delete({
                 where: {
                     id: fileId
                 }
@@ -286,12 +288,12 @@ export class FileService {
          this.logger.log(`Searching files for query "${query}" in org ${organizationId}`);
         
         try {
-            const files = await this.prisma.file.findMany({
+            const files = await this.prisma.files.findMany({
                 where: {
-                    organizationId: organizationId,
+                    organization_id: organizationId,
                     OR: [
                         { filename: { contains: query, mode: 'insensitive' } },
-                        { originalFilename: { contains: query, mode: 'insensitive' } }
+                        { original_filename: { contains: query, mode: 'insensitive' } }
                     ]
                 }
             });
@@ -306,4 +308,5 @@ export class FileService {
             throw new InternalServerErrorException('File search failed');
         }
     }
+
 } 

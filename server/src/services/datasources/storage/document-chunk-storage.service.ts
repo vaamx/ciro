@@ -3,6 +3,7 @@ import { PrismaService } from '../../../core/database/prisma.service'; // Adjust
 import { Prisma } from '@prisma/client';
 import { createServiceLogger } from '../../../common/utils/logger-factory'; // Adjusted path
 import { DataSourceStatus } from '../processors/file/base-document.processor'; // Adjusted path (Assuming status enum is here)
+import { v4 as uuidv4 } from 'uuid';
 // NOTE: We might need to inject DataSourceManagementService later if updateStatus needs to be called from here,
 // or restructure how status updates are handled. For now, commenting out the updateStatus call.
 
@@ -36,9 +37,9 @@ export class DocumentChunkStorageService {
 
     try {
       // Check if this chunk already exists using Prisma
-      const existingChunk = await this.prisma.documentChunk.findFirst({
+      const existingChunk = await this.prisma.document_chunks.findFirst({
         where: {
-          dataSourceId: dataSourceId,
+          data_source_id: dataSourceId,
           content: content, // Assuming exact content match is the criteria
         },
       });
@@ -49,7 +50,7 @@ export class DocumentChunkStorageService {
 
         // Update the existing chunk in Prisma
         // Original code updated embedding and metadata
-        const updateResult = await this.prisma.documentChunk.update({
+        const updateResult = await this.prisma.document_chunks.update({
           where: { id: existingChunk.id },
           data: {
             // Storing embedding as JSON string, matching original logic
@@ -64,12 +65,14 @@ export class DocumentChunkStorageService {
         this.logger.info(`Creating new chunk for data source ${dataSourceId} in DB.`);
 
         // Insert new chunk using Prisma
-        const newChunk = await this.prisma.documentChunk.create({
+        const newChunk = await this.prisma.document_chunks.create({
           data: {
-            dataSourceId: dataSourceId,
+            id: uuidv4(),
+            data_source_id: dataSourceId,
             content: content,
             embedding: JSON.stringify(embedding),
             metadata: metadata,
+            updated_at: new Date()
           },
         });
 

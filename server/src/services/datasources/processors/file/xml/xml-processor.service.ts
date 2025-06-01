@@ -377,10 +377,10 @@ export class XmlProcessorService extends BaseDocumentProcessor {
     }
     
     if (Array.isArray(obj)) {
-      return obj.reduce((count, item) => count + this.countElements(item), 0);
+      return obj.reduce((count: number, item) => count + this.countElements(item), 0);
     }
     
-    return Object.values(obj).reduce((count: number, value: any) => count + this.countElements(value), 1);
+    return (Object.values(obj) as any[]).reduce((count: number, value: any) => count + this.countElements(value), 1);
   }
   
   /**

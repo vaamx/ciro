@@ -17,7 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../core/auth/jwt-auth.guard';
 import { GetUser } from '../../core/auth/get-user.decorator';
-import { User } from '../../core/database/prisma-types';
+import { users } from '../../core/database/prisma-types';
 import { DocumentProcessingService } from './document-processing.service';
 import { CreateJobDto } from './dto/create-job.dto';
 import { JobResponseDto, DataSourceJobsResponseDto, ProcessingMetricsResponseDto } from './dto/job-response.dto';
@@ -45,7 +45,7 @@ export class DocumentProcessingController {
   async createJob(
     @UploadedFile() file: Express.Multer.File,
     @Body() createJobDto: CreateJobDto,
-    @GetUser() user: User
+    @GetUser() user: users
   ) {
     try {
       this.logger.log(`Creating document processing job for user ${user.id}`, {
@@ -79,7 +79,7 @@ export class DocumentProcessingController {
   @Get('jobs/:jobId')
   async getJobStatus(
     @Param('jobId') jobId: string,
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<JobResponseDto> {
     try {
       this.logger.log(`Getting job status for job ${jobId}`);
@@ -103,7 +103,7 @@ export class DocumentProcessingController {
   @Get('data-sources/:dataSourceId/jobs')
   async getDataSourceJobs(
     @Param('dataSourceId') dataSourceId: string,
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<DataSourceJobsResponseDto> {
     try {
       this.logger.log(`Getting jobs for data source ${dataSourceId}`);
@@ -130,7 +130,7 @@ export class DocumentProcessingController {
   @Delete('jobs/:jobId')
   async cancelJob(
     @Param('jobId') jobId: string,
-    @GetUser() user: User
+    @GetUser() user: users
   ) {
     try {
       this.logger.log(`Cancelling job ${jobId}`);
@@ -154,7 +154,7 @@ export class DocumentProcessingController {
   @Get('metrics')
   @Roles(Role.ADMIN)
   async getProcessingMetrics(
-    @GetUser() user: User
+    @GetUser() user: users
   ): Promise<ProcessingMetricsResponseDto> {
     try {
       this.logger.log('Getting document processing metrics');

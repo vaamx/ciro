@@ -154,4 +154,76 @@ export class DocumentPipelineService {
       throw new InternalServerErrorException(`Failed to process document: ${errorMessage}`);
     }
   }
+
+  /**
+   * Process document directly without queuing (for use within job consumers to avoid infinite loops).
+   * @param filePath Path to the stored file
+   * @param fileType Type of the file
+   * @param dataSourceId Data Source ID 
+   * @param metadata Additional metadata
+   * @returns Processing result
+   */
+  async processDocumentDirect(
+    filePath: string,
+    fileType: FileType,
+    dataSourceId: string,
+    metadata: Record<string, any> = {}
+  ): Promise<{ status: string; result?: any; error?: any }> {
+    try {
+      this.logger.info(`Direct processing document for DataSource ID: ${dataSourceId}`, {
+        filePath,
+        fileType,
+        metadata: JSON.stringify(metadata)
+      });
+
+      // Check if we have the required dependencies for processing
+      if (!this.documentProcessorFactory) {
+        this.logger.warn('DocumentProcessorFactory not available - cannot process document directly');
+        return { status: 'error', error: 'DocumentProcessorFactory not available' };
+      }
+
+      if (!this.qdrantCollectionService) {
+        this.logger.warn('QdrantCollectionService not available - cannot store vectors');
+        return { status: 'error', error: 'QdrantCollectionService not available' };
+      }
+
+      // Get the appropriate processor for this file type
+      const processor = await this.documentProcessorFactory.getProcessor(fileType);
+      
+      // Process the document using the correct method signature
+      const dataSourceIdNumber = parseInt(dataSourceId, 10);
+      const organizationId = metadata.organizationId || 1; // Default org ID if not provided
+      const userId = metadata.userId || 'system'; // Default user ID if not provided
+      
+      const processingResult = await processor.processFile(
+        filePath,
+        dataSourceIdNumber,
+        organizationId,
+        userId,
+        metadata
+      );
+
+      this.logger.info(`Document processed successfully: ${processingResult.chunks || 0} chunks extracted`);
+
+      // If processing was successful, the processor should have already stored the vectors
+      // The processors handle their own vector storage, so we don't need to do it here
+      
+      return {
+        status: processingResult.status === 'success' ? 'completed' : processingResult.status,
+        result: {
+          chunksProcessed: processingResult.chunks || 0,
+          message: processingResult.message
+        }
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error in direct document processing';
+      this.logger.error(`Error in direct document processing for DataSource ID ${dataSourceId}: ${errorMessage}`, error);
+      
+      return {
+        status: 'error',
+        error: errorMessage
+      };
+    }
+  }
 } 

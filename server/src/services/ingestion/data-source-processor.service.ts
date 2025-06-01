@@ -73,12 +73,12 @@ export class DataSourceProcessorService {
         throw new Error(`File does not exist: ${filePath}`);
       }
       
-      // Process document using the pipeline
-      const result = await this.documentPipeline.processDocumentStream(filePath, fileType, dataSourceId, metadata);
+      // Process document directly (not via queue to avoid infinite loop)
+      const result = await this.documentPipeline.processDocumentDirect(filePath, fileType, dataSourceId, metadata);
       
       this.logger.info(`Document processing completed with status: ${result.status}`);
-      if (result.status === 'error' && 'metadata' in result) {
-        this.logger.error(`Error details: ${JSON.stringify(result.metadata)}`);
+      if (result.status === 'error') {
+        this.logger.error(`Error details: ${JSON.stringify(result.error)}`);
       }
     } catch (error) {
       // Type-guard for the error to access its properties safely

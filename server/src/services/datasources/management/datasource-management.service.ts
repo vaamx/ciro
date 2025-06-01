@@ -16,6 +16,7 @@ import {
 import { createServiceLogger } from '../../../common/utils/logger-factory';
 
 import { DocumentPipelineService } from '../../ingestion/document-pipeline.service';
+import { QdrantCollectionService } from '../../vector/collection-manager.service';
 
 import { FileType } from '../../../types/utils/file-types';
 
@@ -66,7 +67,54 @@ interface SearchResultWithMetadata {
  * Maps a DataSourceType to a corresponding FileType
  * This is needed because the document pipeline expects a FileType
  */
-function mapDataSourceTypeToFileType(dataSourceType: string | DataSourceType): FileType {
+function mapDataSourceTypeToFileType(dataSourceType: string | DataSourceType, dataSource?: any): FileType {
+  // First, try to determine file type from the data source name or config
+  if (dataSource) {
+    // Check config for processing method first (highest priority)
+    if (dataSource.config) {
+      const config = dataSource.config;
+      
+      if (config.processingMethod === 'enhanced-excel-pipeline' || config.fileType === 'excel') {
+        return 'excel';
+      }
+      if (config.processingMethod === 'csv-processor' || config.fileType === 'csv') {
+        return 'csv';
+      }
+      if (config.fileType) {
+        // If config has explicit fileType, use it
+        const fileType = config.fileType;
+        if (['excel', 'csv', 'pdf', 'docx', 'json', 'text'].includes(fileType)) {
+          return fileType as FileType;
+        }
+      }
+    }
+    
+    // Check data source name for file extension
+    if (dataSource.name) {
+      const name = dataSource.name.toLowerCase();
+      
+      if (name.includes('.xlsx') || name.includes('.xls') || name.includes('excel')) {
+        return 'excel';
+      }
+      if (name.includes('.csv')) {
+        return 'csv';
+      }
+      if (name.includes('.pdf')) {
+        return 'pdf';
+      }
+      if (name.includes('.docx') || name.includes('.doc')) {
+        return 'docx';
+      }
+      if (name.includes('.json')) {
+        return 'json';
+      }
+      if (name.includes('.txt')) {
+        return 'text';
+      }
+    }
+  }
+
+  // Fallback to original enum-based logic
   switch (dataSourceType) {
     case DataSourceType.FILE_UPLOAD:
       // Default to a common format when exact type is unknown
@@ -78,7 +126,27 @@ function mapDataSourceTypeToFileType(dataSourceType: string | DataSourceType): F
       // HubSpot data often comes as JSON
       return 'json';
     default:
-      // There is no UNKNOWN in the FileType, so default to text
+      // Try to detect from string value of dataSourceType itself
+      if (typeof dataSourceType === 'string') {
+        const lowerType = dataSourceType.toLowerCase();
+        
+        if (lowerType.includes('excel') || lowerType === 'xlsx' || lowerType === 'xls') {
+          return 'excel';
+        }
+        if (lowerType === 'csv') {
+          return 'csv';
+        }
+        if (lowerType === 'pdf') {
+          return 'pdf';
+        }
+        if (lowerType === 'docx' || lowerType === 'doc') {
+          return 'docx';
+        }
+        if (lowerType === 'json') {
+          return 'json';
+        }
+      }
+      // Default to text as last resort
       return 'text';
   }
 }
@@ -91,13 +159,20 @@ export class DataSourceManagementService {
   private logger = createServiceLogger('DataSourceManagementService');
   private prismaService: PrismaService | null = null;
   private documentPipeline: DocumentPipelineService | null = null;
+  private qdrantCollectionService: QdrantCollectionService | null = null;
+
+  // Add caching for data source queries
+  private cache = new Map<string, { data: DataSource[], timestamp: number }>();
+  private readonly CACHE_TTL = 10000; // 10 seconds cache TTL
 
   public constructor(
     @Optional() prisma: PrismaService,
     @Optional() documentPipelineService: DocumentPipelineService | null,
+    @Optional() qdrantCollectionService: QdrantCollectionService | null,
   ) {
     this.prismaService = prisma;
     this.documentPipeline = documentPipelineService;
+    this.qdrantCollectionService = qdrantCollectionService;
     
     this.logger.info('DataSourceManagementService initialized');
     if (!this.prismaService) {
@@ -105,6 +180,9 @@ export class DataSourceManagementService {
     }
     if (!this.documentPipeline) {
       this.logger.warn('DocumentPipelineService is not provided - document processing will not be available');
+    }
+    if (!this.qdrantCollectionService) {
+      this.logger.warn('QdrantCollectionService is not provided - Qdrant collections management will not be available');
     }
   }
 
@@ -119,26 +197,43 @@ export class DataSourceManagementService {
   }
   
   /**
+   * Convert Prisma data_sources record to DataSource interface
+   */
+  private mapPrismaToDataSource(prismaRecord: any): DataSource {
+    return {
+      id: prismaRecord.id,
+      name: prismaRecord.name,
+      type: prismaRecord.type,
+      config: prismaRecord.config,
+      status: prismaRecord.status,
+      createdAt: prismaRecord.created_at,
+      updatedAt: prismaRecord.updated_at,
+      creatorId: prismaRecord.creator_id,
+      workspaceId: prismaRecord.workspace_id
+    };
+  }
+
+  /**
    * Find a data source by ID, ensuring it belongs to the user's organization.
    */
   async findByIdForUser(id: number, userId: number, organizationId: number): Promise<DataSource | null> {
     try {
       this.logger.info(`Fetching data source with ID: ${id} for user ${userId} in org ${organizationId}`);
-      const dataSource = await this.getPrismaService().dataSource.findUnique({
+      const dataSource = await this.getPrismaService().data_sources.findUnique({
         where: { 
           id: id, 
-          workspaceId: organizationId
+          workspace_id: organizationId
         }, 
       });
       if (!dataSource) {
         this.logger.warn(`Data source with ID ${id} not found for user ${userId} in org ${organizationId}`);
         return null;
       }
-      if (dataSource.creatorId !== userId) {
+      if (dataSource.creator_id !== userId) {
          this.logger.warn(`User ${userId} does not have access to data source ${id}`);
          throw new NotFoundException(`Data source with ID ${id} not found or not accessible.`);
       }
-      return dataSource;
+      return this.mapPrismaToDataSource(dataSource);
     } catch (error) {
       this.logger.error(`Error fetching data source with ID ${id} for user ${userId} in org ${organizationId}:`, error);
       if (error instanceof NotFoundException) {
@@ -152,16 +247,39 @@ export class DataSourceManagementService {
    * Find all data sources for a given organization.
    */
   async findAllByOrgForUser(organizationId: number, userId: number): Promise<DataSource[]> {
-    try {
-      this.logger.info(`Fetching all data sources for org ${organizationId} accessible by user ${userId}`);
-      const dataSources = await this.getPrismaService().dataSource.findMany({
-        where: { workspaceId: organizationId },
-      });
-      return dataSources;
-    } catch (error) {
-      this.logger.error(`Error fetching all data sources for org ${organizationId} accessible by user ${userId}:`, error);
-      throw error;
+    const cacheKey = `${organizationId}-${userId}`;
+    const now = Date.now();
+    
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    if (cached && (now - cached.timestamp) < this.CACHE_TTL) {
+      this.logger.debug(`Cache hit for org ${organizationId}, user ${userId}`);
+      return cached.data;
     }
+
+    this.logger.info(`Fetching all data sources for org ${organizationId} accessible by user ${userId}`);
+    
+    // Clear cache to ensure fresh data after the query fix
+    this.cache.delete(cacheKey);
+    
+    const prisma = this.getPrismaService();
+    const prismaRecords = await prisma.data_sources.findMany({
+      where: {
+        workspace_id: organizationId,
+        // Removed creator_id filter - allow all data sources in the organization
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+
+    const result: DataSource[] = prismaRecords.map(this.mapPrismaToDataSource.bind(this));
+    
+    // Cache the results
+    this.cache.set(cacheKey, { data: result, timestamp: now });
+    
+    this.logger.info(`Found ${result.length} data sources for org ${organizationId}`);
+    return result;
   }
   
   /**
@@ -174,29 +292,32 @@ export class DataSourceManagementService {
     status: string | FileStatus,
     errorMessage?: string,
   ): Promise<void> {
+    this.logger.info(`Updating status for data source ${id} to ${status}`);
+    
     try {
-      const updateObject = { status };
-      // Removed type annotation causing the error
-      // Removed metadata update attempt as the field doesn't exist
-      // if (errorMessage) { 
-      //   updateObject.metadata = { error: errorMessage }; 
-      // }
-
-      await this.getPrismaService().dataSource.updateMany({
-        where: { id: id, workspaceId: organizationId },
-        data: updateObject,
+      const statusString = typeof status === 'string' ? status : String(status);
+      
+      const updateData: any = {
+        status: statusString,
+        updated_at: new Date(),
+      };
+      
+      if (errorMessage) {
+        updateData.error = errorMessage;
+      }
+      
+      await this.getPrismaService().data_sources.update({
+        where: { id },
+        data: updateData,
       });
+      
+      // Invalidate cache after status update
+      this.invalidateCache(organizationId);
+      
+      this.logger.info(`Successfully updated status for data source ${id} to ${status}`);
     } catch (error) {
-      // Fix 1: Handle unknown error type
-      const message = error instanceof Error ? error.message : String(error);
-      const stack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(
-        `Failed to update status for DataSource ${id}: ${message}`,
-        stack,
-      );
-      throw new InternalServerErrorException(
-        `Error updating data source status: ${message}`,
-      );
+      this.logger.error(`Error updating status for data source ${id}:`, error);
+      throw error;
     }
   }
   
@@ -235,7 +356,18 @@ export class DataSourceManagementService {
       // const metadata = dataSource.metadata as Record<string, any> | null;
       // const filePath = metadata?.filePath; // Cannot get filePath from here
       const originalFilename = dataSource.name; // Fallback to name
-      const fileType = mapDataSourceTypeToFileType(dataSource.type as DataSourceType);
+      
+      // Add debug logging to understand the data structure
+      this.logger.debug(`DataSource debug info for ID ${dataSourceId}:`, {
+        name: dataSource.name,
+        type: dataSource.type,
+        config: dataSource.config,
+        id: dataSource.id
+      });
+      
+      const fileType = mapDataSourceTypeToFileType(dataSource.type as DataSourceType, dataSource);
+      
+      this.logger.debug(`Mapped file type: ${fileType} for DataSource ${dataSourceId}`);
 
       // Commenting out logic dependent on filePath from metadata
       /*
@@ -281,7 +413,7 @@ export class DataSourceManagementService {
 
       // Attempt to update status to ERROR if initiation failed
       try {
-        const failedDataSource = await this.getPrismaService().dataSource.findFirst({ where: { id: dataSourceId } });
+        const failedDataSource = await this.getPrismaService().data_sources.findFirst({ where: { id: dataSourceId } });
         // Removed access to non-existent metadata
         // const failedMetadata = failedDataSource?.metadata || {}; 
         // Only update if it exists (check failedDataSource)
@@ -302,7 +434,125 @@ export class DataSourceManagementService {
   }
 
   /**
+   * Checks if a file with the same name already exists for this organization
+   */
+  async checkForDuplicateFile(
+    fileName: string,
+    organizationId: number
+  ): Promise<DataSource | null> {
+    this.logger.info(`Checking for duplicate file: '${fileName}' in org ${organizationId}`);
+    try {
+      const existingDataSource = await this.getPrismaService().data_sources.findFirst({
+        where: {
+          workspace_id: organizationId,
+          OR: [
+            { name: { contains: fileName } },
+            { name: { contains: fileName.split('(')[0].trim() } }, // Check base name without processing method
+          ]
+        },
+        orderBy: {
+          created_at: 'desc' // Get the most recent one
+        }
+      });
+
+      if (existingDataSource) {
+        this.logger.info(`Found duplicate file: '${existingDataSource.name}' (ID: ${existingDataSource.id})`);
+        return this.mapPrismaToDataSource(existingDataSource);
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error(`Error checking for duplicate file '${fileName}':`, error);
+      // Don't throw error here - just log it and proceed with creation
+      return null;
+    }
+  }
+
+  /**
+   * Handles duplicate data source by cleaning up old Qdrant collection and updating existing
+   */
+  async handleDuplicateDataSource(
+    existingDataSource: DataSource,
+    organizationId: number,
+    userId: number
+  ): Promise<DataSource> {
+    this.logger.info(`Handling duplicate data source: '${existingDataSource.name}' (ID: ${existingDataSource.id})`);
+    
+    try {
+      // Clean up old Qdrant collection for the existing data source
+      await this.cleanupDataSourceCollections(existingDataSource.id, organizationId);
+      
+      // Update the existing data source status to uploaded for reprocessing
+      await this.updateStatus(
+        existingDataSource.id,
+        organizationId,
+        FileStatus.UPLOADED // Reset to uploaded status for reprocessing
+      );
+
+      // Get the updated data source to return
+      const updatedDataSource = await this.findByIdForUser(existingDataSource.id, userId, organizationId);
+      
+      if (!updatedDataSource) {
+        throw new Error(`Data source ${existingDataSource.id} not found after update`);
+      }
+
+      this.logger.info(`Updated existing data source '${existingDataSource.name}' for reprocessing`);
+      return updatedDataSource;
+    } catch (error) {
+      this.logger.error(`Error handling duplicate data source '${existingDataSource.name}':`, error);
+      throw new InternalServerErrorException('Failed to handle duplicate data source.');
+    }
+  }
+
+  /**
+   * Clean up Qdrant collections for a data source
+   */
+  private async cleanupDataSourceCollections(dataSourceId: number, organizationId: number): Promise<void> {
+    this.logger.info(`Cleaning up Qdrant collections for data source ${dataSourceId}`);
+    
+    try {
+      // Get all collections from Qdrant
+      const allCollections = await this.qdrantCollectionService.listCollections();
+      
+      // Find collections that match this data source (multiple naming patterns)
+      const matchingCollections = allCollections.filter(collectionName => {
+        const normalized = collectionName.toLowerCase();
+        
+        // Check various patterns that might include this data source ID
+        return (
+          normalized.includes(`_${dataSourceId}_`) ||
+          normalized.includes(`data_source_${dataSourceId}`) ||
+          normalized.includes(`ds_${dataSourceId}`) ||
+          normalized.startsWith(`${dataSourceId}_`) ||
+          normalized.endsWith(`_${dataSourceId}`)
+        );
+      });
+
+      this.logger.info(`Found ${matchingCollections.length} collections to clean up for data source ${dataSourceId}`);
+      
+      // Delete each matching collection
+      for (const collectionName of matchingCollections) {
+        try {
+          const deleted = await this.qdrantCollectionService.deleteCollection(collectionName);
+          
+          if (deleted) {
+            this.logger.info(`Successfully deleted collection: ${collectionName}`);
+          } else {
+            this.logger.warn(`Failed to delete collection: ${collectionName}`);
+          }
+        } catch (collectionError) {
+          this.logger.error(`Error deleting collection ${collectionName}: ${collectionError instanceof Error ? collectionError.message : String(collectionError)}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Error cleaning up collections for data source ${dataSourceId}: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't throw here - we don't want cleanup failures to block the main operation
+    }
+  }
+
+  /**
    * Creates a new data source for the given organization.
+   * Now includes duplicate detection and handling.
    */
   async create(
     createDto: CreateDataSourceDto,
@@ -310,31 +560,39 @@ export class DataSourceManagementService {
     organizationId: number
   ): Promise<DataSource> {
     this.logger.info(`Creating data source '${createDto.name}' for org ${organizationId} by user ${userId}`);
+    
     try {
-      // No need to cast - Prisma schema and DataSource interface accept string now
-      const newDataSource = await this.getPrismaService().dataSource.create({
+      // Check for duplicates before creating
+      const existingDataSource = await this.checkForDuplicateFile(createDto.name, organizationId);
+      
+      if (existingDataSource) {
+        this.logger.info(`Duplicate file detected. Updating existing data source instead of creating new one.`);
+        return await this.handleDuplicateDataSource(existingDataSource, organizationId, userId);
+      }
+
+      // No duplicate found, proceed with normal creation
+      const newDataSource = await this.getPrismaService().data_sources.create({
         data: {
           name: createDto.name,
           type: createDto.type, // Use type from DTO directly
           config: createDto.config, // Use config from DTO
-          workspaceId: organizationId, // Corrected: workspaceId (assuming orgId maps to workspaceId)
-          creatorId: userId,
+          workspace_id: organizationId, // Corrected: workspace_id (assuming orgId maps to workspace_id)
+          creator_id: userId,
           status: FileStatus.UPLOADED, // Use FileStatus enum, ignore DTO status on create
+          updated_at: new Date() // Add required updated_at field
           // Removed non-existent fields like description, metadata
         },
       });
-      this.logger.info(`Successfully created data source ${newDataSource.id} (\'${newDataSource.name}\')`);
-      return newDataSource;
+      this.logger.info(`Data source '${newDataSource.name}' created successfully with ID: ${newDataSource.id}`);
+      return this.mapPrismaToDataSource(newDataSource);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`Error creating data source for org ${organizationId}: ${errorMessage}`, errorStack);
+      this.logger.error(`Error creating data source '${createDto.name}':`, error);
       throw new InternalServerErrorException('Failed to create data source.');
     }
   }
 
   /**
-   * Updates an existing data source if found and authorized for the user/org.
+   * Updates an existing data source.
    */
   async update(
     id: number,
@@ -342,41 +600,44 @@ export class DataSourceManagementService {
     userId: number,
     organizationId: number
   ): Promise<DataSource> {
-    this.logger.info(`Updating data source ${id} for org ${organizationId} by user ${userId}`);
-
-    // Find the existing entity, ensuring user has access
-    const existingDataSource = await this.findByIdForUser(id, userId, organizationId);
-    if (!existingDataSource) {
-      throw new NotFoundException(`Data source with ID ${id} not found.`);
-    }
-
+    this.logger.info(`Updating data source ${id} for user ${userId} in org ${organizationId}`);
+    
     try {
       // Fetch the existing data source to avoid overwriting fields unintentionally
-      const existingDataSource = await this.getPrismaService().dataSource.findUnique({ 
+      const existingDataSource = await this.getPrismaService().data_sources.findUnique({ 
           where: { id },
           // select: { name: true, config: true } // Optional: Select only needed fields
       });
-
+      
       if (!existingDataSource) {
           throw new NotFoundException(`Data source with ID ${id} not found.`);
       }
+
+      // Only allow updating select fields via UpdateDataSourceDto
+      const allowedFields: Record<string, any> = {};
+      if (updateDto.name !== undefined) allowedFields.name = updateDto.name;
+      if (updateDto.config !== undefined) allowedFields.config = updateDto.config;
+      // Add other allowed fields from DTO
       
       // Update allowed fields, ensuring only valid ones are included
-      const updatedDataSource = await this.getPrismaService().dataSource.update({
+      const updatedDataSource = await this.getPrismaService().data_sources.update({
         where: { id },
         data: {
-          name: updateDto.name, // Update name if provided
-          config: updateDto.config, // Update config if provided
-          // Removed description and metadata as they are not in the schema
+          ...allowedFields,
+          updated_at: new Date() // Ensure updated_at is always set
         },
       });
-      this.logger.info(`Data source ID ${id} updated successfully by user ${userId}.`);
-      return updatedDataSource;
-
+      
+      // Invalidate cache after update
+      this.invalidateCache(organizationId);
+      
+      this.logger.info(`Data source ${id} updated successfully.`);
+      return this.mapPrismaToDataSource(updatedDataSource);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`Error updating data source ${id} for org ${organizationId}: ${errorMessage}`, errorStack);
+      this.logger.error(`Error updating data source ${id}:`, error);
+      if (error instanceof NotFoundException) {
+          throw error;
+      }
       throw new InternalServerErrorException('Failed to update data source.');
     }
   }
@@ -385,46 +646,219 @@ export class DataSourceManagementService {
    * Deletes a data source if found and authorized for the user/org.
    */
   async delete(id: number, userId: number, organizationId: number): Promise<void> {
-    this.logger.info(`Attempting to delete data source ${id} for org ${organizationId} by user ${userId}`);
-
-    // Find the existing entity first to ensure user has access
-    const existingDataSource = await this.findByIdForUser(id, userId, organizationId);
-    if (!existingDataSource) {
-      // If it doesn't exist or user doesn't have access, throw NotFound
-      throw new NotFoundException(`Data source with ID ${id} not found.`);
-    }
+    this.logger.info(`Starting comprehensive deletion of data source ${id} by user ${userId} in org ${organizationId}`);
+    
+    const prisma = this.getPrismaService();
+    let dataSourceName = 'unknown';
+    let cleanupErrors: string[] = [];
 
     try {
-      const deleteResult = await this.getPrismaService().dataSource.delete({ where: { id } });
+      // 1. Verify data source exists and get details
+      const dataSource = await prisma.data_sources.findFirst({
+        where: {
+          id,
+          workspace_id: organizationId,
+        }
+      });
 
-      // Fix: Remove invalid check for deleteResult.count
-      // if (deleteResult.count === 0) { // REMOVED
-      //   // This case should ideally not happen because findByIdForUser succeeded,
-      //   // but it's good practice to check.
-      //   this.logger.warn(`Delete operation affected 0 rows for data source ${id}, though it was found.`);
-      //   throw new NotFoundException(`Data source with ID ${id} could not be deleted.`);
-      // } // REMOVED
-
-      // Check if deleteResult is truthy (it should be if no error was thrown)
-      if (!deleteResult) {
-         // This shouldn't happen if Prisma's delete succeeds without error, but as a safeguard:
-         this.logger.warn(`Prisma delete operation for data source ${id} did not return the deleted record unexpectedly.`);
-         throw new InternalServerErrorException(`Data source with ID ${id} could not be deleted.`);
+      if (!dataSource) {
+        this.logger.warn(`Data source ${id} not found for deletion`);
+        throw new Error(`Data source not found or access denied`);
       }
 
-      this.logger.info(`Successfully deleted data source ${id} (Name: ${deleteResult.name})`);
-      // Note: Cascading deletes (e.g., for DocumentChunk) depend on the @ManyToOne(onDelete: 'CASCADE') setting in DocumentChunk entity.
+      dataSourceName = dataSource.name;
+      this.logger.info(`Found data source "${dataSourceName}" (ID: ${id}) for deletion`);
+
+      // 2. Start comprehensive cleanup in transaction
+      await prisma.$transaction(async (tx) => {
+        // Delete processing jobs first
+        const deletedJobs = await tx.processing_jobs.deleteMany({
+          where: { data_source_id: id }
+        });
+        this.logger.info(`Deleted ${deletedJobs.count} processing jobs`);
+
+        // Delete document chunks (with cascade to related tables)
+        const deletedChunks = await tx.document_chunks.deleteMany({
+          where: { data_source_id: id }
+        });
+        this.logger.info(`Deleted ${deletedChunks.count} document chunks`);
+
+        // Search for related files with multiple patterns
+        const filePatterns = [
+          dataSource.name,
+          dataSource.name.replace(/\.[^/.]+$/, ""), // without extension
+          `${id}_${dataSource.name}`,
+          `datasource_${id}`,
+          `file_${id}`,
+        ];
+
+        for (const pattern of filePatterns) {
+          try {
+            const relatedFiles = await tx.files.deleteMany({
+              where: {
+                OR: [
+                  { filename: { contains: pattern } },
+                  { original_filename: { contains: pattern } },
+                ]
+              }
+            });
+            if (relatedFiles.count > 0) {
+              this.logger.info(`Deleted ${relatedFiles.count} files matching pattern "${pattern}"`);
+            }
+          } catch (error) {
+            this.logger.warn(`Error deleting files with pattern "${pattern}": ${error.message}`);
+            cleanupErrors.push(`Files cleanup (${pattern}): ${error.message}`);
+          }
+        }
+
+        // Delete the data source itself
+        await tx.data_sources.delete({
+          where: { id }
+        });
+        this.logger.info(`Deleted data source "${dataSourceName}" from database`);
+      });
+
+      // 3. Clean up Qdrant collections (outside transaction as it's external)
+      await this.comprehensiveQdrantCleanup(id, organizationId, dataSourceName);
+
+      // 4. Invalidate all related caches
+      this.invalidateCache(organizationId);
+      this.invalidateCacheForUser(organizationId, userId);
+
+      // 5. Log any non-critical cleanup errors
+      if (cleanupErrors.length > 0) {
+        this.logger.warn(`Data source ${id} deleted successfully, but with some cleanup warnings:`, cleanupErrors);
+      } else {
+        this.logger.info(`Data source ${id} ("${dataSourceName}") completely deleted with no issues`);
+      }
 
     } catch (error) {
-      // Fix: Add error type check
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      this.logger.error(`Error deleting data source ${id} for org ${organizationId}: ${errorMessage}`, errorStack);
-      // Avoid re-throwing NotFoundException if it was already handled by findByIdForUser
-      if (error instanceof NotFoundException) {
-        throw error; 
+      this.logger.error(`Failed to delete data source ${id} ("${dataSourceName}"):`, error);
+      
+      // Try emergency cleanup if main deletion failed
+      if (error.message?.includes('transaction')) {
+        this.logger.warn(`Transaction failed, attempting emergency Qdrant cleanup for data source ${id}`);
+        try {
+          await this.comprehensiveQdrantCleanup(id, organizationId, dataSourceName);
+        } catch (cleanupError) {
+          this.logger.error(`Emergency Qdrant cleanup also failed:`, cleanupError);
+        }
       }
-      throw new InternalServerErrorException('Failed to delete data source.');
+      
+      throw error;
     }
+  }
+
+  /**
+   * Comprehensive Qdrant collection cleanup with multiple fallback strategies
+   */
+  private async comprehensiveQdrantCleanup(dataSourceId: number, organizationId: number, dataSourceName: string): Promise<void> {
+    this.logger.info(`Starting comprehensive Qdrant cleanup for data source ${dataSourceId}`);
+
+    if (!this.qdrantCollectionService) {
+      this.logger.warn('QdrantCollectionService not available for cleanup');
+      return;
+    }
+
+    // Generate all possible collection names
+    const possibleCollectionNames = [
+      `row_data_${dataSourceId}_${dataSourceName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+      `row_data_${dataSourceId}_${dataSourceName.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      `org_${organizationId}_datasource_${dataSourceId}`,
+      `datasource_${dataSourceId}`,
+      `file_${dataSourceId}`,
+      `collection_${dataSourceId}`,
+    ];
+
+    // Add variations with common suffixes
+    const variations = [...possibleCollectionNames];
+    possibleCollectionNames.forEach(name => {
+      variations.push(`${name}_collection`);
+      variations.push(`${name}_vectors`);
+      variations.push(`${name}_embeddings`);
+    });
+
+    let deletedCollections = 0;
+    const cleanupErrors: string[] = [];
+
+    // Try to delete each possible collection
+    for (const collectionName of variations) {
+      try {
+        const exists = await this.qdrantCollectionService.collectionExists(collectionName);
+        if (exists) {
+          await this.qdrantCollectionService.deleteCollection(collectionName);
+          this.logger.info(`Successfully deleted Qdrant collection: ${collectionName}`);
+          deletedCollections++;
+        }
+      } catch (error) {
+        const errorMsg = `Failed to delete collection "${collectionName}": ${error.message}`;
+        this.logger.warn(errorMsg);
+        cleanupErrors.push(errorMsg);
+      }
+    }
+
+    // Also check filesystem for orphaned collections
+    try {
+      await this.cleanupOrphanedQdrantFiles(dataSourceId);
+    } catch (error) {
+      cleanupErrors.push(`Filesystem cleanup: ${error.message}`);
+    }
+
+    this.logger.info(`Qdrant cleanup completed. Deleted ${deletedCollections} collections. ${cleanupErrors.length} errors.`);
+    
+    if (cleanupErrors.length > 0) {
+      this.logger.warn('Qdrant cleanup errors:', cleanupErrors);
+    }
+  }
+
+  /**
+   * Clean up orphaned Qdrant files from filesystem
+   */
+  private async cleanupOrphanedQdrantFiles(dataSourceId: number): Promise<void> {
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    try {
+      const qdrantPath = path.join(process.cwd(), '..', 'qdrant_data', 'collections');
+      
+      if (!await fs.access(qdrantPath).then(() => true).catch(() => false)) {
+        return; // Qdrant directory doesn't exist
+      }
+
+      const collections = await fs.readdir(qdrantPath);
+      const targetPattern = new RegExp(`row_data_${dataSourceId}_`);
+      
+      for (const collection of collections) {
+        if (targetPattern.test(collection)) {
+          const collectionPath = path.join(qdrantPath, collection);
+          try {
+            await fs.rm(collectionPath, { recursive: true, force: true });
+            this.logger.info(`Cleaned up orphaned Qdrant collection directory: ${collection}`);
+          } catch (error) {
+            this.logger.warn(`Could not remove Qdrant directory ${collection}: ${error.message}`);
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Error during Qdrant filesystem cleanup: ${error.message}`);
+    }
+  }
+
+  // Cache invalidation methods
+  private invalidateCache(organizationId: number): void {
+    const keysToDelete: string[] = [];
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(`${organizationId}-`)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => this.cache.delete(key));
+    this.logger.debug(`Invalidated cache for org ${organizationId} (${keysToDelete.length} entries)`);
+  }
+
+  private invalidateCacheForUser(organizationId: number, userId: number): void {
+    const cacheKey = `${organizationId}-${userId}`;
+    this.cache.delete(cacheKey);
+    this.logger.debug(`Invalidated cache for org ${organizationId}, user ${userId}`);
   }
 } 
