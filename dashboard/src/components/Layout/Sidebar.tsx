@@ -11,7 +11,8 @@ import {
   Palette,
   Lightbulb,
   Wrench,
-  Phone
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 import darkLogo from '../../styles/logos/darklogo.png';
 import lightLogo from '../../styles/logos/lightlogo.png';
@@ -86,6 +87,14 @@ const navItems = [
   },
   
   // Communications Section
+  { 
+    name: 'Threads', 
+    icon: MessageCircle, 
+    section: 'threads', 
+    path: '/threads', 
+    comingSoon: false,
+    group: 'communications'
+  },
   { 
     name: 'Chatbot', 
     icon: MessageSquare, 

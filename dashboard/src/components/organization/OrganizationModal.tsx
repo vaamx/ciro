@@ -30,8 +30,17 @@ export function OrganizationModal({ isOpen, onClose, organization }: Organizatio
   const getLogoUrl = (logoPath: string | undefined | null): string => {
     if (!logoPath) return '';
     
-    // Use an inline SVG data URL as a placeholder
-    return 'data:image/svg+xml;charset=UTF-8,%3csvg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24" fill="none" stroke="%23a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"%3e%3crect width="18" height="18" x="3" y="3" rx="2" ry="2"%3e%3c/rect%3e%3crect width="8" height="8" x="8" y="8" rx="1" ry="1"%3e%3c/rect%3e%3c/svg%3e';
+    // If logoPath already starts with http or /, use it as-is
+    if (logoPath.startsWith('http') || logoPath.startsWith('/')) {
+      // If it starts with /files/, prepend the backend server URL
+      if (logoPath.startsWith('/files/')) {
+        return `http://localhost:3001${logoPath}`;
+      }
+      return logoPath;
+    }
+    
+    // Otherwise, construct the full URL
+    return `http://localhost:3001/files/${logoPath}`;
   };
 
   // Reset form data when modal opens or organization changes

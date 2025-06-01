@@ -71,14 +71,17 @@ export function OrganizationManagement() {
   const getLogoUrl = (logoPath: string | undefined | null): string | undefined => {
     if (!logoPath) return undefined;
     
-    // First try to load the actual logo from the server
-    const actualLogoUrl = logoPath;
+    // If logoPath already starts with http or /, use it as-is
+    if (logoPath.startsWith('http') || logoPath.startsWith('/')) {
+      // If it starts with /files/, prepend the backend server URL
+      if (logoPath.startsWith('/files/')) {
+        return `http://localhost:3001${logoPath}`;
+      }
+      return logoPath;
+    }
     
-    // Use an inline SVG data URL as a fallback if the image fails to load
-    // Note: This fallback is defined but not used - the fallback rendering should
-    // be handled in the component's JSX with an onError handler
-    
-    return actualLogoUrl;
+    // Otherwise, construct the full URL
+    return `http://localhost:3001/files/${logoPath}`;
   };
 
   const renderOrganizationsList = () => (

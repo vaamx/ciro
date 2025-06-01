@@ -38,6 +38,7 @@ import { VisualizationGallery } from './components/Gallery';
 import { InsightsAnalytics } from './components/Insights';
 import { ToolkitHub } from './components/Toolkit';
 import { ChatbotPage, VoicePage } from './components/Communications';
+import { ThreadsPage } from './pages/ThreadsPage';
 
 function App() {
   const [activeSection, setActiveSection] = useState('overview');
@@ -52,6 +53,7 @@ function App() {
       gallery: '/gallery',
       insights: '/insights',
       toolkit: '/toolkit',
+      threads: '/threads',
       chatbot: '/communications/chatbot',
       voice: '/communications/voice',
       organizations: '/organizations'
@@ -170,6 +172,7 @@ function App() {
                                         <Route path="/data-sources" element={<DataSourcesView />} />
                                         <Route path="/communications" element={<CommunicationsView />} />
                                         <Route path="/organizations" element={<OrganizationManagement />} />
+                                        <Route path="/threads" element={<ThreadsPage />} />
                                         <Route path="*" element={<Navigate to="/overview" replace />} />
                                       </Route>
                                     </Routes>
