@@ -258,6 +258,31 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
   // Removed excessive logging
   // console.log('DATA_SOURCE_TYPES:', JSON.stringify(DATA_SOURCE_TYPES, null, 2));
   
+  // Add global error handler for the wizard
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('🔧 AddDataSourceWizard: Global error caught:', event.error);
+      console.error('🔧 AddDataSourceWizard: Error message:', event.message);
+      console.error('🔧 AddDataSourceWizard: Error filename:', event.filename);
+      console.error('🔧 AddDataSourceWizard: Error line:', event.lineno);
+    };
+    
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error('🔧 AddDataSourceWizard: Unhandled promise rejection:', event.reason);
+      console.error('🔧 AddDataSourceWizard: Promise:', event.promise);
+    };
+    
+    if (isOpen) {
+      window.addEventListener('error', handleError);
+      window.addEventListener('unhandledrejection', handleUnhandledRejection);
+      
+      return () => {
+        window.removeEventListener('error', handleError);
+        window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      };
+    }
+  }, [isOpen]);
+  
   // Use underscore prefix for unused state variables
   const [_currentType, _setCurrentType] = useState<string>('');
   const [step, setStep] = useState<number>(0);
@@ -269,25 +294,40 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
   useOrganization();
   useNotification();
 
-  // Pause polling when the wizard is open
+  // Pause polling when the wizard is open and stabilize the component
   useEffect(() => {
     if (isOpen) {
+      console.log('🔧 AddDataSourceWizard: Opening wizard, pausing polling');
       setPausePolling(true);
-    }
     
-    // Resume polling when the component is unmounted or closed
+      // Return cleanup function that will always resume polling when wizard closes
     return () => {
+        console.log('🔧 AddDataSourceWizard: Wizard cleanup, resuming polling');
       setPausePolling(false);
     };
+    }
   }, [isOpen, setPausePolling]);
 
-  // Preload the CustomFileInput component when the wizard opens
+  // Reset wizard state when opening/closing
   useEffect(() => {
     if (isOpen) {
+      // Reset to initial state when wizard opens
+      setStep(0);
+      setSelectedType(null);
+      setFormData({
+        name: '',
+        type: 'local-files' as DataSourceType,
+        fileMetadata: undefined as LocalFileMetadata | undefined
+      });
+      setSearchTerm('');
+      setShowComingSoon(false);
+      setComingSoonType('');
+      
+      // Preload the CustomFileInput component when the wizard opens
       const cleanup = preloadCustomFileInput();
       return cleanup;
     }
-  }, [isOpen]);
+  }, [isOpen]); // Only depend on isOpen to avoid interference from other changes
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -335,8 +375,14 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
   };
   
   const handleTypeSelect = (type: string) => {
+    console.log('🔧 AddDataSourceWizard: handleTypeSelect called with type:', type);
+    
+    // Prevent any polling activity while user is interacting
+    setPausePolling(true);
+    
     // Extremely explicit check for Snowflake
     if (type === 'data-warehouses-snowflake') {
+      console.log('🔧 AddDataSourceWizard: Snowflake type detected, adding and closing');
       onAdd({
         name: 'Snowflake Connection',
         type: 'snowflake',
@@ -356,6 +402,7 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
     
     // Generic check for snowflake as a fallback
     if (type.includes('snowflake')) {
+      console.log('🔧 AddDataSourceWizard: Snowflake variant detected, adding and closing');
       onAdd({
         name: 'Snowflake Connection',
         type: 'snowflake',
@@ -374,24 +421,38 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
     }
     
     // Set the selected type - this is critical for file uploads
+    console.log('🔧 AddDataSourceWizard: Setting selectedType to:', type);
     setSelectedType(type);
     
     // Split the type into source and id
     const parts = type.split('-');
     const sourceType = parts.slice(0, 2).join('-'); // 'local-files'
-    const sourceId = parts[2]; // 'csv'
+    const sourceId = parts[2]; // 'csv' or 'excel'
+    
+    console.log('🔧 AddDataSourceWizard: Parsed parts:', { parts, sourceType, sourceId });
     
     // Only proceed to file upload step for Local Files types
     if (sourceType === 'local-files' && sourceId) {
+      console.log('🔧 AddDataSourceWizard: Local files type detected, proceeding to step 1');
+      
+      // Use functional state updates to ensure we don't lose state
       setFormData(prev => ({
         ...prev,
         type: sourceType as DataSourceType,
-        name: `New ${sourceId.toUpperCase()} File`
+        name: `New ${sourceId.charAt(0).toUpperCase() + sourceId.slice(1)} File`
       }));
       
+      console.log('🔧 AddDataSourceWizard: Setting step to 1');
+      
+      // Use a small delay to ensure state is set before step change
+      setTimeout(() => {
       setStep(1);
+        console.log('🔧 AddDataSourceWizard: Step successfully set to 1');
+      }, 10);
+      
     } else {
       // For other data sources that are not yet implemented
+      console.log('🔧 AddDataSourceWizard: Non-local-files type, showing coming soon modal');
       setShowComingSoon(true);
       setComingSoonType(type);
     }
@@ -413,14 +474,26 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
       try {
         // Access the refreshDataSources function from the parent component's props
         if (typeof onAdd === 'function') {
-          // Create a minimal data source object to pass to onAdd
+          // Create a minimal data source object to pass to onAdd with proper metadata structure
           const newDataSource = {
             name: file.filename || 'Unnamed File',
             type: 'local-files' as DataSourceType,
             status: 'processing' as DataSourceStatus,
             lastSync: new Date().toISOString(),
             description: `Uploaded file: ${file.filename}`,
-            metadata: file,
+            metadata: {
+              id: file.id,
+              filename: file.filename,
+              fileType: file.fileType,
+              size: file.size,
+              originalFilename: file.filename,
+              dataSourceId: file.dataSourceId,
+              uploadedAt: file.uploadedAt,
+              lastModified: file.lastModified,
+              status: file.status,
+              processingMethod: (file as any).processingMethod || 'enhanced-excel-pipeline',
+              ...file.metadata // Include any additional metadata from the file
+            } as LocalFileMetadata,
             metrics: {
               records: 0,
               syncRate: 0,
@@ -456,7 +529,24 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
 
   // Wrap the original onClose to ensure polling is resumed
   const handleClose = () => {
+    console.log('🔧 AddDataSourceWizard: Closing wizard and resuming polling');
+    
+    // Reset all wizard state
+    setStep(0);
+    setSelectedType(null);
+    setFormData({
+      name: '',
+      type: 'local-files' as DataSourceType,
+      fileMetadata: undefined as LocalFileMetadata | undefined
+    });
+    setSearchTerm('');
+    setShowComingSoon(false);
+    setComingSoonType('');
+    
+    // Resume polling
     setPausePolling(false);
+    
+    // Close the wizard
     onClose();
   };
 
@@ -614,13 +704,22 @@ export const AddDataSourceWizard: React.FC<AddDataSourceWizardProps> = ({ isOpen
                     key={option.id}
                     type="button"
                     onClick={() => {
+                      console.log('🔧 AddDataSourceWizard: Button clicked for option:', {
+                        optionId: option.id,
+                        optionName: option.name,
+                        categoryId: category.id,
+                        typeString: typeString
+                      });
+                      
                       // Add specific handler for Snowflake
                       if (option.id === 'snowflake') {
+                        console.log('🔧 AddDataSourceWizard: Snowflake button clicked, calling handleSnowflakeClick');
                         // Use direct handler instead
                         handleSnowflakeClick();
                         return; // Stop execution here
                       }
                       
+                      console.log('🔧 AddDataSourceWizard: Calling handleTypeSelect with:', typeString);
                       handleTypeSelect(typeString);
                     }}
                     className={buttonClass}

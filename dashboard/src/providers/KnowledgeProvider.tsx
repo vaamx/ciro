@@ -598,6 +598,41 @@ export function KnowledgeProvider({ children }: KnowledgeProviderProps) {
     }
   }, [isAuthenticated, currentOrganization?.id]);
 
+  // Set up event listener for knowledge base refresh events
+  useEffect(() => {
+    const handleKnowledgeBaseUpdate = (event: CustomEvent) => {
+      logger.info(COMPONENT_NAME, 'Received knowledgeBaseUpdate event', event.detail);
+      
+      // Force refresh the data sources
+      if (isAuthenticated && currentOrganization?.id) {
+        logger.info(COMPONENT_NAME, 'Refreshing knowledge base data sources after update event');
+        
+        // Clear cache for this organization to force fresh data
+        const cacheKey = `sources_${currentOrganization.id}`;
+        setCacheTimestamp(prev => {
+          const newTimestamps = { ...prev };
+          delete newTimestamps[cacheKey];
+          return newTimestamps;
+        });
+        
+        // Fetch fresh data
+        fetchDataSources().catch(error => {
+          logger.error(COMPONENT_NAME, 'Error refreshing data sources after update event:', error);
+        });
+      }
+    };
+
+    // Add event listener
+    window.addEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate as EventListener);
+    logger.info(COMPONENT_NAME, 'Added knowledgeBaseUpdate event listener');
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('knowledgeBaseUpdate', handleKnowledgeBaseUpdate as EventListener);
+      logger.info(COMPONENT_NAME, 'Removed knowledgeBaseUpdate event listener');
+    };
+  }, [isAuthenticated, currentOrganization?.id, fetchDataSources]);
+
   // New function to fetch latest knowledge data via REST API
   const fetchLatestKnowledgeData = async () => {
     try {

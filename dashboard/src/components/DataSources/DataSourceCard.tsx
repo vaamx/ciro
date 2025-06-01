@@ -55,6 +55,8 @@ interface IndexingStatus {
   processedChunks?: number;
   totalChunks?: number;
   lastUpdated: string;
+  estimatedTimeRemaining?: string;
+  currentStep?: string;
 }
 
 // Create a base component that will be wrapped with React.memo
@@ -178,7 +180,9 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
           currentStage: metadata.stage,
           processedChunks: metadata.processedChunks,
           totalChunks: metadata.totalChunks,
-          lastUpdated: metadata.timestamp || new Date().toISOString()
+          lastUpdated: metadata.timestamp || new Date().toISOString(),
+          estimatedTimeRemaining: metadata.estimatedTimeRemaining,
+          currentStep: metadata.currentStep
         };
       }
       // Check processing_details
@@ -190,7 +194,9 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
           currentStage: details.stage,
           processedChunks: details.processedChunks,
           totalChunks: details.totalChunks,
-          lastUpdated: details.timestamp || new Date().toISOString()
+          lastUpdated: details.timestamp || new Date().toISOString(),
+          estimatedTimeRemaining: details.estimatedTimeRemaining,
+          currentStep: details.currentStep
         };
       }
       // Check progress_info
@@ -202,7 +208,9 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
           currentStage: info.currentPhase,
           processedChunks: info.processedChunks,
           totalChunks: info.totalChunks,
-          lastUpdated: info.startTime || new Date().toISOString()
+          lastUpdated: info.startTime || new Date().toISOString(),
+          estimatedTimeRemaining: info.estimatedTimeRemaining,
+          currentStep: info.currentStep
         };
       }
       // Check for special types
@@ -221,7 +229,9 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
           progress: indexingStatus.progress || 0,
           message: indexingStatus.message || 'Processing data...',
           currentTable: indexingStatus.current_table,
-          lastUpdated: indexingStatus.last_updated || new Date().toISOString()
+          lastUpdated: indexingStatus.last_updated || new Date().toISOString(),
+          estimatedTimeRemaining: indexingStatus.estimatedTimeRemaining,
+          currentStep: indexingStatus.currentStep
         };
       }
       
@@ -651,43 +661,46 @@ const DataSourceCardBase: React.FC<DataSourceCardProps> = ({
             </div>
           )}
           
-          {/* Indexing Progress Bar - Show when processing and has progress info */}
-          {isProcessing && indexingStatus && (
-            <div className="mt-3">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate max-w-[75%]">
-                  {indexingStatus.message}
+          {/* Processing status and progress */}
+          {isProcessing && (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>
+                  {source.status === 'syncing' && 'Uploading file...'}
+                  {source.status === 'processing' && 'Processing document...'}
+                  {source.status === 'ready' && 'Ready'}
                 </span>
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                  {indexingStatus.progress}%
+                {indexingStatus?.progress && (
+                  <span className="font-medium">
+                    {Math.round(indexingStatus.progress)}%
                 </span>
+                )}
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+              
+              {/* Progress bar */}
+              <div className="w-full bg-gray-200 rounded-full h-2">
                 <div 
-                  className="bg-blue-600 h-1.5 rounded-full transition-all duration-300" 
-                  style={{ width: `${indexingStatus.progress}%` }}
-                ></div>
+                  className={`h-2 rounded-full transition-all duration-500 ${
+                    source.status === 'syncing' ? 'bg-blue-500' :
+                    source.status === 'processing' ? 'bg-yellow-500' :
+                    'bg-green-500'
+                  }`}
+                  style={{ 
+                    width: `${indexingStatus?.progress || 0}%` 
+                  }}
+                />
               </div>
               
-              {/* Show stage information if available */}
-              {indexingStatus.currentStage && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
-                  Stage: {indexingStatus.currentStage}
-                </p>
-              )}
-              
-              {/* Show current table for database sources */}
-              {indexingStatus.currentTable && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 truncate">
-                  Table: {indexingStatus.currentTable}
-                </p>
-              )}
-              
-              {/* Show chunk processing progress if available */}
-              {indexingStatus.processedChunks !== undefined && indexingStatus.totalChunks && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Progress: {indexingStatus.processedChunks} / {indexingStatus.totalChunks} chunks
-                </p>
+              {/* Processing details */}
+              {indexingStatus?.currentStep && (
+                <div className="text-xs text-gray-500 mt-1">
+                  {indexingStatus.currentStep}
+                  {indexingStatus.estimatedTimeRemaining && (
+                    <span className="ml-2">
+                      • Est. {indexingStatus.estimatedTimeRemaining}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -748,11 +761,11 @@ const areEqual = (prevProps: DataSourceCardProps, nextProps: DataSourceCardProps
     prevProps.source.status === nextProps.source.status &&
     prevProps.source.lastSync === nextProps.source.lastSync &&
     prevProps.source.description === nextProps.source.description &&
-    // For metrics, only compare the properties we display
-    prevProps.source.metrics.records === nextProps.source.metrics.records &&
-    prevProps.source.metrics.syncRate === nextProps.source.metrics.syncRate &&
-    prevProps.source.metrics.avgSyncTime === nextProps.source.metrics.avgSyncTime &&
-    (prevProps.source.metrics.lastError === nextProps.source.metrics.lastError)
+    // For metrics, safely compare properties with null checks
+    (prevProps.source.metrics?.records === nextProps.source.metrics?.records) &&
+    (prevProps.source.metrics?.syncRate === nextProps.source.metrics?.syncRate) &&
+    (prevProps.source.metrics?.avgSyncTime === nextProps.source.metrics?.avgSyncTime) &&
+    (prevProps.source.metrics?.lastError === nextProps.source.metrics?.lastError)
   );
 };
 

@@ -34,11 +34,20 @@ function getOrganizationIdFromToken(): number | null {
     if (activeOrgId) {
       const orgId = parseInt(activeOrgId, 10);
       
-      // Validate that this org ID is in the user's accessible organizations
-      if (decoded.organizations && 
-          decoded.organizations.some(id => 
+      // If token has organization data, validate against it
+      if (decoded.organizations && decoded.organizations.length > 0) {
+        if (decoded.organizations.some(id => 
             (typeof id === 'string' ? parseInt(id, 10) : id) === orgId)) {
-        console.log(`Using active organization ID from storage: ${orgId}`);
+          console.log(`Using active organization ID from storage (validated): ${orgId}`);
+          return orgId;
+        } else {
+          console.warn(`Active organization ${orgId} not found in token organizations, but proceeding anyway`);
+          // Still return the active org ID even if not in token (for backwards compatibility)
+          return orgId;
+        }
+      } else {
+        // No organization data in token, but we have an active org ID - use it
+        console.log(`Using active organization ID from storage (no token validation): ${orgId}`);
         return orgId;
       }
     }
@@ -62,6 +71,7 @@ function getOrganizationIdFromToken(): number | null {
       return orgId;
     }
     
+    console.warn('No organization context available in token or localStorage');
     return null;
   } catch (error) {
     console.error('Error extracting organization ID from token:', error);
@@ -76,18 +86,14 @@ export class LocalFileService {
   private static instance: LocalFileService;
   private readonly apiBaseUrl: string;
   private readonly MAX_CHUNK_SIZE = 1024 * 1024 * 5; // 5MB chunks
-  private mockMode: boolean;
   private fileTypeCache: Map<string, string> = new Map(); // Cache for file type determination
   private isInitialized: boolean = false;
 
   /**
-   * Private constructor for singleton pattern
+   * Private constructor to enforce singleton pattern
    */
-  private constructor(options: { mockMode?: boolean } = {}) {
-    this.apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'; // Use environment variable
-    this.mockMode = options.mockMode || false;
-    
-    // Initialize the service
+  private constructor() {
+    this.apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
     this.initialize();
   }
 
@@ -122,21 +128,19 @@ export class LocalFileService {
   /**
    * Get singleton instance
    */
-  public static getInstance(options: { mockMode?: boolean } = {}): LocalFileService {
+  public static getInstance(): LocalFileService {
     if (!LocalFileService.instance) {
-      LocalFileService.instance = new LocalFileService(options);
+      LocalFileService.instance = new LocalFileService();
     }
     return LocalFileService.instance;
   }
 
   /**
-   * Preload the service to improve performance
-   * Call this method early in your application to initialize the service
+   * Preload the service instance
    */
   public static preload(): void {
-    // Create the instance if it doesn't exist
     if (!LocalFileService.instance) {
-      LocalFileService.instance = new LocalFileService();
+      LocalFileService.getInstance();
     }
   }
 
@@ -211,20 +215,32 @@ export class LocalFileService {
    * Upload a file to the server
    */
   async uploadFile(file: File, onProgress?: (progress: number) => void): Promise<LocalFileMetadata> {
+    console.log('🔧 LocalFileService: uploadFile called with:', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type
+    });
+    
     const fileType = this.determineFileType(file);
+    console.log('🔧 LocalFileService: Determined file type:', fileType);
     
     // Determine processing method based on file type
     let processingMethod = 'auto';
     if (fileType === 'csv') {
       processingMethod = 'csv-processor';
+    } else if (fileType === 'excel') {
+      processingMethod = 'enhanced-excel-pipeline';
     }
+    console.log('🔧 LocalFileService: Using processing method:', processingMethod);
     
     // For small files, upload directly
     if (file.size <= this.MAX_CHUNK_SIZE) {
+      console.log('🔧 LocalFileService: File is small, using direct upload');
       return await this.uploadSmallFile(file, processingMethod, onProgress);
     }
     
     // For large files, use chunked upload
+    console.log('🔧 LocalFileService: File is large, using chunked upload');
     return await this.uploadLargeFile(file, processingMethod, onProgress);
   }
 
@@ -236,34 +252,46 @@ export class LocalFileService {
     processingMethod: string,
     onProgress?: (progress: number) => void
   ): Promise<LocalFileMetadata> {
-    if (this.mockMode) {
-      return this.mockUpload(file, processingMethod);
-    }
-
+    console.log('🔧 LocalFileService: uploadSmallFile started');
+    
     const formData = new FormData();
     formData.append('file', file);
     formData.append('processingMethod', processingMethod);
     
-    // Add the organization ID from the token if available
+    console.log('🔧 LocalFileService: Preparing form data');
+    
+    // Get organization ID from token
     const organizationId = getOrganizationIdFromToken();
+    
+    // Add the organization ID from the token if available
     if (organizationId) {
-      formData.append('organization_id', organizationId.toString());
-      console.log(`Using organization ID from token/active selection: ${organizationId}`);
+      formData.append('organizationId', organizationId.toString());
+      console.log(`🔧 LocalFileService: Organization ID from token: ${organizationId}`);
       
       // Also add the active organization ID separately for diagnostics
       const activeOrgId = localStorage.getItem('active_organization_id');
       if (activeOrgId && activeOrgId !== organizationId.toString()) {
         formData.append('active_organization_id', activeOrgId);
-        console.log(`Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
+        console.log(`🔧 LocalFileService: Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
+      }
+    } else {
+      console.warn('🔧 LocalFileService: No organization ID found - proceeding without organization context');
+      // Try to use the active organization ID directly as a fallback
+      const activeOrgId = localStorage.getItem('active_organization_id');
+      if (activeOrgId) {
+        formData.append('organizationId', activeOrgId);
+        console.log(`🔧 LocalFileService: Using fallback organization ID from localStorage: ${activeOrgId}`);
       }
     }
     
     // Use the authorization header helper function as an alternative
     const authHeader = getAuthorizationHeader();
+    console.log('🔧 LocalFileService: Auth header:', authHeader ? '[PRESENT]' : '[MISSING]');
     
     const config = {
       onUploadProgress: (progressEvent: any) => {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        console.log('🔧 LocalFileService: Upload progress:', percentCompleted + '%');
         if (onProgress) {
           onProgress(percentCompleted);
         }
@@ -271,20 +299,67 @@ export class LocalFileService {
       headers: {
         // Don't set Content-Type here - Axios will set it with the correct boundary for multipart/form-data
         'Authorization': authHeader // Use the full header from the utility function
+      },
+      timeout: 30000, // 30 second timeout
+      validateStatus: (status: number) => {
+        // Log all status codes for debugging
+        console.log('🔧 LocalFileService: Response status:', status);
+        return status < 600; // Don't throw on any status code, let us handle it
       }
     };
     
+    const uploadUrl = `${this.apiBaseUrl}/api/files/upload`;
+    console.log('🔧 LocalFileService: Making upload request to:', uploadUrl);
+    console.log('🔧 LocalFileService: Request config:', {
+      url: uploadUrl,
+      method: 'POST',
+      timeout: config.timeout,
+      headers: Object.keys(config.headers)
+    });
+    
     try {
-      const response = await axios.post(`${this.apiBaseUrl}/api/files/upload`, formData, config);
+      console.log('🔧 LocalFileService: About to call axios.post...');
+      
+      const response = await axios.post(uploadUrl, formData, config);
+      
+      console.log('🔧 LocalFileService: Upload response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      });
+      
+      // Check if the response was successful
+      if (response.status >= 400) {
+        console.error('🔧 LocalFileService: Upload failed with status:', response.status);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}${response.data?.message ? ' - ' + response.data.message : ''}`);
+      }
+      
       return this.mapResponseToFileMetadata(response.data);
     } catch (error: any) {
-      console.error('Axios error details:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message
-      });
-      throw error;
+      console.error('🔧 LocalFileService: Upload failed with error:', error);
+      console.error('🔧 LocalFileService: Error type:', error.constructor.name);
+      console.error('🔧 LocalFileService: Error message:', error.message);
+      
+      if (error.response) {
+        console.error('🔧 LocalFileService: Response error details:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data,
+          headers: error.response.headers
+        });
+      } else if (error.request) {
+        console.error('🔧 LocalFileService: Network error - no response received:', {
+          timeout: error.code === 'ECONNABORTED',
+          readyState: error.request.readyState,
+          status: error.request.status
+        });
+      } else {
+        console.error('🔧 LocalFileService: Request setup error:', error.message);
+      }
+      
+      // Re-throw with more context
+      const errorMessage = error.response?.data?.message || error.message || 'Unknown upload error';
+      throw new Error(`File upload failed: ${errorMessage}`);
     }
   }
 
@@ -310,7 +385,7 @@ export class LocalFileService {
       
       // Add the organization ID from the token if available
       if (organizationId) {
-        initData.organization_id = organizationId;
+        initData.organizationId = organizationId;
         console.log(`Using organization ID from token/active selection for chunked upload: ${organizationId}`);
         
         // Also add the active organization ID separately for diagnostics
@@ -318,6 +393,13 @@ export class LocalFileService {
         if (activeOrgId && activeOrgId !== organizationId.toString()) {
           initData.active_organization_id = activeOrgId;
           console.log(`Note: Active organization (${activeOrgId}) differs from the one used for upload (${organizationId})`);
+        }
+      } else {
+        console.warn('No organization ID found for chunked upload - using fallback');
+        const activeOrgId = localStorage.getItem('active_organization_id');
+        if (activeOrgId) {
+          initData.organizationId = activeOrgId;
+          console.log(`Using fallback organization ID for chunked upload: ${activeOrgId}`);
         }
       }
       
@@ -402,24 +484,6 @@ export class LocalFileService {
       processingMethod: response.metadata?.processingMethod || response.processingMethod || 'auto',
       preview: response.preview || null,
       dataSourceId: response.dataSourceId || response.data_source_id || null
-    };
-  }
-
-  /**
-   * Mock upload for testing
-   */
-  private mockUpload(file: File, processingMethod: string): LocalFileMetadata {
-    // Generate a mock file metadata object
-    return {
-      id: `mock-${Date.now()}`,
-      filename: file.name,
-      fileType: this.determineFileType(file) as LocalFileType,
-      size: file.size,
-      uploadedAt: new Date(),
-      lastModified: new Date(file.lastModified),
-      status: 'ready',
-      processingMethod,
-      dataSourceId: `mock-ds-${Date.now()}` // Add mock dataSourceId
     };
   }
 } 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Widget } from '../components/Dashboard/WidgetManager';
-import { dashboardApiService } from '../services/dashboardApi';
+import { dashboardApiService, type CreateDashboardPayload } from '../services/dashboardApi';
 import type { MetricCard, Dashboard as DashboardType } from '../types/dashboard';
 import { useAuth } from './AuthContext';
 import { useOrganization } from './OrganizationContext';
@@ -165,18 +165,18 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       setError(null);
       
-      // Ensure organization_id is explicitly set for the new dashboard
-      const dashboardWithOrg = {
-        ...dashboard,
-        organization_id: currentOrganization.id,
-        createdBy: user?.id || 0,
-        widgets: dashboard.widgets || [],
-        metrics: dashboard.metrics || []
+      // Only send fields that are allowed by the backend CreateDashboardDto
+      const dashboardPayload: CreateDashboardPayload = {
+        name: dashboard.name,
+        description: dashboard.description || '',
+        team: dashboard.team || '',
+        category: dashboard.category || '',
+        organization_id: currentOrganization.id
       };
       
-      console.log(`Creating new dashboard with organization_id: ${dashboardWithOrg.organization_id}`);
+      console.log(`Creating new dashboard with organization_id: ${dashboardPayload.organization_id}`);
       
-      const newDashboard = await dashboardApiService.createDashboard(dashboardWithOrg);
+      const newDashboard = await dashboardApiService.createDashboard(dashboardPayload);
       
       // Double-check organization_id came back properly from the API
       if (newDashboard.organization_id === undefined) {

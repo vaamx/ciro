@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSettings, MessageRole } from '../components/Chat/types';
+import type { ChatMessage, ChatSettings } from '../components/Chat/types';
 import { emitApiRateLimit, emitApiError, emitApiSuccess, emitApiRateLimitExceeded } from './events';
 import { logger } from '../utils/logger';
 // The baseUrl is hardcoded in the constructor so we don't need external API configuration
@@ -592,19 +592,41 @@ class ApiServiceImpl implements ApiService {
       
       console.log(`Fetching chat sessions with context: ${JSON.stringify(validContext)}`);
       
-      // Use the makeApiRequest utility for simplified API access
-      const sessions = await this.makeApiRequest<ChatSession[]>('api/chat/sessions', validContext);
+      // Use a shorter timeout specifically for session loading to prevent UI timeouts
+      // This matches the ChatProvider's reduced timeout expectations
+      const sessions = await this.makeApiRequest<ChatSession[]>(
+        'api/chat/sessions', 
+        validContext,
+        {}, // no additional request options
+        {}, // no additional params
+        {
+          timeout: 10000, // 10 second timeout instead of default 30 seconds
+          retryCount: 1,  // Reduced retries for faster failure
+          retryDelay: 1000, // Faster retry
+          logRequest: true
+        }
+      );
       
       console.log(`Successfully fetched ${sessions.length} chat sessions`);
       return sessions;
     } catch (error: any) {
       console.error('Error fetching chat sessions:', error);
       
+      // Improved error handling for timeout scenarios
+      if (error.message && (
+          error.message.includes('timeout') ||
+          error.message.includes('AbortError') ||
+          error.message.includes('Request took too long')
+      )) {
+        console.warn('Chat sessions API request timed out - this might indicate backend performance issues');
+      }
+      
       // If database error, network error or server is unreachable
       if (error.message && (
           error.message.includes('Database error') ||
           error.message.includes('Failed to fetch') || 
-          error.message.includes('NetworkError')
+          error.message.includes('NetworkError') ||
+          error.message.includes('timeout')
       )) {
         console.warn('Error encountered, returning empty sessions array:', error.message);
       }
@@ -682,24 +704,25 @@ class ApiServiceImpl implements ApiService {
     title: string, 
     lastMessage?: string, 
     messageCount?: number,
-    context?: ChatContext
+    _context?: ChatContext
   ): Promise<ChatSession> {
-    // Ensure we have a valid context with default organization
-    const validContext = this.ensureValidContext(context, true);
-    
+    // Only send fields that are allowed by the backend UpdateChatSessionDto
     const payload: any = { 
-      title,
-      organization_id: validContext.organization_id,
-      dashboard_id: validContext.dashboard_id
+      title
     };
     
-    // Add optional parameters if provided
-    if (lastMessage !== undefined) {
-      payload.last_message = lastMessage;
-    }
-    
-    if (messageCount !== undefined) {
-      payload.message_count = messageCount;
+    // Store last_message and message_count in metadata instead of as top-level fields
+    // since the backend doesn't allow them as direct fields
+    if (lastMessage !== undefined || messageCount !== undefined) {
+      payload.metadata = {};
+      
+      if (lastMessage !== undefined) {
+        payload.metadata.last_message = lastMessage;
+      }
+      
+      if (messageCount !== undefined) {
+        payload.metadata.message_count = messageCount;
+      }
     }
     
     console.log(`Updating chat session ${sessionId} with:`, payload);
@@ -874,55 +897,31 @@ class ApiServiceImpl implements ApiService {
   }
 
   async sendMessage(sessionId: string, message: string, context?: ChatContext, options?: any): Promise<ChatResponse> {
-    // Validation with detailed error information
-    if (!sessionId) {
-      console.error('Missing sessionId in sendMessage call');
-      throw new Error('Content and sessionId are required');
-    }
-    
-    if (!message) {
-      console.error('Missing message content in sendMessage call');
-      throw new Error('Content and sessionId are required');
-    }
-    
     try {
-      // Prepare the API endpoint URL
-      const url = this.buildApiUrl(`api/chat/sessions/${sessionId}/messages`, context);
+      // Build URL for the chat session messages endpoint
+      const url = `${this.baseUrl}/api/chat/sessions/${sessionId}/messages`;
       
-      // Prepare data sources
-      let data_sources = [];
-      try {
-        const selectedDataSources = localStorage.getItem('selectedDataSources');
-        data_sources = selectedDataSources ? JSON.parse(selectedDataSources) : [];
-      } catch (parseError) {
-        console.error('Error parsing selectedDataSources:', parseError);
-      }
-      
-      // Format message content
-      const messageContent = typeof message === 'string' 
-        ? message 
-        : JSON.stringify(message);
-      
-      // Build EXACT payload structure expected by server controller
-      const payload: any = {
-        content: messageContent,      // Server expects 'content'
-        sessionId: sessionId,         // Include in both URL and body
-        data_sources: data_sources    // Array of data source IDs
+      // The backend expects AddMessagesToHistoryDto with a messages array
+      // Each message should follow ChatMessageDto structure: role, content, metadata, timestamp
+      const payload = {
+        messages: [
+          {
+            role: 'user',
+            content: message.trim(),
+            timestamp: new Date().toISOString(),
+            metadata: {
+              // Include context information in metadata
+              ...(context && {
+                organization_id: context.organization_id,
+                dashboard_id: context.dashboard_id
+              }),
+              // Include any additional options
+              ...(options && options.dataSourceMetadata && { dataSourceMetadata: options.dataSourceMetadata }),
+              ...(options && options.previousQueries && { previousQueries: options.previousQueries })
+            }
+          }
+        ]
       };
-      
-      // Add context information
-      if (context) {
-        const normalizedContext = normalizeContext(context);
-        payload.context = {
-          organization_id: normalizedContext?.organization_id,
-          dashboard_id: normalizedContext?.dashboard_id
-        };
-      }
-      
-      // Add previous queries if provided
-      if (options?.previousQueries) {
-        payload.previousQueries = options.previousQueries;
-      }
       
       // Log complete request for debugging
       console.log('Sending message request:', {
@@ -943,117 +942,41 @@ class ApiServiceImpl implements ApiService {
       
       // Handle non-OK responses directly before parsing
       if (!response.ok) {
-        let errorMessage = `Server error: ${response.status}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          // Fallback to text if JSON parsing fails
-          const errorText = await response.text();
-          if (errorText) errorMessage = errorText;
-        }
-        console.error('API error response:', errorMessage);
-        throw new Error(errorMessage);
+        const errorText = await response.text();
+        console.error(`sendMessage API error ${response.status}:`, errorText);
+        throw new Error(`Failed to send message: ${response.status} ${response.statusText}`);
       }
       
-      // Parse successful response
-      const data = await response.json();
+      const result = await this.handleResponse<ChatResponse>(response);
+      console.log('Message sent successfully:', result);
+      return result;
       
-      // Verify response format and provide helpful error for debugging
-      if (!data.aiMessage?.content) {
-        console.error('Invalid response format:', data);
-        throw new Error('Invalid response format: missing content');
-      }
-      
-      // Check if we have a structured response
-      const hasStructuredResponse = 
-        data.aiMessage?.metadata?.structuredResponse && 
-        Object.keys(data.aiMessage.metadata.structuredResponse).length > 0;
-      
-      // If there's a structured response, return that as the main content
-      if (hasStructuredResponse) {
-        console.log('Using structured response as primary response');
-        
-        // Create a "steps" marker to add to the metadata if we're using the structured response
-        const steps = data.aiMessage.metadata.structuredResponse.steps || [];
-        
-        return {
-          // Use a placeholder content that won't be shown since we're using the structured version
-          content: '',
-          metadata: {
-            model: data.aiMessage.metadata?.model,
-            tokens: data.usage,
-            suggestions: data.aiMessage.metadata?.suggestions,
-            analyticalResponse: data.aiMessage.metadata?.analyticalResponse,
-            isMultiStep: true, // Force multi-step to ensure proper rendering
-            messageType: 'structured',
-            contentType: 'structured',
-            dataStructure: data.aiMessage.metadata?.dataStructure,
-            processingType: data.aiMessage.metadata?.processingType,
-            structuredResponse: data.aiMessage.metadata?.structuredResponse,
-            steps: steps
-          }
-        };
-      }
-      
-      // Return standard response if no structured response
-      return {
-        content: data.aiMessage.content,
-        metadata: {
-          model: data.aiMessage.metadata?.model,
-          tokens: data.usage,
-          suggestions: data.aiMessage.metadata?.suggestions,
-          analyticalResponse: data.aiMessage.metadata?.analyticalResponse,
-          isMultiStep: data.aiMessage.metadata?.isMultiStep,
-          messageType: data.aiMessage.metadata?.messageType,
-          contentType: data.aiMessage.metadata?.contentType,
-          dataStructure: data.aiMessage.metadata?.dataStructure,
-          processingType: data.aiMessage.metadata?.processingType,
-          structuredResponse: data.aiMessage.metadata?.structuredResponse
-        }
-      };
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error in sendMessage:', error);
       throw error;
     }
   }
 
   async regenerateMessage(messageId: string): Promise<{ content: string; metadata?: ChatMetadata }> {
-    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/message/${messageId}/regenerate`);
-
-    if (!response.ok) {
-      throw new Error('Failed to regenerate message');
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/messages/${messageId}/regenerate`, {
+        method: 'POST'
+      });
+      
+      return await this.handleResponse<{ content: string; metadata?: ChatMetadata }>(response);
+    } catch (error) {
+      console.error('Error regenerating message:', error);
+      throw error;
     }
-
-    return response.json();
-  }
-
-  async cancelGeneration(): Promise<void> {
-    // Implementation
   }
 
   async generateChatCompletion(messages: ChatMessage[], options?: ChatSettings): Promise<Response> {
     try {
-      const defaultOptions: ChatSettings = {
-        model: 'gpt-4',
-        temperature: 0.7,
-        contextLength: 4096,
-        streaming: false
-      };
-
       const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/completion`, {
         method: 'POST',
-        body: JSON.stringify({ 
-          messages,
-          ...defaultOptions,
-          ...options
-        }),
+        body: JSON.stringify({ messages, ...options })
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to generate chat completion: ${response.statusText}`);
-      }
-
+      
       return response;
     } catch (error) {
       console.error('Error generating chat completion:', error);
@@ -1063,26 +986,11 @@ class ApiServiceImpl implements ApiService {
 
   async streamChatCompletion(messages: ChatMessage[], options?: ChatSettings): Promise<Response> {
     try {
-      const defaultOptions: ChatSettings = {
-        model: 'gpt-4',
-        temperature: 0.7,
-        contextLength: 4096,
-        streaming: true
-      };
-
       const response = await this.fetchWithCredentials(`${this.baseUrl}/api/chat/completion/stream`, {
         method: 'POST',
-        body: JSON.stringify({ 
-          messages,
-          ...defaultOptions,
-          ...options
-        }),
+        body: JSON.stringify({ messages, ...options })
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to stream chat completion: ${response.statusText}`);
-      }
-
+      
       return response;
     } catch (error) {
       console.error('Error streaming chat completion:', error);
@@ -1091,252 +999,157 @@ class ApiServiceImpl implements ApiService {
   }
 
   async getDashboards(): Promise<Dashboard[]> {
-    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`);
-    return this.handleResponse<Dashboard[]>(response);
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`);
+      return await this.handleResponse<Dashboard[]>(response);
+    } catch (error) {
+      console.error('Error getting dashboards:', error);
+      throw error;
+    }
   }
 
   async createDashboard(dashboard: Omit<Dashboard, 'id' | 'created_at' | 'updated_at'>): Promise<Dashboard> {
-    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`, {
-      method: 'POST',
-      body: JSON.stringify(dashboard)
-    });
-    return this.handleResponse<Dashboard>(response);
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards`, {
+        method: 'POST',
+        body: JSON.stringify(dashboard)
+      });
+      
+      return await this.handleResponse<Dashboard>(response);
+    } catch (error) {
+      console.error('Error creating dashboard:', error);
+      throw error;
+    }
   }
 
   async updateDashboard(id: string, dashboard: Partial<Dashboard>): Promise<Dashboard> {
-    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(dashboard)
-    });
-    return this.handleResponse<Dashboard>(response);
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(dashboard)
+      });
+      
+      return await this.handleResponse<Dashboard>(response);
+    } catch (error) {
+      console.error('Error updating dashboard:', error);
+      throw error;
+    }
   }
 
   async deleteDashboard(id: string): Promise<void> {
-    await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
-      method: 'DELETE'
-    });
+    try {
+      await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (error) {
+      console.error('Error deleting dashboard:', error);
+      throw error;
+    }
   }
 
   async updateDashboardWidgets(dashboardId: string, widgets: Partial<Widget>[]): Promise<Widget[]> {
-    const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${dashboardId}/widgets`, {
-      method: 'PUT',
-      body: JSON.stringify({ widgets })
-    });
-    return this.handleResponse<Widget[]>(response);
-  }
-
-  /**
-   * Creates a standardized error message object for display in the UI
-   * @param messageType Type of error message
-   * @param content Error message content
-   * @returns Error message object
-   */
-  private createErrorMessage(messageType: 'authentication' | 'server' | 'network' | 'not_found', content: string): ChatMessage {
-    const errorTypes = {
-      authentication: 'Authentication error',
-      server: 'Server error',
-      network: 'Network error',
-      not_found: 'Not found'
-    };
-    
-    return {
-      id: `error-${Date.now()}`,
-      role: 'error' as MessageRole,
-      content: `${errorTypes[messageType]}: ${content}`,
-      timestamp: Date.now(),
-      status: 'error',
-      metadata: {
-        error: true,
-        errorType: messageType
-      }
-    };
-  }
-
-  /**
-   * Makes an API request with proper context handling and error management
-   * @param endpoint API endpoint path
-   * @param context Chat context
-   * @param options Fetch options
-   * @param additionalParams Additional URL parameters
-   * @param fetchOptions Additional options for fetchWithCredentials
-   * @returns Promise with the response data
-   */
-  private async makeApiRequest<T>(
-    endpoint: string, 
-    context?: ChatContext, 
-    options: RequestInit = {}, 
-    additionalParams: Record<string, string> = {},
-    fetchOptions: {
-      handleAuth?: boolean;
-      timeout?: number;
-      logRequest?: boolean;
-      retryCount?: number;
-      retryDelay?: number;
-    } = {}
-  ): Promise<T> {
     try {
-      // Build the URL with proper context
-      const url = this.buildApiUrl(endpoint, context, additionalParams);
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dashboards/${dashboardId}/widgets`, {
+        method: 'PUT',
+        body: JSON.stringify({ widgets })
+      });
       
-      // Make the request
-      const response = await this.fetchWithCredentials(url, options, fetchOptions);
-      
-      // Parse and return the response
-      return await this.handleResponse<T>(response);
+      return await this.handleResponse<Widget[]>(response);
     } catch (error) {
-      console.error(`Error in API request to ${endpoint}:`, error);
+      console.error('Error updating dashboard widgets:', error);
       throw error;
     }
   }
 
-  /**
-   * Ensures the context contains valid values for required parameters
-   * @param context Original context which may be incomplete
-   * @param requireOrganization Whether to require and add default organization_id
-   * @returns Context with defaults applied
-   */
-  private ensureValidContext(context?: ChatContext, requireOrganization: boolean = true): ChatContext {
-    // Start by normalizing the context
-    let normalizedContext = normalizeContext(context) || {};
-    
-    // FIXED: Improved organization ID handling
-    if (requireOrganization) {
-      if (!normalizedContext.organization_id) {
-        // Check if we have a saved organization ID in localStorage
-        const savedOrgId = localStorage.getItem('last_active_organization_id');
-        
-        if (savedOrgId && savedOrgId !== 'undefined' && savedOrgId !== 'null') {
-          const parsedId = parseInt(savedOrgId, 10);
-          if (!isNaN(parsedId)) {
-            console.log(`Using organization ID ${parsedId} from localStorage`);
-            normalizedContext.organization_id = parsedId;
-          } else {
-            console.log('No valid organization_id found, using default');
-            normalizedContext.organization_id = 1; // Default as last resort
-          }
-        } else {
-          console.log('No organization_id provided, using default');
-          normalizedContext.organization_id = 1; // Default organization ID
-        }
-      } else {
-        console.log(`Using provided organization_id: ${normalizedContext.organization_id}`);
-      }
-    }
-    
-    // FIXED: Improved dashboard ID handling
-    if (normalizedContext.dashboard_id === undefined) {
-      // Check if we have a saved dashboard ID in localStorage
-      const savedDashboardId = localStorage.getItem('last_active_dashboard_id');
+  async processDualPathQuery(query: string, dataSourceIds: string[], options?: any): Promise<DualPathResponse> {
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dual-path`, {
+        method: 'POST',
+        body: JSON.stringify({ query, dataSourceIds, ...options })
+      });
       
-      if (savedDashboardId && savedDashboardId !== 'undefined' && savedDashboardId !== 'null') {
-        console.log(`Using dashboard ID ${savedDashboardId} from localStorage`);
-        normalizedContext.dashboard_id = savedDashboardId;
-      }
-      // Otherwise we leave it undefined which means "global" view
+      return await this.handleResponse<DualPathResponse>(response);
+    } catch (error) {
+      console.error('Error processing dual path query:', error);
+      throw error;
     }
-    
-    return normalizedContext;
   }
 
-  /**
-   * Validates and sanitizes an array of chat messages
-   * @param messages Array of messages to validate
-   * @param sessionId Optional session ID for logging
-   * @returns Filtered array with only valid messages
-   */
-  private validateMessages(messages: ChatMessage[], sessionId?: string): ChatMessage[] {
+  async streamDualPathQuery(query: string, dataSourceIds: string[], options?: any): Promise<Response> {
+    try {
+      const response = await this.fetchWithCredentials(`${this.baseUrl}/api/dual-path/stream`, {
+        method: 'POST',
+        body: JSON.stringify({ query, dataSourceIds, ...options })
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error streaming dual path query:', error);
+      throw error;
+    }
+  }
+
+  // Helper methods that were referenced but missing
+  private ensureValidContext(context?: ChatContext, requireOrganization: boolean = false): ChatContext {
+    const normalizedContext = normalizeContext(context);
+    
+    if (requireOrganization && !normalizedContext?.organization_id) {
+      throw new Error('Organization ID is required for this operation');
+    }
+    
+    return normalizedContext || {};
+  }
+
+  private async makeApiRequest<T>(
+    endpoint: string,
+    context?: ChatContext,
+    requestOptions: RequestInit = {},
+    params: Record<string, string> = {},
+    additionalOptions: any = {}
+  ): Promise<T> {
+    const url = this.buildApiUrl(endpoint, context, params);
+    const response = await this.fetchWithCredentials(url, requestOptions, additionalOptions);
+    return await this.handleResponse<T>(response);
+  }
+
+  private validateMessages(messages: ChatMessage[], sessionId: string): ChatMessage[] {
     if (!Array.isArray(messages)) {
-      console.warn('Invalid messages object received', messages);
+      console.warn(`Invalid messages format for session ${sessionId}, returning empty array`);
       return [];
     }
     
-    const validMessages = messages.filter(msg => {
-      if (!msg) return false;
-      if (!msg.id || !msg.role) {
-        console.warn(`Invalid message found ${sessionId ? `in session ${sessionId}` : ''}, filtering out`, msg);
+    return messages.filter(message => {
+      if (!message || typeof message !== 'object') {
+        console.warn(`Invalid message object in session ${sessionId}`, message);
         return false;
       }
+      
+      if (!message.id || !message.content || !message.role) {
+        console.warn(`Message missing required fields in session ${sessionId}`, message);
+        return false;
+      }
+      
       return true;
     });
-    
-    console.log(`Validated ${validMessages.length} of ${messages.length} messages`);
-    return validMessages;
   }
 
-  // New dual-path methods
-  async processDualPathQuery(query: string, dataSourceIds: string[], options: any = {}): Promise<DualPathResponse> {
-    const endpoint = 'api/dual-path/query';
-    
-    const payload = {
-      query,
-      dataSourceIds,
-      options
-    };
-    
-    try {
-      const response = await this.fetchWithCredentials(
-        `${this.baseUrl}/${endpoint}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...this.getAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        },
-        {
-          handleAuth: true,
-          logRequest: true,
-          retryCount: 1,
-          retryDelay: 1000,
-          priority: 3 // Higher priority for interactive queries
-        }
-      );
-      
-      return this.handleResponse<DualPathResponse>(response);
-    } catch (error) {
-      logger.error(COMPONENT_NAME, `Error processing dual-path query: ${error}`);
-      throw error;
-    }
-  }
-  
-  async streamDualPathQuery(query: string, dataSourceIds: string[], options: any = {}): Promise<Response> {
-    const endpoint = 'api/dual-path/query/stream';
-    
-    const payload = {
-      query,
-      dataSourceIds,
-      options: {
-        ...options,
-        streaming: true
+  private createErrorMessage(type: string, content: string): ChatMessage {
+    return {
+      id: `error-${Date.now()}`,
+      role: 'error',
+      content: content,
+      timestamp: Date.now(),
+      status: 'error',
+      metadata: {
+        errorType: type,
+        isErrorMessage: true
       }
     };
-    
-    try {
-      return await this.fetchWithCredentials(
-        `${this.baseUrl}/${endpoint}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...this.getAuthHeaders()
-          },
-          body: JSON.stringify(payload)
-        },
-        {
-          handleAuth: true,
-          logRequest: true,
-          retryCount: 1,
-          retryDelay: 1000,
-          priority: 3 // Higher priority for streaming
-        }
-      );
-    } catch (error) {
-      logger.error(COMPONENT_NAME, `Error streaming dual-path query: ${error}`);
-      throw error;
-    }
   }
 }
 
-// Export a singleton instance of the API service
+// Create and export a singleton instance
 export const apiService = new ApiServiceImpl();
+
+// Also export the class for type checking
+export { ApiServiceImpl };

@@ -5,6 +5,15 @@ import {buildApiUrl } from '../contexts/AuthContext';
 // Use the imported Dashboard type as the interface for the API
 export type Dashboard = DashboardType;
 
+// Interface for dashboard creation payload that matches backend CreateDashboardDto
+export interface CreateDashboardPayload {
+  name: string;
+  description?: string;
+  team?: string;
+  category?: string;
+  organization_id: number;
+}
+
 class DashboardApiService {
   private baseUrl: string;
 
@@ -38,11 +47,14 @@ class DashboardApiService {
     return response.json();
   }
 
-  async createDashboard(dashboard: Omit<Dashboard, 'id' | 'createdAt' | 'updatedAt'>): Promise<Dashboard> {
-    const { createdBy, ...rest } = dashboard;
+  async createDashboard(dashboard: CreateDashboardPayload): Promise<Dashboard> {
+    // Only send fields that are allowed by the backend CreateDashboardDto
     const payload = {
-      ...rest,
-      created_by: Number(createdBy), // Convert to number since users table uses integer IDs
+      name: dashboard.name,
+      description: dashboard.description || '',
+      team: dashboard.team || '',
+      category: dashboard.category || '',
+      organization_id: dashboard.organization_id
     };
 
     const response = await fetch(`${this.baseUrl}`, {

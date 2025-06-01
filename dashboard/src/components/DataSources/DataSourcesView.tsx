@@ -7,6 +7,7 @@ import SnowflakeConnectionForm from './SnowflakeConnectionForm';
 import { DataSource } from './types';
 import { PlusIcon, SearchIcon, FilterIcon, RefreshCwIcon } from 'lucide-react';
 import { DataSourceDetailsModal } from './DataSourceDetailsModal';
+import { useOrganization } from '../../contexts/OrganizationContext';
 
 export const DataSourcesView: React.FC = () => {
   const { 
@@ -31,9 +32,17 @@ export const DataSourcesView: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterType, setFilterType] = useState<string | null>(null);
   
-  // Pause polling when in empty state
+  // Import the organization context to check if it's still loading
+  const { currentOrganization, isLoading: isOrgLoading } = useOrganization();
+  
+  // Pause polling when in empty state - but not during initial loading or organization loading
   useEffect(() => {
-    // If there are no data sources, pause polling to prevent unnecessary refreshes
+    // Don't pause polling if we're still in any loading state (data or organization)
+    if (isLoading || isOrgLoading || !currentOrganization) {
+      return;
+    }
+    
+    // If there are no data sources after all loading is complete, pause polling to prevent unnecessary refreshes
     if (dataSources.length === 0 && !isPaused) {
       setPausePolling(true);
     } 
@@ -41,7 +50,7 @@ export const DataSourcesView: React.FC = () => {
     else if (dataSources.length > 0 && isPaused) {
       setPausePolling(false);
     }
-  }, [dataSources.length, isPaused, setPausePolling]);
+  }, [dataSources.length, isPaused, setPausePolling, isLoading, isOrgLoading, currentOrganization]);
   
   // Filter sources based on search term and filter type
   const filteredSources = dataSources.filter(source => {

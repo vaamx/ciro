@@ -337,55 +337,73 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
         return;
       }
       
-      if (!activeSource) {
-        setError('Please select a data source from the Knowledge Base sidebar');
-        return;
-      }
-
-      // Store the active source ID in localStorage for the API service to use
-      localStorage.setItem('selectedDataSources', JSON.stringify([activeSource.id]));
+      // Make data source selection optional - users can chat without selecting a specific data source
+      // This allows for general conversation and app context discussions
+      let dataSourceMetadata = {};
       
-      // Log collection info for debugging
-      const collectionName = `datasource_${activeSource.id}`;
-      console.log('Using data source:', activeSource.name, 'ID:', activeSource.id);
-      console.log('Querying Qdrant collection:', collectionName);
-      
-      // Determine data source type from file name if not explicitly provided
-      let dataSourceType = (activeSource as any).dataSourceType;
-      
-      // If we don't have a datasource type, try to detect it from the filename
-      if (!dataSourceType && activeSource.name) {
-        const fileName = activeSource.name.toLowerCase();
-        // Use our enhanced Excel detection function
-        if (isExcelDataSource(fileName)) {
-          dataSourceType = 'excel';
-          console.log('Detected Excel data source from filename:', fileName);
-        } else if (fileName.endsWith('.pdf')) {
-          dataSourceType = 'pdf';
-        } else if (fileName.endsWith('.csv')) {
-          dataSourceType = 'csv';
-        } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-          dataSourceType = 'docx';
-        } else {
-          // Default to qdrant collection if can't detect
+      if (activeSource) {
+        // If a data source is selected, use it for enhanced RAG capabilities
+        // Store the active source ID in localStorage for the API service to use
+        localStorage.setItem('selectedDataSources', JSON.stringify([activeSource.id]));
+        
+        // Log collection info for debugging
+        const collectionName = `datasource_${activeSource.id}`;
+        console.log('Using data source:', activeSource.name, 'ID:', activeSource.id);
+        console.log('Querying Qdrant collection:', collectionName);
+        
+        // Determine data source type from file name if not explicitly provided
+        let dataSourceType = (activeSource as any).dataSourceType;
+        
+        // If we don't have a datasource type, try to detect it from the filename
+        if (!dataSourceType && activeSource.name) {
+          const fileName = activeSource.name.toLowerCase();
+          // Use our enhanced Excel detection function
+          if (isExcelDataSource(fileName)) {
+            dataSourceType = 'excel';
+            console.log('Detected Excel data source from filename:', fileName);
+          } else if (fileName.endsWith('.pdf')) {
+            dataSourceType = 'pdf';
+          } else if (fileName.endsWith('.csv')) {
+            dataSourceType = 'csv';
+          } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+            dataSourceType = 'docx';
+          } else {
+            // Default to qdrant collection if can't detect
+            dataSourceType = 'qdrant';
+          }
+        }
+        
+        // Make sure we have a default data source type
+        if (!dataSourceType) {
           dataSourceType = 'qdrant';
         }
+        
+        // Enhanced metadata for better visualization
+        dataSourceMetadata = {
+          dataSourceId: activeSource.id,
+          dataSourceName: activeSource.name,
+          dataSourceType: dataSourceType,
+          collectionName: collectionName,
+          collectionId: activeSource.id,
+          useEnhancedVisualization: true,
+          streamResponse: true, // Enable streaming response mode
+        };
+        
+        console.log('Data source type:', dataSourceType || 'unknown');
+      } else {
+        // No data source selected - clear any previous selection and allow general chat
+        localStorage.removeItem('selectedDataSources');
+        console.log('No data source selected - using general chat mode');
+        
+        dataSourceMetadata = {
+          useGeneralMode: true,
+          streamResponse: true,
+        };
       }
-      
-      // Make sure we have a default data source type
-      if (!dataSourceType) {
-        dataSourceType = 'qdrant';
-      }
-      
-      // Enhanced metadata for better visualization
+
+      // Enhanced metadata for processing
       const enhancedMetadata = {
-        dataSourceId: activeSource.id,
-        dataSourceName: activeSource.name,
-        dataSourceType: dataSourceType,
-        collectionName: collectionName,
-        collectionId: activeSource.id,
-        useEnhancedVisualization: true,
-        streamResponse: true, // Enable streaming response mode
+        ...dataSourceMetadata,
         // Add processing preference options
         preferCodeExecution: processingPreference === 'code',
         preferRAG: processingPreference === 'rag',
@@ -397,9 +415,6 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
           size: file.size
         })) : []
       };
-      
-      console.log('Data source type:', dataSourceType || 'unknown');
-      console.log('Processing preference:', processingPreference);
       
       // Create user message object for immediate display
       const userMessage: ChatMessage = {
@@ -438,8 +453,9 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
         const messagesWithTyping = [...updatedMessages, typingMessage];
         _emergency.setMessages(messagesWithTyping);
 
-        // Set up a simple manual streaming effect
-        // This is a temporary solution until the backend supports real streaming
+        // DISABLED: Fake streaming effect that was causing infinite loop
+        // This was preventing the real API call from being made
+        /*
         let streamedContent = '';
         let streamCounter = 0;
         const fullResponse = 'I\'m analyzing your data and preparing a response...';
@@ -474,6 +490,7 @@ export const ChatPanelContent: React.FC<ChatPanelContentProps> = ({
             clearInterval(streamInterval);
         }
         }, 50); // Stream a character every 50ms for a natural effect
+        */
       }, 300);
 
       // Call the standard sendMessage function from the provider with processing preference

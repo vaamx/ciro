@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { PlusCircle, Trash2, MessageSquare } from 'lucide-react'; // Import icons
 // Temporarily commenting out missing components
 // import { ThreadList } from './ThreadList';
 // import { Thread } from '../types';
@@ -48,11 +49,6 @@ export const ThreadsContainer: React.FC<ThreadsContainerProps> = ({
     onThreadSelect(threadId);
   };
 
-  const handleNewThread = () => {
-    setSelectedThreadId(null);
-    onNewThread();
-  };
-
   const formatTimestamp = (timestamp: Date) => {
     const now = new Date();
     const diff = now.getTime() - timestamp.getTime();
@@ -68,86 +64,87 @@ export const ThreadsContainer: React.FC<ThreadsContainerProps> = ({
   };
 
   const handleDeleteThread = (threadId: string, event: React.MouseEvent) => {
-    event.stopPropagation();
+    event.stopPropagation(); // Prevent thread selection when deleting
     onThreadDelete(threadId);
   };
 
   // Handle message actions - remove unused messageId parameter
-  const handleCopyMessage = () => {
-    console.log('Copy message functionality');
-  };
+  // const handleCopyMessage = () => {
+  //   console.log('Copy message functionality');
+  // };
 
-  const handleRegenerateMessage = () => {
-    console.log('Regenerate message functionality');
-  };
+  // const handleRegenerateMessage = () => {
+  //   console.log('Regenerate message functionality');
+  // };
 
   return (
-    <div className={`threads-container h-full flex flex-col ${className}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+    <div className={`threads-container h-full flex flex-col bg-white dark:bg-gray-900 ${className}`}>
+      {/* Header Section - Lobe Chat like */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <h1 className="text-xl font-semibold text-gray-800 dark:text-white">
           Threads
-        </h2>
+        </h1>
         <button
-          onClick={handleNewThread}
-          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          onClick={onNewThread} // Use onNewThread from props
+          className="flex items-center px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
         >
+          <PlusCircle size={18} className="mr-2" />
           New Thread
         </button>
       </div>
 
-      {/* Thread List */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Thread List Section */}
+      <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         {threads.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
-            <p>No threads yet. Start a new conversation!</p>
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400 p-6 text-center">
+            <MessageSquare size={48} className="mb-4 opacity-50" />
+            <h3 className="text-lg font-semibold mb-1">No Threads Yet</h3>
+            <p className="text-sm">Click "New Thread" to start a new conversation.</p>
           </div>
         ) : (
-          <div className="space-y-1 p-2">
+          <div className="space-y-2">
             {threads.map((thread) => (
               <motion.div
                 key={thread.id}
                 className={`
-                  relative group cursor-pointer rounded-lg p-3 transition-colors
+                  relative group cursor-pointer rounded-xl p-3 transition-all duration-150 ease-in-out
+                  border 
                   ${selectedThreadId === thread.id 
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' 
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    ? 'bg-purple-50 dark:bg-purple-800/30 border-purple-500 dark:border-purple-600 shadow-md' 
+                    : 'bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 hover:border-purple-400 dark:hover:border-purple-500 hover:shadow-sm'
                   }
                 `}
                 onClick={() => handleThreadSelect(thread.id)}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
+                whileHover={{ y: -2 }}
+                layout // Animate layout changes
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
                       {thread.title}
                     </h3>
                     {thread.lastMessage && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-1">
                         {thread.lastMessage}
                       </p>
                     )}
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {formatTimestamp(thread.timestamp)}
-                      </span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {thread.messageCount} messages
-                      </span>
-                    </div>
                   </div>
-                  
-                  {/* Delete button */}
+                  {/* Delete button - more subtle, appears on hover */}
                   <button
                     onClick={(e) => handleDeleteThread(thread.id, e)}
-                    className="opacity-0 group-hover:opacity-100 ml-2 p-1 text-gray-400 hover:text-red-500 transition-all"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-opacity duration-150 rounded-full hover:bg-red-100/50 dark:hover:bg-red-700/30"
                     title="Delete thread"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
+                    <Trash2 size={16} />
                   </button>
+                </div>
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/50">
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {formatTimestamp(thread.timestamp)}
+                  </span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {thread.messageCount} messages
+                  </span>
                 </div>
               </motion.div>
             ))}
@@ -155,23 +152,8 @@ export const ThreadsContainer: React.FC<ThreadsContainerProps> = ({
         )}
       </div>
 
-      {/* Footer Actions */}
-      <div className="border-t border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex space-x-2">
-          <button
-            onClick={handleCopyMessage}
-            className="flex-1 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-          >
-            Copy Messages
-          </button>
-          <button
-            onClick={handleRegenerateMessage}
-            className="flex-1 px-3 py-2 text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-          >
-            Regenerate
-          </button>
-        </div>
-      </div>
+      {/* Footer - Lobe chat doesn't have a prominent footer in the thread list itself */}
+      {/* Removing the generic Copy Messages / Regenerate footer for now */}
     </div>
   );
 }; 

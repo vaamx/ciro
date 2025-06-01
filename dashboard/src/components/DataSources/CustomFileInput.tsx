@@ -61,13 +61,35 @@ export const CustomFileInput: React.FC<CustomFileInputProps> = ({
 
   // Handle file selection
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('🔧 CustomFileInput: handleFileChange triggered');
     const files = event.target.files;
-    if (!files || files.length === 0) return;
+    console.log('🔧 CustomFileInput: Selected files:', files);
+    
+    if (!files || files.length === 0) {
+      console.log('🔧 CustomFileInput: No files selected, returning');
+      return;
+    }
+
+    const file = files[0];
+    console.log('🔧 CustomFileInput: Processing file:', {
+      name: file.name,
+      size: file.size,
+      type: file.type
+    });
 
     setUploading(true);
     try {
-      const file = files[0]; // Only take the first file
-      const metadata = await fileService.uploadFile(file);
+      console.log('🔧 CustomFileInput: Calling fileService.uploadFile()');
+      console.log('🔧 CustomFileInput: FileService instance:', fileService);
+      
+      // Add comprehensive error catching
+      const metadata = await fileService.uploadFile(file).catch((uploadError) => {
+        console.error('🔧 CustomFileInput: Upload failed in fileService.uploadFile():', uploadError);
+        console.error('🔧 CustomFileInput: Upload error stack:', uploadError.stack);
+        throw uploadError;
+      });
+      
+      console.log('🔧 CustomFileInput: Upload successful, metadata:', metadata);
       
       // Convert metadata to ensure dataSourceId is a string
       const typeSafeMetadata = {
@@ -75,10 +97,21 @@ export const CustomFileInput: React.FC<CustomFileInputProps> = ({
         dataSourceId: metadata.dataSourceId != null ? String(metadata.dataSourceId) : undefined
       };
       
+      console.log('🔧 CustomFileInput: Calling onUploadComplete callback');
       onUploadComplete?.(typeSafeMetadata);
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('🔧 CustomFileInput: Upload failed:', error);
+      console.error('🔧 CustomFileInput: Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : typeof error,
+        toString: error?.toString?.()
+      });
+      
+      // Show user-friendly error
+      alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
+      console.log('🔧 CustomFileInput: Upload process finished, cleaning up');
       setUploading(false);
       // Reset the input value to allow selecting the same file again
       if (fileInputRef.current) {
@@ -139,7 +172,12 @@ export const CustomFileInput: React.FC<CustomFileInputProps> = ({
       
       onUploadComplete?.(typeSafeMetadata);
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('🔧 CustomFileInput: Upload failed:', error);
+      console.error('🔧 CustomFileInput: Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : typeof error
+      });
     } finally {
       setUploading(false);
     }
