@@ -29,8 +29,9 @@ const logger = winston.createLogger({
   ]
 });
 
-// Re-export auth rate limiter
+// Re-export auth rate limiter and tenant context middleware
 export { authRateLimiter, requestSizeLimiter };
+export { TenantContextMiddleware } from './tenant-context.middleware';
 
 // Rate limiter middleware
 export const rateLimiter = rateLimit({

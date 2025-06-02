@@ -2,7 +2,7 @@ import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role } from './role.enum';
 import { ROLES_KEY } from './roles.decorator';
-import { users } from '../database/prisma-types';
+import { RoleHierarchy } from './jwt.strategy';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -13,18 +13,39 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!requiredRoles) {
-      return true;
+    
+    if (!requiredRoles || requiredRoles.length === 0) {
+      return true; // No roles required, allow access
     }
+    
     const { user } = context.switchToHttp().getRequest();
     
-    // In Prisma schema, role is a single string instead of array
-    return user && requiredRoles.some(role => {
-      // Check if user has ADMIN role which gives access to everything
-      if (user.role === 'admin') return true;
-      
-      // Otherwise check for specific role
-      return user.role === role;
+    if (!user || !user.role) {
+      return false; // No user or role information
+    }
+    
+    // Check if user has any of the required roles based on hierarchy
+    return requiredRoles.some(requiredRole => {
+      return this.hasRequiredRole(user.role, requiredRole);
     });
+  }
+  
+  /**
+   * Check if user role has sufficient privileges for required role
+   * Uses role hierarchy where higher-level roles can access lower-level resources
+   */
+  private hasRequiredRole(userRole: string, requiredRole: Role): boolean {
+    const userLevel = this.getRoleLevel(userRole);
+    const requiredLevel = this.getRoleLevel(requiredRole);
+    
+    // Higher or equal role level grants access
+    return userLevel >= requiredLevel;
+  }
+  
+  /**
+   * Get role hierarchy level
+   */
+  private getRoleLevel(role: string): number {
+    return RoleHierarchy[role as keyof typeof RoleHierarchy] || 0;
   }
 } 

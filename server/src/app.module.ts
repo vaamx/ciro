@@ -1,4 +1,4 @@
-import { Module, Logger, Provider } from '@nestjs/common';
+import { Module, Logger, Provider, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -7,6 +7,7 @@ import { HttpModule } from '@nestjs/axios';
 import { PrismaModule } from './core/database/prisma.module';
 import { RedisHealthIndicator } from './common/health/redis.health';
 import { AuthModule } from './core/auth/auth.module'; // Add direct import for AuthModule
+import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 
 // Environment flags
 const IS_REDIS_DISABLED = process.env.REDIS_DISABLED === 'true';
@@ -408,7 +409,7 @@ function getModulesToLoad() {
     },
   ],
 })
-export class AppModule {
+export class AppModule implements NestModule {
   constructor() {
     console.log('>>> APP MODULE: Constructor called');
     if (IS_REDIS_DISABLED || IS_BULL_DISABLED) {
@@ -426,5 +427,15 @@ export class AppModule {
     } else {
       console.log('>>> APP MODULE: Running with full module set');
     }
+  }
+
+  configure(consumer: MiddlewareConsumer) {
+    // Register tenant context middleware for all routes
+    // This should come after authentication middleware to ensure user context is available
+    consumer
+      .apply(TenantContextMiddleware)
+      .forRoutes('*'); // Apply to all routes
+    
+    console.log('>>> APP MODULE: Tenant context middleware configured for all routes');
   }
 } 

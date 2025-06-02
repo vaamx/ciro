@@ -202,6 +202,7 @@ model organizations {
   files                files[]
   organization_members organization_members[]
   workspaces           workspaces[]
+  clients              Client[]
 }
 
 model processing_jobs {
@@ -236,6 +237,8 @@ model users {
   messages                  messages[]
   organization_members      organization_members[]
   workspaces                workspaces[]
+  clientsCreated            Client[]                    @relation("ClientCreatedBy")
+  customersCreated          Customer[]                  @relation("CustomerCreatedBy")
 }
 
 model workspaces {
@@ -257,4 +260,344 @@ model workspaces {
 enum Role {
   USER
   ADMIN
+  ENERGY_ADMIN
+  CLIENT_ADMIN
+  CUSTOMER_USER
+}
+
+// === ENERGY BILLING MODELS ===
+
+// Client represents the energy companies (EIS Power's customers)
+// Each client has their own portal and customer base
+model Client {
+  id           Int     @id @default(autoincrement())
+  name         String // e.g., "ABC Manufacturing"
+  code         String  @unique // Short identifier e.g., "ABC001"
+  contactEmail String?
+  contactPhone String?
+  address      String?
+
+  // Billing Configuration
+  billingAddress String?
+  billingContact String?
+  billingEmail   String?
+
+  // Multi-tenant fields
+  organizationId Int
+  organization   organizations @relation(fields: [organizationId], references: [id])
+
+  // Status and metadata
+  status   ClientStatus @default(ACTIVE)
+  metadata Json? // Custom client settings
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById Int
+  createdBy   users     @relation("ClientCreatedBy", fields: [createdById], references: [id])
+
+  // Relations
+  customers   Customer[]
+  tariffRates TariffRate[]
+  invoices    Invoice[]
+
+  // Enable RLS
+  @@map("clients")
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// Customer represents end-users within each client's portal
+model Customer {
+  id Int @id @default(autoincrement())
+
+  // Customer Information
+  customerNumber String // Unique within client e.g., "CUST-001"
+  name           String
+  email          String?
+  phone          String?
+
+  // Service Address
+  serviceAddress String
+  city           String?
+  state          String?
+  zipCode        String?
+
+  // Account Information
+  accountNumber String? // Utility account number
+  meterNumber   String? // Primary meter identifier
+
+  // Multi-tenant isolation
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Status and metadata
+  status       CustomerStatus @default(ACTIVE)
+  billingCycle BillingCycle   @default(MONTHLY)
+  metadata     Json? // Custom customer settings
+
+  // Audit fields
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById Int
+  createdBy   users     @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+
+  // Relations
+  meterReadings  MeterReading[]
+  invoices       Invoice[]
+  billingPeriods BillingPeriod[]
+
+  // Composite unique constraint: customer number unique within client
+  @@unique([clientId, customerNumber])
+  @@map("customers")
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  DISCONNECTED
+}
+
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+// Meter readings store consumption data
+model MeterReading {
+  id Int @id @default(autoincrement())
+
+  // Reading Information
+  meterNumber  String
+  readingDate  DateTime
+  readingValue Decimal     @db.Decimal(12, 3) // kWh with 3 decimal precision
+  readingType  ReadingType @default(ACTUAL)
+
+  // Demand readings (for commercial customers)
+  demandReading Decimal? @db.Decimal(12, 3) // kW demand
+
+  // Time-of-Use periods (if applicable)
+  onPeakUsage  Decimal? @db.Decimal(12, 3)
+  offPeakUsage Decimal? @db.Decimal(12, 3)
+  midPeakUsage Decimal? @db.Decimal(12, 3)
+
+  // Multi-tenant isolation through customer
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // Billing period this reading belongs to
+  billingPeriodId Int?
+  billingPeriod   BillingPeriod? @relation(fields: [billingPeriodId], references: [id])
+
+  // Metadata and audit
+  metadata  Json? // Store additional meter data
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([customerId, meterNumber, readingDate])
+  @@map("meter_readings")
+}
+
+enum ReadingType {
+  ACTUAL
+  ESTIMATED
+  CUSTOMER_READ
+}
+
+// Tariff rates define pricing structure
+model TariffRate {
+  id Int @id @default(autoincrement())
+
+  // Tariff Information
+  name        String // e.g., "Residential Standard", "Commercial TOU"
+  code        String // e.g., "RES-STD", "COM-TOU"
+  description String?
+
+  // Rate Structure
+  rateType RateType @default(FLAT)
+
+  // Basic rates (cents per kWh)
+  energyRate Decimal @db.Decimal(8, 5) // e.g., 0.12500 = 12.5 cents
+
+  // Time-of-Use rates (if applicable)
+  onPeakRate  Decimal? @db.Decimal(8, 5)
+  offPeakRate Decimal? @db.Decimal(8, 5)
+  midPeakRate Decimal? @db.Decimal(8, 5)
+
+  // Demand charges ($/kW)
+  demandRate Decimal? @db.Decimal(8, 2)
+
+  // Fixed charges
+  monthlyCharge Decimal? @db.Decimal(8, 2) // Monthly service charge
+  connectionFee Decimal? @db.Decimal(8, 2) // One-time connection fee
+
+  // Tiered rate blocks (for tiered pricing)
+  tierBlocks TariffBlock[]
+
+  // Multi-tenant isolation
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Effective dates
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  // Status and metadata
+  status   TariffStatus @default(ACTIVE)
+  metadata Json? // Additional tariff configuration
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  billingPeriods BillingPeriod[]
+
+  @@unique([clientId, code])
+  @@map("tariff_rates")
+}
+
+enum RateType {
+  FLAT
+  TIERED
+  TIME_OF_USE
+  DEMAND
+}
+
+enum TariffStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+// Tariff blocks for tiered pricing
+model TariffBlock {
+  id Int @id @default(autoincrement())
+
+  // Block Information
+  blockNumber Int // 1, 2, 3, etc.
+  fromKwh     Decimal @db.Decimal(12, 3) // Starting kWh for this tier
+  toKwh       Decimal? @db.Decimal(12, 3) // Ending kWh (null for last tier)
+  rate        Decimal @db.Decimal(8, 5) // Rate for this tier (cents per kWh)
+
+  // Relation to tariff
+  tariffRateId Int
+  tariffRate   TariffRate @relation(fields: [tariffRateId], references: [id])
+
+  @@unique([tariffRateId, blockNumber])
+  @@map("tariff_blocks")
+}
+
+// Billing periods track billing cycles
+model BillingPeriod {
+  id Int @id @default(autoincrement())
+
+  // Period Information
+  startDate DateTime
+  endDate   DateTime
+  dueDate   DateTime
+
+  // Billing totals (calculated)
+  totalKwh    Decimal? @db.Decimal(12, 3)
+  totalAmount Decimal? @db.Decimal(10, 2)
+
+  // Multi-tenant isolation through customer
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // Tariff used for this billing period
+  tariffRateId Int?
+  tariffRate   TariffRate? @relation(fields: [tariffRateId], references: [id])
+
+  // Status
+  status BillingStatus @default(DRAFT)
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  meterReadings MeterReading[]
+  invoice       Invoice?
+
+  @@unique([customerId, startDate])
+  @@map("billing_periods")
+}
+
+enum BillingStatus {
+  DRAFT
+  CALCULATED
+  INVOICED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// Invoice represents final bills
+model Invoice {
+  id Int @id @default(autoincrement())
+
+  // Invoice Information
+  invoiceNumber String // e.g., "INV-2024-001"
+  invoiceDate   DateTime
+  dueDate       DateTime
+
+  // Amounts (all in dollars)
+  energyCharges  Decimal @db.Decimal(10, 2)
+  demandCharges  Decimal @db.Decimal(10, 2) @default(0)
+  taxes          Decimal @db.Decimal(10, 2) @default(0)
+  adjustments    Decimal @db.Decimal(10, 2) @default(0)
+  totalAmount    Decimal @db.Decimal(10, 2)
+
+  // Usage summary
+  totalKwh      Decimal  @db.Decimal(12, 3)
+  peakDemand    Decimal? @db.Decimal(12, 3)
+  billingDays   Int
+  averageDailyUsage Decimal? @db.Decimal(12, 3)
+
+  // Multi-tenant isolation through customer
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  // Relations
+  billingPeriodId Int       @unique
+  billingPeriod   BillingPeriod @relation(fields: [billingPeriodId], references: [id])
+
+  // Multi-tenant through client (for easy queries)
+  clientId Int
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // PDF storage
+  pdfUrl String? // URL to generated PDF
+
+  // Status and metadata
+  status   InvoiceStatus @default(DRAFT)
+  metadata Json? // Additional invoice data
+
+  // Payment tracking
+  paidDate   DateTime?
+  paidAmount Decimal? @db.Decimal(10, 2)
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([clientId, invoiceNumber])
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+  REFUNDED
 }

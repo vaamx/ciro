@@ -4,28 +4,42 @@ import { AuthService } from './auth.service';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { EmailService } from './email/email.service';
 import { PassportModule } from '@nestjs/passport';
 import { PrismaModule } from '../database/prisma.module';
+import { RolesGuard } from './roles.guard';
+import { PermissionsGuard, AnyPermissionsGuard } from './permissions.guard';
+import { TenantScopeGuard } from './tenant-scope.guard';
+import { UserManagementController } from './user-management.controller';
 
 @Module({
   imports: [
-    PrismaModule,
-    PassportModule.register({ defaultStrategy: 'jwt' }),
-    ConfigModule,
+    PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      inject: [ConfigService],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'development-jwt-secret',
-        signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRES_IN') || '1d',
-        },
+        secret: configService.get<string>('JWT_SECRET'),
+        signOptions: { expiresIn: '24h' },
       }),
+      inject: [ConfigService],
     }),
+    PrismaModule,
+    ConfigModule,
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, EmailService],
-  exports: [JwtStrategy, PassportModule, AuthService],
+  controllers: [AuthController, UserManagementController],
+  providers: [
+    AuthService, 
+    JwtStrategy,
+    RolesGuard,
+    PermissionsGuard,
+    AnyPermissionsGuard,
+    TenantScopeGuard,
+  ],
+  exports: [
+    AuthService,
+    RolesGuard,
+    PermissionsGuard,
+    AnyPermissionsGuard,
+    TenantScopeGuard,
+  ],
 })
 export class AuthModule {} 

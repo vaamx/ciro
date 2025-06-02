@@ -1,14 +1,14 @@
 import { Injectable, UnauthorizedException, InternalServerErrorException, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt'; // Import JwtService
-import { JwtPayload } from './jwt.strategy'; // Restoring original import path for JwtPayload
+import { JwtPayload, ROLE_PERMISSIONS } from './jwt.strategy'; // Import enhanced JwtPayload and permissions
 import { RegisterDto } from './dto/register.dto'; // Correct import path
 import { LoginDto } from './dto/login.dto'; // Correct import path
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from './email/email.service';
 import * as crypto from 'crypto';
 import { PrismaService } from '../database/prisma.service'; // Changed from @core/database/prisma.service
-import { Role } from '@prisma/client';
+import { Role } from '@prisma/client'; // Import Role enum from Prisma
 import { Logger } from '@nestjs/common';
 
 @Injectable()
@@ -135,7 +135,39 @@ export class AuthService {
       throw new UnauthorizedException('Email not verified. Please check your inbox for the verification email.');
     }
 
-    const payload: JwtPayload = { userId: user.id, email: user.email };
+    // Fetch user with organization memberships for enhanced payload
+    const userWithOrgs = await this.prisma.users.findUnique({
+      where: { id: user.id },
+      include: {
+        organization_members: {
+          include: {
+            organizations: true,
+          },
+        },
+      },
+    });
+
+    if (!userWithOrgs) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Get primary organization (first one for now)
+    const primaryOrgMembership = userWithOrgs.organization_members?.[0];
+    const primaryOrg = primaryOrgMembership?.organizations;
+
+    // Create enhanced payload with role and scope claims
+    const payload: JwtPayload = {
+      userId: user.id.toString(),
+      email: user.email,
+      role: user.role,
+      permissions: [...(ROLE_PERMISSIONS[user.role as keyof typeof ROLE_PERMISSIONS] || [])],
+      scopes: {
+        organizationId: primaryOrg?.id || 0, // Default to 0 if no org
+        // clientId and customerId will be set based on role context in future
+        // For now, they're optional and can be determined by role and API endpoints
+      },
+    };
+
     const accessToken = this.jwtService.sign(payload);
     
     // TODO: Implement refresh token strategy
@@ -263,21 +295,50 @@ export class AuthService {
     this.logger.debug(`Fetching current user details for ID: ${userId}`);
     const user = await this.prisma.users.findUnique({ 
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        created_at: true,
-        updated_at: true,
-      }
+      include: {
+        organization_members: {
+          include: {
+            organizations: true,
+          },
+        },
+      },
     });
     
     if (!user) {
       throw new NotFoundException('User not found');
     }
     
-    return user;
+    // Get primary organization
+    const primaryOrgMembership = user.organization_members?.[0];
+    const primaryOrg = primaryOrgMembership?.organizations;
+    
+    // Get role permissions
+    const permissions = ROLE_PERMISSIONS[user.role as keyof typeof ROLE_PERMISSIONS] || [];
+    
+    // Build enhanced user profile
+    const userProfile = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      permissions: [...permissions],
+      scopes: {
+        organizationId: primaryOrg?.id,
+        // Future: Add clientId and customerId based on role-specific assignments
+      },
+      organization: primaryOrg ? {
+        id: primaryOrg.id,
+        name: primaryOrg.name,
+        membership: {
+          joinedAt: primaryOrgMembership.joined_at,
+          // Future: Add membership-specific role or permissions
+        },
+      } : null,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+    };
+    
+    return userProfile;
   }
   
   async logout(userId: string): Promise<void> {
@@ -319,5 +380,157 @@ export class AuthService {
     });
     
     return { message: 'Password changed successfully' };
+  }
+
+  /**
+   * Update user role (admin only)
+   */
+  async updateUserRole(adminUserId: number, targetUserId: number, newRole: Role): Promise<{ message: string, user: any }> {
+    // Verify admin has permission to change roles
+    const admin = await this.prisma.users.findUnique({
+      where: { id: adminUserId },
+    });
+
+    if (!admin || (admin.role as string) !== 'ENERGY_ADMIN') {
+      throw new UnauthorizedException('Only ENERGY_ADMIN users can change roles');
+    }
+
+    // Validate the new role
+    if (!Object.values(Role).includes(newRole)) {
+      throw new BadRequestException('Invalid role specified');
+    }
+
+    // Update the user role
+    const updatedUser = await this.prisma.users.update({
+      where: { id: targetUserId },
+      data: { role: newRole },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        updated_at: true,
+      },
+    });
+
+    this.logger.log(`User ${targetUserId} role updated to ${newRole} by admin ${adminUserId}`);
+
+    return {
+      message: 'User role updated successfully',
+      user: updatedUser,
+    };
+  }
+
+  /**
+   * Get users with role filtering (admin only)
+   */
+  async getUsers(adminUserId: number, roleFilter?: Role): Promise<any[]> {
+    // Verify admin permission
+    const admin = await this.prisma.users.findUnique({
+      where: { id: adminUserId },
+    });
+
+    if (!admin || (admin.role as string) !== 'ENERGY_ADMIN') {
+      throw new UnauthorizedException('Only ENERGY_ADMIN users can view user lists');
+    }
+
+    const whereClause: any = {};
+    if (roleFilter) {
+      whereClause.role = roleFilter;
+    }
+
+    const users = await this.prisma.users.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        created_at: true,
+        updated_at: true,
+        organization_members: {
+          include: {
+            organizations: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+
+    // Enhance users with permission information
+    return users.map(user => ({
+      ...user,
+      permissions: ROLE_PERMISSIONS[user.role as keyof typeof ROLE_PERMISSIONS] || [],
+      organizationCount: user.organization_members.length,
+      primaryOrganization: user.organization_members[0]?.organizations || null,
+    }));
+  }
+
+  /**
+   * Assign user to organization with specific role context
+   */
+  async assignUserToOrganization(
+    adminUserId: number, 
+    targetUserId: number, 
+    organizationId: number,
+    roleContext?: { clientId?: number; customerId?: number }
+  ): Promise<{ message: string }> {
+    // Verify admin permission
+    const admin = await this.prisma.users.findUnique({
+      where: { id: adminUserId },
+      include: {
+        organization_members: {
+          where: { organization_id: organizationId },
+        },
+      },
+    });
+
+    if (!admin || (admin.role as string) !== 'ENERGY_ADMIN') {
+      throw new UnauthorizedException('Only ENERGY_ADMIN users can assign organization memberships');
+    }
+
+    // Verify organization exists
+    const organization = await this.prisma.organizations.findUnique({
+      where: { id: organizationId },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Check if user is already a member
+    const existingMembership = await this.prisma.organization_members.findFirst({
+      where: {
+        user_id: targetUserId,
+        organization_id: organizationId,
+      },
+    });
+
+    if (existingMembership) {
+      throw new ConflictException('User is already a member of this organization');
+    }
+
+    // Create organization membership
+    await this.prisma.organization_members.create({
+      data: {
+        user_id: targetUserId,
+        organization_id: organizationId,
+        // Note: joined_at has a default value of now()
+        // Future: Add role_context field to store clientId/customerId for scoped access
+      },
+    });
+
+    this.logger.log(`User ${targetUserId} assigned to organization ${organizationId} by admin ${adminUserId}`);
+
+    return {
+      message: 'User successfully assigned to organization',
+    };
   }
 } 
