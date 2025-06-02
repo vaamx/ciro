@@ -1,0 +1,40 @@
+# Task ID: 5
+# Title: Implement Customer Data Model and API
+# Status: pending
+# Dependencies: 1, 3
+# Priority: high
+# Description: Create the customer data model, API endpoints, and services for managing customer profiles, including NIT, contracts, addresses, and power ratings.
+# Details:
+Implement the Customer model in Prisma with fields for NIT (tax ID), company name, address, contact information, power ratings, and associated meters. Create the following API endpoints:
+
+1. GET /v1/customers - List customers with pagination and filtering
+2. GET /v1/customers/:id - Get customer details
+3. POST /v1/customers - Create a new customer
+4. PUT /v1/customers/:id - Update customer details
+5. DELETE /v1/customers/:id - Delete a customer
+
+Implement validation using class-validator. Ensure all endpoints respect RLS policies. Example Customer model:
+
+```typescript
+model Customer {
+  id          String   @id @default(uuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id])
+  nit         String
+  name        String
+  address     String
+  powerRating Float
+  contactName String?
+  contactEmail String?
+  contactPhone String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  meters      Meter[]
+  invoices    Invoice[]
+  
+  @@index([clientId])
+}
+```
+
+# Test Strategy:
+Write unit tests for customer service methods. Test API endpoints with various input scenarios. Verify validation rules are enforced. Test RLS policies to ensure customers are only accessible by authorized users. Test performance with large customer datasets.

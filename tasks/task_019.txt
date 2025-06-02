@@ -1,0 +1,73 @@
+# Task ID: 19
+# Title: Implement Admin Customer Management Dashboard
+# Status: pending
+# Dependencies: 4, 5, 6
+# Priority: medium
+# Description: Create the administrative interface for customer management, including customer list, details view, and bulk operations.
+# Details:
+Implement a React-based admin dashboard for customer management. Create components for:
+
+1. Customer list with search, filter, and pagination
+2. Customer details view with edit functionality
+3. Bulk customer operations (import, export, status updates)
+4. Customer metrics and status indicators
+
+Use React Query for data fetching and mutations. Implement a data table with advanced filtering and sorting. Use shadcn/ui components for consistent styling. Example implementation:
+
+```tsx
+function AdminCustomerDashboard() {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
+  const [selectedCustomers, setSelectedCustomers] = useState([]);
+  
+  const { data, isLoading } = useQuery(
+    ['customers', searchTerm, page],
+    () => fetchCustomers({ search: searchTerm, page, limit: 10 })
+  );
+  
+  const importMutation = useMutation(importCustomers, {
+    onSuccess: () => {
+      queryClient.invalidateQueries(['customers']);
+      toast.success('Customers imported successfully');
+    },
+  });
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Search customers..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <Button variant="outline">Search</Button>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <FileUpload
+            accept=".xlsx,.csv"
+            onUpload={(file) => importMutation.mutate(file)}
+            loading={importMutation.isLoading}
+          >
+            Import Customers
+          </FileUpload>
+          <Button
+            variant="outline"
+            disabled={selectedCustomers.length === 0}
+          >
+            Export Selected
+          </Button>
+        </div>
+      </div>
+      
+      {/* Customer table */}
+      
+      {/* Pagination */}
+    </div>
+  );
+}
+```
+
+# Test Strategy:
+Write unit tests for admin dashboard components. Test search and filter functionality. Verify bulk operations like import and export. Test with various permission levels to ensure proper access control. Create integration tests for the complete admin experience. Test performance with large customer datasets.

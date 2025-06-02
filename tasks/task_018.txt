@@ -1,0 +1,74 @@
+# Task ID: 18
+# Title: Implement Customer Billing UI
+# Status: pending
+# Dependencies: 4, 14, 15
+# Priority: medium
+# Description: Create the customer billing UI with invoice history table, PDF download functionality, payment status tracking, and billing breakdown transparency.
+# Details:
+Implement a React-based billing page for customers. Create components for:
+
+1. Invoice history table with status indicators
+2. PDF download functionality
+3. Payment status tracking
+4. Billing breakdown visualization
+
+Use React Query for data fetching and caching. Implement a data table with sorting, filtering, and pagination. Use shadcn/ui components for consistent styling. Example implementation:
+
+```tsx
+function CustomerBilling() {
+  const { data: invoices, isLoading } = useQuery(['invoices', customerId], fetchInvoices);
+  
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Invoice History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center p-4">
+              <Spinner />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice #</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map((invoice) => (
+                  <TableRow key={invoice.id}>
+                    <TableCell>{invoice.invoiceNumber}</TableCell>
+                    <TableCell>{format(new Date(invoice.issueDate), 'MMM d, yyyy')}</TableCell>
+                    <TableCell>${invoice.total.toFixed(2)}</TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusVariant(invoice.status)}>{invoice.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" asChild>
+                        <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
+                          Download PDF
+                        </a>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Billing breakdown visualization */}
+    </div>
+  );
+}
+```
+
+# Test Strategy:
+Write unit tests for billing components. Test table functionality including sorting and filtering. Verify PDF download links. Test with various invoice statuses. Create integration tests for the complete billing experience. Test performance with large invoice histories.

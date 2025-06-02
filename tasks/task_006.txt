@@ -1,0 +1,17 @@
+# Task ID: 6
+# Title: Implement Bulk Customer Import Feature
+# Status: pending
+# Dependencies: 5
+# Priority: medium
+# Description: Create a feature to import customers in bulk from Excel files, mapping to the customer data model and validating input data.
+# Details:
+Implement a service to process Excel files containing customer data. Use exceljs or xlsx library to parse Excel files. Create a mapping configuration to match Excel columns to customer model fields. Implement validation for required fields and data formats. Handle duplicate detection based on NIT or other unique identifiers. Create a transaction-based import process that rolls back on errors. Implement the following API endpoint:
+
+```
+POST /v1/customers/import
+```
+
+The endpoint should accept multipart/form-data with an Excel file. Return a detailed report of successful imports and validation errors. Process the 'Datos de clientes para facturación.xlsx' file format as specified in the PRD.
+
+# Test Strategy:
+Test with valid and invalid Excel files. Verify all validation rules are enforced. Test duplicate handling. Verify transaction rollback on errors. Test with large files (1000+ customers) to ensure performance. Create integration tests that verify the complete import workflow.

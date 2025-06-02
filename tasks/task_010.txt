@@ -1,0 +1,36 @@
+# Task ID: 10
+# Title: Implement Meter Reading Processing Service
+# Status: pending
+# Dependencies: 7, 8
+# Priority: high
+# Description: Create a backend service to process uploaded meter reading files, extract 15-minute interval data, and store it in the database with time-of-use classification.
+# Details:
+Implement a service to process uploaded meter reading files asynchronously using Kafka for event streaming. Parse Excel/CSV files to extract 15-minute interval data. Map readings to meters based on sheet names. Classify readings into time-of-use blocks (VALLE, RESTO, PUNTA) based on tariff configurations. Store readings in the MeterReading table. Implement validation for data quality and completeness. Example MeterReading model:
+
+```typescript
+model MeterReading {
+  id          String   @id @default(uuid())
+  meterId     String
+  meter       Meter    @relation(fields: [meterId], references: [id])
+  timestamp   DateTime
+  value       Float    // kWh or kW
+  readingType String   // 'ENERGY' or 'DEMAND'
+  blockType   String?  // 'VALLE', 'RESTO', 'PUNTA'
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([meterId])
+  @@index([timestamp])
+  @@index([meterId, timestamp])
+}
+```
+
+Implement the following API endpoint:
+```
+POST /v1/meter-readings/upload
+```
+
+Use Kafka for asynchronous processing with topics for file upload events and processing status updates.
+
+# Test Strategy:
+Write unit tests for the file parsing logic. Test time-of-use classification with various time periods. Verify data validation rules. Test with large files to ensure performance. Create integration tests for the complete processing workflow. Test error handling for malformed or incomplete data.

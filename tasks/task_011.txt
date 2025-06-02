@@ -1,0 +1,36 @@
+# Task ID: 11
+# Title: Implement Time-of-Use Classification Engine
+# Status: pending
+# Dependencies: 8, 10
+# Priority: medium
+# Description: Create a service to classify meter readings into time-of-use blocks (VALLE, RESTO, PUNTA) based on tariff configurations and timestamp.
+# Details:
+Implement a service to classify meter readings into time-of-use blocks based on the timestamp and tariff block definitions. Create an efficient algorithm to match timestamps to blocks without requiring database queries for each reading. Implement caching for tariff block definitions to improve performance. The service should:
+
+1. Load tariff block definitions for a client
+2. Create an efficient lookup structure (e.g., a map of minute-of-day to block type)
+3. Classify readings based on their timestamp
+4. Handle special cases like holidays or weekends if required
+
+Example classification logic:
+```typescript
+function classifyReading(timestamp: Date, blocks: TariffBlock[]): string {
+  const hour = timestamp.getHours();
+  const minute = timestamp.getMinutes();
+  const minuteOfDay = hour * 60 + minute;
+  
+  for (const block of blocks) {
+    const blockStart = block.startHour * 60 + block.startMinute;
+    const blockEnd = block.endHour * 60 + block.endMinute;
+    
+    if (blockStart <= minuteOfDay && minuteOfDay < blockEnd) {
+      return block.name;
+    }
+  }
+  
+  return 'UNKNOWN';
+}
+```
+
+# Test Strategy:
+Write unit tests for the classification logic with various timestamps and block definitions. Test edge cases like midnight crossings. Verify performance with large datasets. Test caching mechanisms. Create integration tests that verify classification in the context of meter reading processing.

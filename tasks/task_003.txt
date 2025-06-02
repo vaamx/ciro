@@ -1,0 +1,33 @@
+# Task ID: 3
+# Title: Setup NestJS Backend Project Structure
+# Status: pending
+# Dependencies: 1, 2
+# Priority: high
+# Description: Initialize the NestJS backend project with proper module organization, Prisma integration, and configuration for multi-tenant support.
+# Details:
+Initialize a NestJS project using NestJS CLI v9.x or later. Organize the project into the following modules: auth, clients, customers, meter-readings, tariffs, billing, invoices, and admin. Set up Prisma ORM integration using @prisma/client and nest-prisma. Configure environment variables for different deployment environments. Implement a global exception filter for standardized error responses. Set up logging with Winston or Pino. Configure CORS for frontend integration. Example structure:
+
+```
+src/
+  modules/
+    auth/
+    clients/
+    customers/
+    meter-readings/
+    tariffs/
+    billing/
+    invoices/
+    admin/
+  common/
+    guards/
+    filters/
+    interceptors/
+    decorators/
+  config/
+  prisma/
+```
+
+Implement a PrismaService that extends PrismaClient with middleware for tenant isolation.
+
+# Test Strategy:
+Create unit tests for each module's services. Test the global exception filter with various error scenarios. Verify environment configuration loading. Test Prisma connection and middleware functionality. Ensure proper module isolation and dependency injection.

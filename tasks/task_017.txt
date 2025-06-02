@@ -1,0 +1,58 @@
+# Task ID: 17
+# Title: Implement Consumption Analytics UI
+# Status: pending
+# Dependencies: 4, 10, 16
+# Priority: medium
+# Description: Create the consumption analytics UI with area charts for kWh by time-of-use blocks, column charts for monthly trends, and historical comparison tools.
+# Details:
+Implement a React-based analytics page using ECharts for visualizations. Create components for:
+
+1. Area charts for kWh by time-of-use blocks
+2. Column charts for monthly consumption trends
+3. Gauge charts for peak kW demand
+4. Historical comparison tools with date range selection
+
+Use React Query for data fetching with parameterized queries for different date ranges and aggregation levels. Implement filters for time period, comparison type, and chart display options. Use shadcn/ui components for consistent styling. Example implementation:
+
+```tsx
+function ConsumptionAnalytics() {
+  const [dateRange, setDateRange] = useState({ start: startOfMonth(new Date()), end: endOfMonth(new Date()) });
+  const [comparisonPeriod, setComparisonPeriod] = useState('previous');
+  
+  const { data: currentData } = useQuery(
+    ['consumption', dateRange.start, dateRange.end],
+    () => fetchConsumptionData(dateRange.start, dateRange.end)
+  );
+  
+  const { data: comparisonData } = useQuery(
+    ['consumption', 'comparison', dateRange.start, dateRange.end, comparisonPeriod],
+    () => fetchComparisonData(dateRange.start, dateRange.end, comparisonPeriod)
+  );
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <Select value={comparisonPeriod} onValueChange={setComparisonPeriod}>
+          <SelectItem value="previous">Previous Period</SelectItem>
+          <SelectItem value="year">Same Period Last Year</SelectItem>
+        </Select>
+      </div>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Energy Consumption by Time-of-Use</CardTitle>
+        </CardHeader>
+        <CardContent className="h-80">
+          <TimeOfUseChart currentData={currentData} comparisonData={comparisonData} />
+        </CardContent>
+      </Card>
+      
+      {/* Additional charts */}
+    </div>
+  );
+}
+```
+
+# Test Strategy:
+Write unit tests for analytics components. Test with various data scenarios and date ranges. Verify chart rendering and interactions. Test comparison functionality. Create integration tests for the complete analytics experience. Test performance with large datasets and complex visualizations.

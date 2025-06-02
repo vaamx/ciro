@@ -1,0 +1,213 @@
+{
+  "meta": {
+    "generatedAt": "2025-05-31T02:15:29.277Z",
+    "tasksAnalyzed": 25,
+    "totalTasks": 25,
+    "analysisCount": 25,
+    "thresholdScore": 6,
+    "projectName": "Task Master",
+    "usedResearch": true
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 1,
+      "taskTitle": "Setup Multi-Tenant Database Schema",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the multi-tenant database schema setup into subtasks including: 1) Initial Prisma schema design with all required models, 2) PostgreSQL RLS policy implementation for each table, 3) Prisma middleware for tenant isolation, 4) Database migration scripts, and 5) Unit tests for tenant isolation verification.",
+      "reasoning": "High complexity due to security-critical row-level security implementation, multiple interconnected data models, and custom Prisma middleware requirements. The task involves both schema design and security policy implementation across multiple tables."
+    },
+    {
+      "taskId": 2,
+      "taskTitle": "Implement Role-Based Access Control System",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the RBAC implementation into subtasks including: 1) JWT token structure design with role and scope claims, 2) NestJS Guards implementation for API protection, 3) Custom role decorators development, and 4) Integration with the existing authentication system.",
+      "reasoning": "Moderately high complexity due to security implications and integration with existing auth system. Requires careful implementation of role hierarchy, permissions, and guards across the application."
+    },
+    {
+      "taskId": 3,
+      "taskTitle": "Setup NestJS Backend Project Structure",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the NestJS backend setup into subtasks including: 1) Initial project scaffolding with NestJS CLI, 2) Module organization and structure implementation, 3) Prisma service integration with middleware for tenant isolation, and 4) Global exception handling and logging configuration.",
+      "reasoning": "Moderate complexity due to architectural decisions that will impact the entire project. Requires proper module organization, Prisma integration, and configuration for multi-tenant support."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Setup React Frontend Project Structure",
+      "complexityScore": 5,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the React frontend setup into subtasks including: 1) Project initialization with Vite and Tailwind CSS, 2) Component library setup with shadcn/ui, 3) Project structure organization with proper directory layout, and 4) Authentication context and API service configuration.",
+      "reasoning": "Moderate complexity involving frontend architecture decisions, but less complex than backend tasks. Requires setting up the project structure, component libraries, and authentication context."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Implement Customer Data Model and API",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the customer data model implementation into subtasks including: 1) Prisma schema definition for Customer model with all required fields and relations, 2) API controller and service implementation for CRUD operations, 3) Input validation using class-validator, and 4) Unit and integration tests for the customer API.",
+      "reasoning": "Moderate complexity involving data modeling, API implementation, and validation. The customer model has multiple fields and relationships that need to be properly defined and validated."
+    },
+    {
+      "taskId": 6,
+      "taskTitle": "Implement Bulk Customer Import Feature",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the bulk customer import feature into subtasks including: 1) Excel parsing service implementation, 2) Mapping configuration for Excel columns to customer model fields, 3) Validation and error handling for import process, and 4) Transaction-based import with rollback capability.",
+      "reasoning": "Moderately high complexity due to file parsing, data validation, and transaction management. Requires handling various error cases and ensuring data integrity during bulk operations."
+    },
+    {
+      "taskId": 7,
+      "taskTitle": "Implement Meter Management System",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the meter management system into subtasks including: 1) Prisma schema definition for Meter model with all required fields and relations, 2) API controller and service implementation for meter CRUD operations, 3) Meter assignment service for customer association, and 4) Unit and integration tests for the meter API.",
+      "reasoning": "Moderate complexity involving data modeling, API implementation, and relationship management between meters and customers. Requires proper validation of meter serials and status tracking."
+    },
+    {
+      "taskId": 8,
+      "taskTitle": "Implement Tariff Configuration System",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the tariff configuration system into subtasks including: 1) Prisma schema definition for TariffBlock and TariffRate models, 2) API controller and service for tariff block management, 3) API controller and service for tariff rate management, 4) Customer-specific tariff assignment implementation, and 5) Validation logic for time blocks and rate periods.",
+      "reasoning": "High complexity due to the business logic around time-of-use blocks, rate validity periods, and customer-specific assignments. Requires careful validation to ensure no overlapping time blocks and proper rate application."
+    },
+    {
+      "taskId": 9,
+      "taskTitle": "Implement Meter Data Upload Wizard",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the meter data upload wizard into subtasks including: 1) Drag-and-drop file upload component with react-dropzone, 2) Excel/CSV parsing and preview functionality, 3) Sheet name to meter serial mapping implementation, and 4) Validation and submission logic for the uploaded data.",
+      "reasoning": "Moderately high complexity due to client-side file parsing, preview generation, and mapping logic. Requires handling various file formats and providing user feedback for validation issues."
+    },
+    {
+      "taskId": 10,
+      "taskTitle": "Implement Meter Reading Processing Service",
+      "complexityScore": 9,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the meter reading processing service into subtasks including: 1) Asynchronous processing architecture with Kafka, 2) Excel/CSV parsing service for meter readings, 3) Time-of-use classification integration, 4) Database storage for processed readings, and 5) Error handling and reporting for processing issues.",
+      "reasoning": "High complexity due to asynchronous processing requirements, integration with Kafka, and complex data processing logic. Requires handling large volumes of time-series data and ensuring proper classification."
+    },
+    {
+      "taskId": 11,
+      "taskTitle": "Implement Time-of-Use Classification Engine",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the time-of-use classification engine into subtasks including: 1) Tariff block definition loading and caching mechanism, 2) Efficient lookup structure implementation for timestamp classification, 3) Classification algorithm for matching timestamps to blocks, and 4) Special case handling for holidays or weekends.",
+      "reasoning": "Moderately high complexity due to the algorithmic nature of the classification logic and performance requirements. Requires efficient data structures for quick lookups and proper handling of edge cases."
+    },
+    {
+      "taskId": 12,
+      "taskTitle": "Implement Billing Period Management",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the billing period management into subtasks including: 1) Prisma schema definition for BillingPeriod model, 2) API controller and service for billing period CRUD operations, 3) Billing period status transition logic, and 4) Invoice generation trigger implementation.",
+      "reasoning": "Moderate complexity involving data modeling, API implementation, and status management. Requires proper validation of billing period dates and handling of status transitions."
+    },
+    {
+      "taskId": 13,
+      "taskTitle": "Implement Billing Calculation Engine",
+      "complexityScore": 10,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the billing calculation engine into subtasks including: 1) Energy cost calculation based on time-of-use blocks, 2) Demand charge calculation based on peak demand, 3) Loss adjustment and surcharge calculations, 4) Invoice total computation with taxes and discounts, 5) Precision handling for financial calculations, and 6) Comprehensive testing against reference implementation.",
+      "reasoning": "Highest complexity due to critical business logic, complex mathematical calculations, and financial precision requirements. Must exactly match reference implementation and handle various edge cases and rate structures."
+    },
+    {
+      "taskId": 14,
+      "taskTitle": "Implement Invoice Generation Service",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the invoice generation service into subtasks including: 1) Prisma schema definition for Invoice model, 2) Service implementation for generating invoices from billing calculations, 3) Asynchronous processing with Kafka integration, 4) Invoice numbering and status management, and 5) API endpoints for invoice management.",
+      "reasoning": "High complexity due to integration with billing calculations, asynchronous processing requirements, and financial data management. Requires proper handling of invoice states and numbering."
+    },
+    {
+      "taskId": 15,
+      "taskTitle": "Implement PDF Invoice Generation",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the PDF invoice generation into subtasks including: 1) Template creation with React components or Handlebars, 2) Puppeteer integration for PDF generation, 3) Azure Blob storage integration for PDF storage, and 4) Asynchronous processing with Kafka.",
+      "reasoning": "Moderately high complexity due to PDF generation requirements, template design, and cloud storage integration. Requires handling various invoice layouts and ensuring proper rendering."
+    },
+    {
+      "taskId": 16,
+      "taskTitle": "Implement Customer Dashboard UI",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the customer dashboard UI into subtasks including: 1) Energy consumption overview component with ECharts, 2) Peak demand indicators component, 3) Time-of-use breakdown visualization, and 4) Data fetching and caching with React Query.",
+      "reasoning": "Moderate complexity involving data visualization, component design, and data fetching. Requires creating interactive charts and ensuring responsive design."
+    },
+    {
+      "taskId": 17,
+      "taskTitle": "Implement Consumption Analytics UI",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the consumption analytics UI into subtasks including: 1) Area charts for time-of-use visualization, 2) Column charts for monthly trends, 3) Historical comparison tools with date range selection, and 4) Parameterized data fetching with React Query.",
+      "reasoning": "Moderately high complexity due to advanced visualization requirements, date range handling, and comparison functionality. Requires creating multiple interactive chart types and handling various data aggregations."
+    },
+    {
+      "taskId": 18,
+      "taskTitle": "Implement Customer Billing UI",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the customer billing UI into subtasks including: 1) Invoice history table with sorting and filtering, 2) PDF download functionality integration, and 3) Billing breakdown visualization component.",
+      "reasoning": "Moderate complexity involving data table implementation and PDF integration. Less complex than other UI tasks as it primarily involves displaying tabular data with some actions."
+    },
+    {
+      "taskId": 19,
+      "taskTitle": "Implement Admin Customer Management Dashboard",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the admin customer management dashboard into subtasks including: 1) Customer list with advanced search and filtering, 2) Customer details view with edit functionality, 3) Bulk customer operations implementation, and 4) Customer metrics and status indicators.",
+      "reasoning": "Moderate complexity involving admin interface design, data management, and bulk operations. Requires implementing advanced filtering and search capabilities."
+    },
+    {
+      "taskId": 20,
+      "taskTitle": "Implement Admin Meter Data Upload Interface",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the admin meter data upload interface into subtasks including: 1) Drag-and-drop file upload component with progress indicator, 2) File validation and preview functionality, 3) WebSocket integration for real-time status updates, and 4) Error handling and resolution UI.",
+      "reasoning": "Moderately high complexity due to real-time status updates, file handling, and error management requirements. Requires WebSocket integration and proper progress tracking."
+    },
+    {
+      "taskId": 21,
+      "taskTitle": "Implement Admin Billing Management Interface",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the admin billing management interface into subtasks including: 1) Billing period creation and management UI, 2) Invoice generation trigger implementation, 3) Billing status monitoring dashboard, and 4) Error handling and resolution UI.",
+      "reasoning": "Moderate complexity involving admin interface design and integration with billing services. Requires implementing confirmation workflows for critical actions."
+    },
+    {
+      "taskId": 22,
+      "taskTitle": "Implement Real-Time Metrics Streaming",
+      "complexityScore": 8,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the real-time metrics streaming into subtasks including: 1) NestJS WebSocket Gateway implementation, 2) React hooks for WebSocket connection management, 3) Live consumption monitoring components, and 4) Connection status and error handling.",
+      "reasoning": "High complexity due to real-time data requirements, WebSocket implementation, and connection management. Requires handling connection states and ensuring reliable data delivery."
+    },
+    {
+      "taskId": 23,
+      "taskTitle": "Implement System Monitoring and Health Checks",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the system monitoring implementation into subtasks including: 1) NestJS Terminus health check endpoints, 2) Prometheus metrics collection setup, 3) Error tracking and alerting system, and 4) Admin monitoring dashboard UI.",
+      "reasoning": "Moderate complexity involving health check implementation, metrics collection, and monitoring UI. Requires integration with various system components for comprehensive monitoring."
+    },
+    {
+      "taskId": 24,
+      "taskTitle": "Implement Containerized Deployment Configuration",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the containerized deployment configuration into subtasks including: 1) Dockerfile creation for backend and frontend, 2) Docker Compose setup for local development, 3) Kubernetes manifest creation for production deployment, 4) Helm chart development, and 5) CI/CD pipeline configuration.",
+      "reasoning": "Moderately high complexity due to containerization, orchestration, and deployment automation requirements. Requires knowledge of Docker, Kubernetes, and CI/CD practices."
+    },
+    {
+      "taskId": 25,
+      "taskTitle": "Implement Comprehensive Testing Suite",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the testing suite implementation into subtasks including: 1) Backend unit testing setup with Jest, 2) Frontend testing with React Testing Library, 3) API integration testing with Supertest, 4) End-to-end testing with Cypress, and 5) Performance testing with k6 or JMeter.",
+      "reasoning": "High complexity due to the comprehensive nature of the testing requirements across multiple testing types. Requires setting up various testing frameworks and ensuring high coverage."
+    }
+  ]
+}

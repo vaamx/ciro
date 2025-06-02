@@ -1,0 +1,49 @@
+# Task ID: 16
+# Title: Implement Customer Dashboard UI
+# Status: pending
+# Dependencies: 4, 10
+# Priority: medium
+# Description: Create the customer dashboard UI with energy consumption overview, peak demand indicators, and time-of-use breakdown visualizations.
+# Details:
+Implement a React-based dashboard for customers using ECharts for visualizations. Create components for:
+
+1. Energy consumption overview with trend line
+2. Peak demand indicators with historical comparison
+3. Time-of-use breakdown in pie/donut chart
+4. Savings analysis compared to baseline periods
+
+Use React Query for data fetching and caching. Implement responsive design for various screen sizes. Use shadcn/ui components for consistent styling. Example dashboard layout:
+
+```tsx
+function CustomerDashboard() {
+  const { data: consumptionData } = useQuery(['consumption', customerId], fetchConsumptionData);
+  const { data: demandData } = useQuery(['demand', customerId], fetchDemandData);
+  
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Energy Consumption</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ConsumptionChart data={consumptionData} />
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Peak Demand</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DemandChart data={demandData} />
+        </CardContent>
+      </Card>
+      
+      {/* Additional dashboard cards */}
+    </div>
+  );
+}
+```
+
+# Test Strategy:
+Write unit tests for dashboard components. Test with various data scenarios. Verify responsive design across screen sizes. Test loading states and error handling. Create integration tests for the complete dashboard experience. Test performance with large datasets.

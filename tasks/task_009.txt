@@ -1,0 +1,20 @@
+# Task ID: 9
+# Title: Implement Meter Data Upload Wizard
+# Status: pending
+# Dependencies: 4, 7
+# Priority: high
+# Description: Create a drag-and-drop Excel/CSV upload wizard with preview functionality for meter reading data ingestion.
+# Details:
+Implement a React component for drag-and-drop file uploads using react-dropzone. Create a preview component to display sample data from the uploaded file. Use exceljs or xlsx in the browser to parse Excel files. Implement sheet name to meter serial mapping based on the naming convention (e.g., "Nodo Ateos 5614086"). Create a validation service to check data format and completeness. Implement a progress indicator for large file uploads. The component should:
+
+1. Allow drag-and-drop of Excel/CSV files
+2. Parse and display a preview of the data
+3. Validate the format and content
+4. Show mapping between sheet names and meter serials
+5. Allow corrections to the mapping
+6. Submit the file to the backend for processing
+
+Use React Query for API integration and state management.
+
+# Test Strategy:
+Create unit tests for the upload component. Test with various file formats and sizes. Verify preview functionality. Test validation error handling. Create integration tests for the complete upload workflow. Test with malformed files to ensure proper error handling.

@@ -1,0 +1,99 @@
+# Task ID: 21
+# Title: Implement Admin Billing Management Interface
+# Status: pending
+# Dependencies: 4, 12, 13, 14
+# Priority: medium
+# Description: Create the administrative interface for managing billing periods, triggering invoice generation, and monitoring billing status.
+# Details:
+Implement a React-based admin interface for billing management. Create components for:
+
+1. Billing period creation and management
+2. Invoice generation triggers
+3. Billing status monitoring
+4. Error handling and resolution
+
+Use React Query for data fetching and mutations. Implement confirmation dialogs for critical actions. Use shadcn/ui components for consistent styling. Example implementation:
+
+```tsx
+function AdminBillingManagement() {
+  const { data: billingPeriods, isLoading } = useQuery(['billing-periods'], fetchBillingPeriods);
+  
+  const createBillingPeriodMutation = useMutation(createBillingPeriod, {
+    onSuccess: () => {
+      queryClient.invalidateQueries(['billing-periods']);
+      toast.success('Billing period created successfully');
+    },
+  });
+  
+  const generateInvoicesMutation = useMutation(generateInvoices, {
+    onSuccess: () => {
+      queryClient.invalidateQueries(['billing-periods']);
+      toast.success('Invoice generation started');
+    },
+  });
+  
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Billing Periods</h2>
+        <Button onClick={() => setShowCreateDialog(true)}>Create Billing Period</Button>
+      </div>
+      
+      {isLoading ? (
+        <div className="flex justify-center p-4">
+          <Spinner />
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Period</TableHead>
+              <TableHead>Start Date</TableHead>
+              <TableHead>End Date</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {billingPeriods.map((period) => (
+              <TableRow key={period.id}>
+                <TableCell>{period.name}</TableCell>
+                <TableCell>{format(new Date(period.startDate), 'MMM d, yyyy')}</TableCell>
+                <TableCell>{format(new Date(period.endDate), 'MMM d, yyyy')}</TableCell>
+                <TableCell>
+                  <Badge variant={getStatusVariant(period.status)}>{period.status}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={period.status !== 'OPEN'}
+                      onClick={() => generateInvoicesMutation.mutate(period.id)}
+                    >
+                      Generate Invoices
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={period.status !== 'OPEN'}
+                      onClick={() => closeBillingPeriodMutation.mutate(period.id)}
+                    >
+                      Close Period
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      
+      {/* Create billing period dialog */}
+    </div>
+  );
+}
+```
+
+# Test Strategy:
+Write unit tests for billing management components. Test period creation and management workflows. Verify invoice generation triggers. Test with various billing period statuses. Create integration tests for the complete billing management experience. Test error handling and recovery workflows.

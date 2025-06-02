@@ -1,0 +1,81 @@
+# Task ID: 22
+# Title: Implement Real-Time Metrics Streaming
+# Status: pending
+# Dependencies: 3, 4, 10
+# Priority: low
+# Description: Create a WebSocket-based system for streaming real-time metrics to the frontend dashboards, including live consumption monitoring and system status indicators.
+# Details:
+Implement a WebSocket-based system for streaming real-time metrics to the frontend. Use NestJS WebSocket Gateway for the backend implementation. Create React hooks for WebSocket connection management. Implement the following features:
+
+1. Live consumption monitoring for meters that support it
+2. System status indicators
+3. Real-time dashboard updates
+4. Connection status management
+
+Example backend implementation:
+```typescript
+@WebSocketGateway({
+  cors: {
+    origin: '*',
+  },
+})
+export class MetricsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
+  
+  private clients = new Map<string, { userId: string, clientId: string }>();
+  
+  handleConnection(client: Socket, ...args: any[]) {
+    // Authenticate client and store connection
+  }
+  
+  handleDisconnect(client: Socket) {
+    this.clients.delete(client.id);
+  }
+  
+  @SubscribeMessage('subscribe')
+  handleSubscribe(client: Socket, payload: { meterId: string }) {
+    // Subscribe client to meter updates
+  }
+  
+  // Method to broadcast metrics to subscribed clients
+  broadcastMetrics(meterId: string, data: any) {
+    // Find all clients subscribed to this meter and send updates
+  }
+}
+```
+
+Example frontend hook:
+```typescript
+function useMetricsSocket(meterId: string) {
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState('disconnected');
+  
+  useEffect(() => {
+    const socket = new WebSocket(WS_URL);
+    
+    socket.onopen = () => {
+      setStatus('connected');
+      socket.send(JSON.stringify({ event: 'subscribe', data: { meterId } }));
+    };
+    
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.meterId === meterId) {
+        setData(message.data);
+      }
+    };
+    
+    socket.onclose = () => {
+      setStatus('disconnected');
+    };
+    
+    return () => socket.close();
+  }, [meterId]);
+  
+  return { data, status };
+}
+```
+
+# Test Strategy:
+Write unit tests for WebSocket gateway and client hooks. Test connection management and subscription handling. Verify real-time data streaming with simulated meter data. Test reconnection logic. Create integration tests for the complete real-time experience. Test with multiple concurrent connections to verify scalability.

@@ -1,0 +1,45 @@
+# Task ID: 8
+# Title: Implement Tariff Configuration System
+# Status: pending
+# Dependencies: 5, 7
+# Priority: high
+# Description: Create the tariff data models, API endpoints, and services for managing time-of-use blocks, rates, and customer-specific tariff assignments.
+# Details:
+Implement TariffBlock and TariffRate models in Prisma. TariffBlock should define time periods (VALLE, RESTO, PUNTA) with start/end times. TariffRate should define pricing for energy and demand charges with validity periods. Create API endpoints for tariff management. Implement a service for assigning tariffs to customers. Example models:
+
+```typescript
+model TariffBlock {
+  id          String   @id @default(uuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id])
+  name        String   // e.g., 'VALLE', 'RESTO', 'PUNTA'
+  startHour   Int
+  startMinute Int
+  endHour     Int
+  endMinute   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  rates       TariffRate[]
+  
+  @@index([clientId])
+}
+
+model TariffRate {
+  id            String   @id @default(uuid())
+  blockId       String
+  block         TariffBlock @relation(fields: [blockId], references: [id])
+  energyRate    Float    // per kWh
+  demandRate    Float    // per kW
+  validFrom     DateTime
+  validTo       DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([blockId])
+}
+```
+
+Implement customer-specific tariff assignments with effective dates.
+
+# Test Strategy:
+Write unit tests for tariff service methods. Test API endpoints for tariff management. Verify time block validation (no overlaps, full day coverage). Test rate validity period handling. Verify customer tariff assignment workflows. Test with historical rate changes to ensure correct application based on dates.

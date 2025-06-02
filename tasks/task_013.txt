@@ -1,0 +1,73 @@
+# Task ID: 13
+# Title: Implement Billing Calculation Engine
+# Status: pending
+# Dependencies: 8, 10, 11, 12
+# Priority: high
+# Description: Create the core billing calculation engine to compute energy costs, demand charges, loss adjustments, and other components based on meter readings and tariff rates.
+# Details:
+Implement a comprehensive billing calculation engine that follows the logic in the reference Excel workbook. The engine should calculate:
+
+1. Energy cost: Σ(kWh(slot) * kWhRate(block, date))
+2. Demand charge: MAX(kW(period)) * demandRate
+3. Loss adjustment: Σ(kWh) * FactorPerdidas
+4. FTPMS surcharge
+5. Deviation charge (forecast vs actual)
+6. Invoice total: energy + demand + adjustments - discounts + VAT
+
+Implement the calculation as a stateless service that takes meter readings, tariff rates, and customer configuration as inputs and produces detailed billing components as output. Use BigDecimal or equivalent for precise financial calculations. Ensure calculations match the reference implementation exactly.
+
+Example calculation flow:
+```typescript
+async function calculateBill(customerId: string, billingPeriodId: string): Promise<BillingResult> {
+  // 1. Load customer, meters, and tariff configuration
+  // 2. Load meter readings for the billing period
+  // 3. Classify readings into time-of-use blocks
+  // 4. Calculate energy consumption per block
+  // 5. Determine peak demand
+  // 6. Apply tariff rates to consumption
+  // 7. Calculate adjustments and surcharges
+  // 8. Compute final invoice amount
+  // 9. Return detailed billing components
+}
+```
+
+# Test Strategy:
+Write comprehensive unit tests comparing calculation results with the reference Excel workbook. Test with various tariff structures and consumption patterns. Verify mathematical precision in financial calculations. Test edge cases like missing readings or rate changes during a billing period. Create integration tests for the complete billing workflow.
+
+# Subtasks:
+## 1. Implement Time-of-Use Energy Cost Calculation [pending]
+### Dependencies: None
+### Description: Develop the core logic for calculating energy costs based on time-of-use blocks and consumption data
+### Details:
+Create functions to process consumption data across different time periods (peak, off-peak, etc.), apply appropriate rate structures from the Excel reference, handle seasonal variations in rates, and calculate the base energy charges. Ensure the implementation exactly matches the reference formulas for energy cost calculations.
+
+## 2. Implement Demand Charge Calculation [pending]
+### Dependencies: 13.1
+### Description: Build the system to calculate demand charges based on peak demand measurements
+### Details:
+Develop algorithms to identify peak demand periods, apply tiered demand rate structures, handle ratchet demand provisions if applicable, and calculate demand charges according to the reference implementation. Include logic for different demand measurement methods (rolling window, fixed interval) as specified in the billing formulas.
+
+## 3. Implement Loss Adjustment and Surcharge Calculations [pending]
+### Dependencies: 13.1, 13.2
+### Description: Create the components for calculating loss adjustments, riders, and various surcharges
+### Details:
+Develop functions to apply line loss factors, calculate percentage-based surcharges, implement fixed fee components, and handle any special riders or adjustments specified in the reference implementation. Ensure all calculations follow the exact formulas from the Excel reference.
+
+## 4. Develop Invoice Total Computation [pending]
+### Dependencies: 13.3
+### Description: Create the system to aggregate all charges, apply taxes and discounts, and generate final invoice amounts
+### Details:
+Implement logic to combine all calculated components (energy, demand, surcharges), apply appropriate tax calculations at different levels (item-specific vs. total bill), handle any discounts or credits, and produce the final invoice total. Ensure proper ordering of operations to match the reference implementation exactly.
+
+## 5. Implement Financial Precision Handling [pending]
+### Dependencies: 13.4
+### Description: Develop robust decimal handling and rounding mechanisms for financial calculations
+### Details:
+Create a system for managing decimal precision throughout all calculations, implement appropriate rounding rules at each calculation step as specified in the reference, handle currency formatting, and ensure no precision loss occurs during intermediate calculations. Focus on eliminating floating-point errors that could cause discrepancies with the reference implementation.
+
+## 6. Develop Comprehensive Testing Suite [pending]
+### Dependencies: 13.5
+### Description: Create extensive tests to validate the billing engine against the reference implementation
+### Details:
+Develop unit tests for each calculation component, integration tests for the full billing flow, regression tests with known billing scenarios, edge case tests for unusual rate structures or consumption patterns, and automated comparison tests against the Excel reference implementation. Include performance testing for large-scale billing operations.
+

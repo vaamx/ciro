@@ -1,0 +1,35 @@
+# Task ID: 12
+# Title: Implement Billing Period Management
+# Status: pending
+# Dependencies: 5, 8
+# Priority: high
+# Description: Create the billing period data model, API endpoints, and services for managing billing cycles and triggering invoice generation.
+# Details:
+Implement the BillingPeriod model in Prisma with fields for start date, end date, status, and client association. Create API endpoints for billing period management. Implement a service for creating billing periods and triggering invoice generation. Example BillingPeriod model:
+
+```typescript
+model BillingPeriod {
+  id          String   @id @default(uuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id])
+  startDate   DateTime
+  endDate     DateTime
+  status      String   // 'OPEN', 'PROCESSING', 'CLOSED'
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  invoices    Invoice[]
+  
+  @@index([clientId])
+  @@index([startDate, endDate])
+}
+```
+
+Implement the following API endpoints:
+1. GET /v1/billing-periods - List billing periods
+2. POST /v1/billing-periods - Create a new billing period
+3. PUT /v1/billing-periods/:id - Update billing period details
+4. POST /v1/billing-periods/:id/close - Close a billing period
+5. POST /v1/billing-periods/:id/generate-invoices - Trigger invoice generation
+
+# Test Strategy:
+Write unit tests for billing period service methods. Test API endpoints with various scenarios. Verify validation rules for billing period dates. Test billing period status transitions. Create integration tests for the complete billing workflow including invoice generation triggers.

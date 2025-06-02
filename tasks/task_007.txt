@@ -1,0 +1,36 @@
+# Task ID: 7
+# Title: Implement Meter Management System
+# Status: pending
+# Dependencies: 5
+# Priority: high
+# Description: Create the meter data model, API endpoints, and services for managing meter serials, assignments to customers, and configuration.
+# Details:
+Implement the Meter model in Prisma with fields for serial number, type, status, and customer association. Create API endpoints for meter CRUD operations. Implement validation for meter serial formats. Create a service for assigning meters to customers. Example Meter model:
+
+```typescript
+model Meter {
+  id          String   @id @default(uuid())
+  serial      String   @unique
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  type        String   // e.g., 'INTERVAL', 'SMART'
+  status      String   // e.g., 'ACTIVE', 'INACTIVE'
+  lossFactor  Float    @default(1.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  readings    MeterReading[]
+  
+  @@index([customerId])
+  @@index([serial])
+}
+```
+
+Implement the following API endpoints:
+1. GET /v1/meters - List meters with filtering
+2. POST /v1/meters - Create a new meter
+3. PUT /v1/meters/:id - Update meter details
+4. DELETE /v1/meters/:id - Delete a meter
+5. POST /v1/meters/:id/assign - Assign meter to a customer
+
+# Test Strategy:
+Write unit tests for meter service methods. Test API endpoints with various input scenarios. Verify validation rules for meter serials. Test meter assignment and reassignment workflows. Verify RLS policies to ensure meters are only accessible by authorized users.

@@ -1,0 +1,24 @@
+# Task ID: 15
+# Title: Implement PDF Invoice Generation
+# Status: pending
+# Dependencies: 14
+# Priority: medium
+# Description: Create a service to generate PDF invoices using Puppeteer with React/Handlebars templates and store them in Azure Blob storage.
+# Details:
+Implement a service to generate PDF invoices using Puppeteer. Create React components or Handlebars templates for invoice layout. Set up Azure Blob storage integration for storing generated PDFs. Implement a queue-based approach using Kafka for asynchronous processing. The service should:
+
+1. Retrieve invoice data from the database
+2. Render the invoice template with the data
+3. Use Puppeteer to generate a PDF
+4. Upload the PDF to Azure Blob storage
+5. Update the invoice record with the PDF URL
+
+Use the following technologies:
+- Puppeteer v19.x or later for PDF generation
+- Azure SDK for JavaScript v12.x for Blob storage integration
+- Handlebars or React components for templating
+
+Implement corporate-styled invoice templates with configurable branding per client.
+
+# Test Strategy:
+Write unit tests for PDF generation components. Test Azure Blob storage integration. Verify PDF content and formatting. Test with various invoice data scenarios. Create integration tests for the complete PDF generation workflow. Test performance with concurrent generation requests.

@@ -1,0 +1,44 @@
+# Task ID: 14
+# Title: Implement Invoice Generation Service
+# Status: pending
+# Dependencies: 12, 13
+# Priority: high
+# Description: Create a service to generate invoices based on billing calculations, store them in the database, and trigger PDF generation.
+# Details:
+Implement the Invoice model in Prisma with fields for customer, billing period, amount details, status, and PDF link. Create a service to generate invoices based on billing calculations. Implement a queue-based approach using Kafka for asynchronous processing. Example Invoice model:
+
+```typescript
+model Invoice {
+  id              String   @id @default(uuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  billingPeriodId String
+  billingPeriod   BillingPeriod @relation(fields: [billingPeriodId], references: [id])
+  invoiceNumber   String   @unique
+  issueDate       DateTime
+  dueDate         DateTime
+  energyAmount    Float
+  demandAmount    Float
+  adjustments     Float
+  discounts       Float
+  subtotal        Float
+  tax             Float
+  total           Float
+  status          String   // 'DRAFT', 'ISSUED', 'PAID'
+  pdfUrl          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([customerId])
+  @@index([billingPeriodId])
+}
+```
+
+Implement the following API endpoints:
+1. GET /v1/invoices - List invoices with filtering
+2. GET /v1/invoices/:id - Get invoice details
+3. POST /v1/invoices/:id/regenerate - Regenerate an invoice
+4. PUT /v1/invoices/:id/status - Update invoice status
+
+# Test Strategy:
+Write unit tests for invoice generation service. Test API endpoints with various scenarios. Verify invoice numbering logic. Test status transitions. Create integration tests for the complete invoice generation workflow including PDF generation triggers. Verify data consistency between billing calculations and generated invoices.

@@ -1,0 +1,96 @@
+# Task ID: 20
+# Title: Implement Admin Meter Data Upload Interface
+# Status: pending
+# Dependencies: 4, 9, 10
+# Priority: medium
+# Description: Create the administrative interface for uploading and managing meter data, including validation, processing status, and error handling.
+# Details:
+Implement a React-based admin interface for meter data uploads. Create components for:
+
+1. Drag-and-drop file upload with progress indicator
+2. File validation and preview
+3. Processing status monitoring
+4. Error handling and resolution
+
+Use React Query for data fetching and mutations. Implement WebSocket integration for real-time status updates. Use shadcn/ui components for consistent styling. Example implementation:
+
+```tsx
+function AdminMeterUpload() {
+  const [files, setFiles] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState({});
+  
+  const uploadMutation = useMutation(uploadMeterData, {
+    onSuccess: (data) => {
+      queryClient.invalidateQueries(['uploads']);
+      toast.success('Upload started successfully');
+    },
+  });
+  
+  // WebSocket connection for real-time status updates
+  useEffect(() => {
+    const socket = new WebSocket(WS_URL);
+    
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'UPLOAD_PROGRESS') {
+        setUploadProgress(prev => ({
+          ...prev,
+          [data.uploadId]: data.progress
+        }));
+      }
+    };
+    
+    return () => socket.close();
+  }, []);
+  
+  const handleUpload = async () => {
+    for (const file of files) {
+      uploadMutation.mutate(file);
+    }
+  };
+  
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Upload Meter Data</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FileDropzone
+            accept=".xlsx,.csv"
+            onDrop={(acceptedFiles) => setFiles(acceptedFiles)}
+            multiple
+          />
+          
+          {files.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-lg font-medium">Selected Files</h3>
+              <ul className="mt-2 space-y-2">
+                {files.map((file) => (
+                  <li key={file.name} className="flex items-center justify-between">
+                    <span>{file.name}</span>
+                    <span>{formatBytes(file.size)}</span>
+                  </li>
+                ))}
+              </ul>
+              
+              <Button
+                className="mt-4"
+                onClick={handleUpload}
+                loading={uploadMutation.isLoading}
+              >
+                Upload Files
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Upload history and status */}
+    </div>
+  );
+}
+```
+
+# Test Strategy:
+Write unit tests for upload interface components. Test file validation and preview functionality. Verify WebSocket integration for real-time updates. Test error handling and recovery workflows. Create integration tests for the complete upload experience. Test with various file formats and sizes.
