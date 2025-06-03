@@ -101,8 +101,8 @@ export class TenantService {
           select: {
             id: true,
             name: true,
-            type: true,
-            isActive: true,
+            rateType: true,
+            status: true,
           },
         },
       },
@@ -143,8 +143,8 @@ export class TenantService {
           select: {
             id: true,
             readingDate: true,
-            consumptionKwh: true,
-            demandKw: true,
+            readingValue: true,
+            demandReading: true,
           },
           orderBy: {
             readingDate: 'desc',

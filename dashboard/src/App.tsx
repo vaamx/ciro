@@ -39,6 +39,11 @@ import { InsightsAnalytics } from './components/Insights';
 import { ToolkitHub } from './components/Toolkit';
 import { ChatbotPage, VoicePage } from './components/Communications';
 import { ThreadsPage } from './pages/ThreadsPage';
+// Import admin components
+import { AdminDashboard } from './pages/admin';
+import { ClientManagement } from './pages/admin/ClientManagement';
+import { ClientOnboarding } from './pages/admin/ClientOnboarding';
+import { AdminRoute } from './components/Auth/AdminRoute';
 
 function App() {
   const [activeSection, setActiveSection] = useState('overview');
@@ -56,7 +61,8 @@ function App() {
       threads: '/threads',
       chatbot: '/communications/chatbot',
       voice: '/communications/voice',
-      organizations: '/organizations'
+      organizations: '/organizations',
+      admin: '/admin'
     };
     
     if (routeMap[section]) {
@@ -167,6 +173,23 @@ function App() {
                                         {/* Communication Routes */}
                                         <Route path="/communications/chatbot" element={<ChatbotPage />} />
                                         <Route path="/communications/voice" element={<VoicePage />} />
+                                        
+                                        {/* Admin Routes */}
+                                        <Route path="/admin" element={
+                                          <AdminRoute>
+                                            <AdminDashboard />
+                                          </AdminRoute>
+                                        } />
+                                        <Route path="/admin/clients" element={
+                                          <AdminRoute requirePermissions={['clients:view']}>
+                                            <ClientManagement />
+                                          </AdminRoute>
+                                        } />
+                                        <Route path="/admin/onboarding" element={
+                                          <AdminRoute requirePermissions={['clients:view']}>
+                                            <ClientOnboarding />
+                                          </AdminRoute>
+                                        } />
                                         
                                         {/* Existing routes */}
                                         <Route path="/data-sources" element={<DataSourcesView />} />

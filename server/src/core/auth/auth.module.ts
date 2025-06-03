@@ -10,6 +10,7 @@ import { RolesGuard } from './roles.guard';
 import { PermissionsGuard, AnyPermissionsGuard } from './permissions.guard';
 import { TenantScopeGuard } from './tenant-scope.guard';
 import { UserManagementController } from './user-management.controller';
+import { EmailService } from './email/email.service';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { UserManagementController } from './user-management.controller';
     PermissionsGuard,
     AnyPermissionsGuard,
     TenantScopeGuard,
+    EmailService,
   ],
   exports: [
     AuthService,

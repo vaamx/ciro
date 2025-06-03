@@ -93,8 +93,8 @@ dev-debug.log
 *.sw?
 # OS specific
 # Task files
-tasks.json
-tasks/
+# tasks.json
+# tasks/
 
 # Added by user for cleanup
 knowledge/
@@ -106,4 +106,8 @@ server/debug/
 .venv-gfr/
 
 # Secrets file (should never be committed)
-secrests.txt 
+secrests.txt
+
+# Added by Task Master AI
+tasks.json
+tasks/ 

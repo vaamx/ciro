@@ -12,8 +12,12 @@ import {
   Lightbulb,
   Wrench,
   Phone,
-  MessageCircle
+  MessageCircle,
+  Shield,
+  Users,
+  Plus
 } from 'lucide-react';
+import { usePermissions } from '../../hooks/usePermissions';
 import darkLogo from '../../styles/logos/darklogo.png';
 import lightLogo from '../../styles/logos/lightlogo.png';
 
@@ -30,7 +34,8 @@ const sectionHeadings = {
   overview: "Overview",
   toolsAnalytics: "Tools & Analytics",
   communications: "Communications",
-  management: "Management"
+  management: "Management",
+  administration: "Administration"
 };
 
 const navItems = [
@@ -120,6 +125,32 @@ const navItems = [
     path: '/organizations', 
     comingSoon: false,
     group: 'management'
+  },
+  
+  // Administration Section
+  { 
+    name: 'Admin Dashboard', 
+    icon: Shield, 
+    section: 'admin', 
+    path: '/admin', 
+    comingSoon: false,
+    group: 'administration'
+  },
+  { 
+    name: 'Client Management', 
+    icon: Users, 
+    section: 'admin-clients', 
+    path: '/admin/clients', 
+    comingSoon: false,
+    group: 'administration'
+  },
+  { 
+    name: 'Client Onboarding', 
+    icon: Plus, 
+    section: 'admin-onboarding', 
+    path: '/admin/onboarding', 
+    comingSoon: false,
+    group: 'administration'
   }
 ];
 
@@ -131,8 +162,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobile = false
 }) => {
   const navigate = useNavigate();
+  const { canAccessRoute, isSystemAdmin, isClientAdmin } = usePermissions();
   const [isSidebarOpen, setIsSidebarOpen] = useState(isMobile);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+
+  // Filter navigation items based on user permissions
+  const filteredNavItems = navItems.filter(item => {
+    // For admin items, check if user has admin role
+    if (item.group === 'administration') {
+      return isSystemAdmin || isClientAdmin;
+    }
+    
+    // For other items, check route access if path is defined
+    if (item.path) {
+      return canAccessRoute(item.path);
+    }
+    
+    // Allow all other items by default
+    return true;
+  });
 
   const handleNavigation = (item: typeof navItems[0]) => {
     // Allow navigation even if comingSoon is true
@@ -143,17 +191,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // For mobile, sidebar should always be expanded when visible
   const sidebarWidth = isMobile ? 'w-72' : (isSidebarOpen ? 'w-64' : 'w-16');
   
-  // Group navigation items by their group property
+  // Group filtered navigation items by their group property
   const groupedNavItems: Record<string, typeof navItems> = {};
-  navItems.forEach(item => {
+  filteredNavItems.forEach(item => {
     if (!groupedNavItems[item.group]) {
       groupedNavItems[item.group] = [];
     }
     groupedNavItems[item.group].push(item);
   });
   
-  // Get all unique groups in the order they appear in navItems
-  const groups = [...new Set(navItems.map(item => item.group))];
+  // Get all unique groups in the order they appear in filtered navItems
+  const groups = [...new Set(filteredNavItems.map(item => item.group))];
   
   return (
     <>

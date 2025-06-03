@@ -1,0 +1,205 @@
+{
+  "meta": {
+    "generatedAt": "2025-06-03T18:54:24.394Z",
+    "tasksAnalyzed": 24,
+    "totalTasks": 26,
+    "analysisCount": 24,
+    "thresholdScore": 5,
+    "projectName": "Taskmaster",
+    "usedResearch": false
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 3,
+      "taskTitle": "Setup NestJS Backend Project Structure",
+      "complexityScore": 8,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the NestJS backend setup into detailed subtasks covering initial project setup, module organization, Prisma integration with multi-tenant support, authentication system, core business modules (customers, billing, etc.), and cross-cutting concerns (logging, error handling, etc.)",
+      "reasoning": "This task involves setting up a complex backend architecture with multi-tenant support, Prisma ORM integration, and multiple business modules. The task requires deep understanding of NestJS, database design, and security patterns. The existing subtasks are well-structured but could benefit from more granular breakdown of authentication and cross-cutting concerns."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Setup React Frontend Project Structure",
+      "complexityScore": 7,
+      "recommendedSubtasks": 9,
+      "expansionPrompt": "Break down the React frontend setup into detailed subtasks covering project initialization, component library setup, directory structure, routing, authentication, API integration, testing, core UI components, and customer-specific features. Include specific considerations for multi-tenant UI design.",
+      "reasoning": "This task involves creating a complex React frontend with multi-tenant considerations, authentication, and integration with a backend API. The current 9 subtasks are appropriate, covering initialization, UI libraries, project structure, routing, authentication, API integration, testing, UI components, and feature implementation."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Implement Customer Data Model and API",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the customer data model implementation into subtasks covering schema design, API endpoint implementation, validation logic, and multi-tenant security. Include specific considerations for handling customer relationships, data validation, and row-level security policies.",
+      "reasoning": "This task involves creating a data model and API endpoints with validation and security considerations. It requires understanding of database design, API development, and security patterns. The complexity comes from implementing proper validation and ensuring multi-tenant data isolation."
+    },
+    {
+      "taskId": 6,
+      "taskTitle": "Implement Bulk Customer Import Feature",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the bulk customer import feature into subtasks covering file parsing, data validation, duplicate detection, transaction management, and reporting. Include specific considerations for handling different file formats, validation rules, and error handling strategies.",
+      "reasoning": "This task involves complex file processing, data validation, and transaction management. It requires handling Excel files, mapping data to models, validating inputs, detecting duplicates, and providing detailed error reports. The complexity comes from ensuring data integrity during bulk operations."
+    },
+    {
+      "taskId": 7,
+      "taskTitle": "Implement Meter Management System",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the meter management system into subtasks covering data model implementation, API endpoint development, validation logic, and customer assignment functionality. Include specific considerations for meter serial validation and relationship management.",
+      "reasoning": "This task involves creating a data model and API for meter management with validation and customer relationships. The complexity comes from implementing proper validation for meter serials and managing the assignment of meters to customers."
+    },
+    {
+      "taskId": 8,
+      "taskTitle": "Implement Tariff Configuration System",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the tariff configuration system into subtasks covering time-of-use block modeling, rate definition, customer assignment, validation logic, and historical rate management. Include specific considerations for handling time periods, rate calculations, and effective dates.",
+      "reasoning": "This task involves complex time-based rate modeling with multiple interrelated components (blocks, rates, assignments). It requires sophisticated validation to ensure time blocks don't overlap and rates have proper validity periods. The complexity comes from managing the temporal aspects of tariffs and ensuring correct application based on dates."
+    },
+    {
+      "taskId": 9,
+      "taskTitle": "Implement Meter Data Upload Wizard",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the meter data upload wizard into subtasks covering drag-and-drop interface, file parsing, data preview, validation, and submission. Include specific considerations for handling different file formats, mapping sheet names to meters, and providing user feedback.",
+      "reasoning": "This task involves creating a complex UI component with file handling, data parsing, and validation. It requires client-side Excel parsing, preview generation, and mapping validation. The complexity comes from handling various file formats and providing a seamless user experience for data validation and correction."
+    },
+    {
+      "taskId": 10,
+      "taskTitle": "Implement Meter Reading Processing Service",
+      "complexityScore": 9,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the meter reading processing service into subtasks covering file parsing, data extraction, time-of-use classification, validation, storage, and asynchronous processing. Include specific considerations for handling large datasets, ensuring data quality, and integrating with Kafka for event streaming.",
+      "reasoning": "This task involves complex data processing with asynchronous workflows using Kafka. It requires parsing files, extracting readings, classifying them into time blocks, validating data quality, and storing results. The complexity comes from handling large datasets efficiently and ensuring proper event-driven architecture."
+    },
+    {
+      "taskId": 11,
+      "taskTitle": "Implement Time-of-Use Classification Engine",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the time-of-use classification engine into subtasks covering tariff block loading, lookup structure creation, timestamp classification algorithm, and caching mechanism. Include specific considerations for performance optimization and handling edge cases like midnight crossings.",
+      "reasoning": "This task involves creating an efficient algorithm for classifying timestamps into time-of-use blocks. It requires careful consideration of performance optimization through caching and efficient data structures. The complexity comes from handling edge cases like midnight crossings and ensuring high performance with large datasets."
+    },
+    {
+      "taskId": 12,
+      "taskTitle": "Implement Billing Period Management",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the billing period management implementation into subtasks covering data model creation, API endpoint development, period validation logic, and invoice generation triggers. Include specific considerations for handling overlapping periods and status transitions.",
+      "reasoning": "This task involves creating a data model and API for billing period management with validation and workflow triggers. The complexity comes from implementing proper validation for period dates and managing the lifecycle of billing periods through different statuses."
+    },
+    {
+      "taskId": 13,
+      "taskTitle": "Implement Billing Calculation Engine",
+      "complexityScore": 10,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the billing calculation engine into subtasks covering energy cost calculation, demand charge computation, adjustment calculations, invoice total aggregation, financial precision handling, and comprehensive testing. Include specific considerations for matching the reference Excel implementation exactly.",
+      "reasoning": "This is the most complex task in the project, involving sophisticated financial calculations with multiple components and precise decimal handling. It requires implementing complex business logic exactly matching a reference Excel implementation. The complexity comes from ensuring mathematical precision, handling various edge cases, and integrating multiple data sources (readings, tariffs, customer configuration)."
+    },
+    {
+      "taskId": 14,
+      "taskTitle": "Implement Invoice Generation Service",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the invoice generation service into subtasks covering data model implementation, calculation integration, numbering system, status management, and asynchronous processing. Include specific considerations for ensuring data consistency between billing calculations and generated invoices.",
+      "reasoning": "This task involves creating a service to generate invoices based on complex billing calculations with asynchronous processing using Kafka. The complexity comes from ensuring data consistency, implementing proper invoice numbering, and managing the invoice lifecycle through different statuses."
+    },
+    {
+      "taskId": 15,
+      "taskTitle": "Implement PDF Invoice Generation",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the PDF invoice generation implementation into subtasks covering template design, Puppeteer integration, Azure Blob storage setup, and asynchronous processing. Include specific considerations for corporate styling and handling concurrent generation requests.",
+      "reasoning": "This task involves generating PDF documents using Puppeteer with templates and storing them in cloud storage. The complexity comes from creating professional-looking invoice templates, handling the PDF generation process, and integrating with Azure Blob storage for file management."
+    },
+    {
+      "taskId": 16,
+      "taskTitle": "Implement Customer Dashboard UI",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the customer dashboard UI implementation into subtasks covering layout design, chart components, data fetching, and responsive behavior. Include specific considerations for visualizing energy consumption data effectively and ensuring performance with large datasets.",
+      "reasoning": "This task involves creating a React-based dashboard with various visualizations using ECharts. The complexity comes from implementing effective data visualizations, ensuring responsive design, and optimizing performance with potentially large datasets."
+    },
+    {
+      "taskId": 17,
+      "taskTitle": "Implement Consumption Analytics UI",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the consumption analytics UI implementation into subtasks covering chart components, date range selection, comparison functionality, and data fetching optimization. Include specific considerations for handling different visualization types and enabling meaningful comparisons.",
+      "reasoning": "This task involves creating sophisticated analytics visualizations with date range selection and comparison features. The complexity comes from implementing various chart types, enabling meaningful historical comparisons, and optimizing data fetching for different parameters."
+    },
+    {
+      "taskId": 18,
+      "taskTitle": "Implement Customer Billing UI",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the customer billing UI implementation into subtasks covering invoice table, PDF integration, payment tracking, and billing breakdown visualization. Include specific considerations for handling different invoice statuses and optimizing the table for large datasets.",
+      "reasoning": "This task involves creating a billing interface with invoice history, PDF downloads, and payment tracking. The complexity comes from implementing a data table with advanced features, integrating PDF viewing, and creating effective visualizations for billing breakdowns."
+    },
+    {
+      "taskId": 19,
+      "taskTitle": "Implement Admin Customer Management Dashboard",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the admin customer management dashboard into subtasks covering customer list implementation, details view, bulk operations, metrics display, and data fetching optimization. Include specific considerations for advanced filtering and handling large customer datasets.",
+      "reasoning": "This task involves creating an administrative interface with advanced data management features. The complexity comes from implementing sophisticated data tables, bulk operations, and ensuring good performance with potentially large datasets."
+    },
+    {
+      "taskId": 20,
+      "taskTitle": "Implement Admin Meter Data Upload Interface",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the admin meter data upload interface into subtasks covering file upload component, validation display, processing status monitoring, WebSocket integration, and error handling. Include specific considerations for providing real-time feedback and handling large files.",
+      "reasoning": "This task involves creating a sophisticated file upload interface with real-time status updates via WebSockets. The complexity comes from implementing drag-and-drop functionality, file validation, and real-time processing status monitoring."
+    },
+    {
+      "taskId": 21,
+      "taskTitle": "Implement Admin Billing Management Interface",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the admin billing management interface into subtasks covering billing period creation, invoice generation triggers, status monitoring, error handling, and confirmation workflows. Include specific considerations for managing the billing lifecycle and providing clear user feedback.",
+      "reasoning": "This task involves creating an administrative interface for managing billing periods and triggering invoice generation. The complexity comes from implementing proper workflow management, confirmation dialogs for critical actions, and status monitoring for asynchronous processes."
+    },
+    {
+      "taskId": 22,
+      "taskTitle": "Implement Real-Time Metrics Streaming",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the real-time metrics streaming implementation into subtasks covering WebSocket server setup, client connection management, subscription handling, data broadcasting, and reconnection logic. Include specific considerations for scalability and handling connection failures.",
+      "reasoning": "This task involves implementing a WebSocket-based system for real-time data streaming. The complexity comes from managing client connections, handling subscriptions, broadcasting data efficiently, and implementing robust reconnection logic."
+    },
+    {
+      "taskId": 23,
+      "taskTitle": "Implement System Monitoring and Health Checks",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the system monitoring implementation into subtasks covering health check endpoints, metrics collection, dashboard visualization, and alerting system. Include specific considerations for monitoring different system components and providing actionable insights.",
+      "reasoning": "This task involves creating a monitoring system with health checks, metrics collection, and visualization. The complexity comes from integrating with various system components, implementing proper health indicators, and creating effective visualizations for system status."
+    },
+    {
+      "taskId": 24,
+      "taskTitle": "Implement Containerized Deployment Configuration",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the containerized deployment configuration into subtasks covering Dockerfile creation, Docker Compose setup, Kubernetes manifest development, Helm chart creation, and CI/CD pipeline configuration. Include specific considerations for environment variables, resource limits, and zero-downtime updates.",
+      "reasoning": "This task involves creating a comprehensive containerization and orchestration setup. The complexity comes from configuring Docker, Kubernetes, Helm, and CI/CD pipelines with proper resource management, environment configuration, and deployment strategies."
+    },
+    {
+      "taskId": 25,
+      "taskTitle": "Implement Comprehensive Testing Suite",
+      "complexityScore": 9,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the testing suite implementation into subtasks covering backend unit tests, frontend unit tests, API integration tests, end-to-end tests, performance tests, and CI/CD integration. Include specific considerations for test data generation, coverage targets, and automated test execution.",
+      "reasoning": "This task involves creating a comprehensive testing strategy covering all aspects of the system. The complexity comes from implementing different types of tests (unit, integration, E2E, performance), ensuring good coverage, and integrating with CI/CD for automated execution."
+    },
+    {
+      "taskId": 26,
+      "taskTitle": "Implement Admin Dashboard for Client Management",
+      "complexityScore": 9,
+      "recommendedSubtasks": 8,
+      "expansionPrompt": "Break down the admin dashboard implementation into subtasks covering project setup, client management module, product configuration, inventory management, access control, data propagation, monitoring analytics, and bulk operations. Include specific considerations for role-based access control and complex form validation.",
+      "reasoning": "This task involves creating a comprehensive admin dashboard with multiple complex modules. The current 8 subtasks are appropriate, covering all major functional areas. The complexity comes from implementing sophisticated user interfaces, role-based access control, and integrating multiple data sources and operations."
+    }
+  ]
+}

@@ -37,7 +37,7 @@ export class RolesGuard implements CanActivate {
   private hasRequiredRole(userRole: string, requiredRole: Role): boolean {
     const userLevel = this.getRoleLevel(userRole);
     const requiredLevel = this.getRoleLevel(requiredRole);
-    
+      
     // Higher or equal role level grants access
     return userLevel >= requiredLevel;
   }

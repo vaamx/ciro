@@ -1153,3 +1153,87 @@ export const apiService = new ApiServiceImpl();
 
 // Also export the class for type checking
 export { ApiServiceImpl };
+
+// Generic API client for general HTTP requests (CRUD operations)
+class GenericApiClient {
+  private baseUrl: string;
+
+  constructor() {
+    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+  }
+
+  private getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+  }
+
+  async get<T>(endpoint: string): Promise<{ data: T }> {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { data };
+  }
+
+  async post<T>(endpoint: string, body?: any): Promise<{ data: T }> {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { data };
+  }
+
+  async patch<T>(endpoint: string, body?: any): Promise<{ data: T }> {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'PATCH',
+      headers: this.getAuthHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { data };
+  }
+
+  async delete<T>(endpoint: string): Promise<{ data: T }> {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    // DELETE might not return data
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+    return { data };
+  }
+}
+
+// Export the generic API client
+export const apiClient = new GenericApiClient();

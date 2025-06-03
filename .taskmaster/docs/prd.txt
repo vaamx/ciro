@@ -1,0 +1,240 @@
+# CIRO AI Multi-Tenant Energy Portal - Product Requirements Document
+
+## Project Overview
+Transform CIRO AI from a single-tenant analytics platform into a multi-tenant energy dashboard and billing portal, enabling companies like EIS Power to serve their own customers through secure, isolated portals.
+
+## Technical Stack
+- Frontend: React + Tailwind CSS + shadcn/ui components
+- Backend: NestJS + Prisma ORM + PostgreSQL
+- Infrastructure: Kafka for event streaming, Azure Blob for file storage
+- Authentication: Existing CIRO AI auth with extended role-based access control
+- Visualization: ECharts (existing component library)
+- PDF Generation: Puppeteer with React/Handlebars templates
+
+## Core Features
+
+### 1. Multi-Tenant Architecture
+- Row-level security (PostgreSQL RLS + Prisma middleware)
+- Data isolation per client and customer
+- Role hierarchy: SYSTEM_ADMIN > CLIENT_ADMIN > CUSTOMER_USER
+- Secure API endpoints with scope-based authorization
+
+### 2. Customer Data Management
+- Bulk customer import from Excel (Datos de clientes para facturación.xlsx)
+- Customer profile management (NIT, contracts, addresses, power ratings)
+- Meter serial assignment and management
+- Loss factor and tariff configuration per customer
+
+### 3. Meter Data Ingestion
+- Drag-and-drop Excel/CSV upload wizard with preview
+- 15-minute interval meter reading processing
+- Automatic mapping: sheet name → meter serial (e.g., "Nodo Ateos 5614086")
+- Time-of-use block classification (VALLE, RESTO, PUNTA)
+- Data validation and error handling
+
+### 4. Automated Billing Engine
+- Time-of-use tariff calculation engine
+- Energy cost calculation: Σ(kWh(slot) * kWhRate(block, date))
+- Demand charge: MAX(kW(period)) * demandRate
+- Loss adjustment: Σ(kWh) * FactorPerdidas
+- FTPMS surcharge calculation
+- Deviation charge calculation (forecast vs actual)
+- Invoice total: energy + demand + adjustments - discounts + VAT
+
+### 5. PDF Invoice Generation
+- Corporate-styled invoice templates
+- Automated PDF generation using Puppeteer
+- Azure Blob storage integration for PDF hosting
+- Download links in customer portal
+
+### 6. Customer Self-Service Portal
+#### Dashboard Features:
+- Personal energy consumption overview
+- Peak demand indicators and trends
+- Savings analysis compared to baseline periods
+- Time-of-use breakdown visualizations
+
+#### Consumption Analytics:
+- Area charts for kWh by time-of-use blocks
+- Column charts for monthly consumption trends
+- Gauge charts for peak kW demand
+- Historical comparison tools
+
+#### Billing Section:
+- Invoice history table with status indicators
+- PDF download functionality
+- Payment status tracking
+- Billing breakdown transparency
+
+### 7. Administrative Interface
+#### EIS Power Admin Features:
+- Customer management dashboard
+- Bulk meter data upload interface
+- Billing run triggers and monitoring
+- Aggregate customer analytics
+- Tariff rate management
+- Invoice generation controls
+
+#### Multi-Customer Overview:
+- System health monitoring
+- Total customer count and status
+- Aggregate consumption analytics
+- Revenue and billing summaries
+
+### 8. Real-Time Features
+- WebSocket integration for live metrics streaming
+- Real-time dashboard updates
+- Live consumption monitoring (where meter data supports it)
+- System status indicators
+
+## Data Models (Prisma Extensions)
+
+### Core Entities:
+- Client: Organization-level entities (EIS Power)
+- Customer: End customers with meter assignments
+- MeterReading: 15-minute interval data points
+- TariffBlock: Time-of-use period definitions
+- TariffRate: Pricing structures with validity periods
+- BillingPeriod: Monthly billing cycles
+- Invoice: Generated billing documents with PDF links
+- RoleAssignment: User permissions and scope definitions
+
+### Key Relationships:
+- Organization → Client (1:many)
+- Client → Customer (1:many)
+- Customer → MeterReading (1:many)
+- Customer → Invoice (1:many)
+- TariffBlock → TariffRate (1:many)
+
+## Security & Access Control
+
+### Authentication:
+- Extend existing CIRO AI authentication system
+- JWT-based session management
+- Multi-factor authentication support
+
+### Authorization:
+- PostgreSQL Row-Level Security (RLS) policies
+- NestJS Guards for API endpoint protection
+- Scope-based access control (organization/client/customer)
+- Cross-tenant access prevention (strict 403 enforcement)
+
+### Data Privacy:
+- Customer data isolation
+- Audit logging for all data access
+- GDPR compliance considerations
+- Secure file upload handling
+
+## Integration Requirements
+
+### External Systems:
+- CAESS energy distributor data imports
+- Excel/CSV meter reading files
+- Corporate invoice template systems
+- Email notification services
+
+### API Specifications:
+- POST /v1/clients - Create client records
+- POST /v1/customers - Bulk customer upsert
+- POST /v1/meter-readings/upload - File upload with async processing
+- POST /v1/billing/run - Trigger billing engine (admin only)
+- GET /v1/customers/:id/invoices - Customer invoice retrieval (RLS enforced)
+- WS /v1/metrics/stream - Real-time metrics streaming
+
+## Performance Requirements
+
+### Scalability:
+- Support 1000+ customers per client
+- Handle 15-minute interval data for multiple years
+- Concurrent user support (100+ simultaneous users)
+- Sub-2-second dashboard load times
+
+### Data Processing:
+- Batch processing for large meter data uploads
+- Kafka event streaming for async operations
+- Database optimization for time-series queries
+- Efficient aggregation for dashboard displays
+
+## Quality Assurance
+
+### Testing Strategy:
+- Unit tests: 90% coverage on billing calculations
+- Integration tests: API endpoint validation
+- E2E tests: Complete user workflows
+- Performance tests: Load testing with realistic data volumes
+
+### Validation Requirements:
+- Billing calculation accuracy: ±$0.10 compared to Excel reference
+- Cross-tenant access prevention verification
+- Data integrity checks for meter readings
+- PDF generation quality assurance
+
+## Deployment & Operations
+
+### Infrastructure:
+- Containerized deployment (Docker/Kubernetes)
+- CI/CD pipeline integration
+- Zero-downtime deployment capability
+- Database migration automation
+
+### Monitoring:
+- Application performance monitoring
+- Error tracking and alerting
+- Usage analytics and reporting
+- System health dashboards
+
+## Timeline & Deliverables
+
+### Phase 1 (Weeks 1-2): Foundation
+- Database schema design and migration
+- Basic multi-tenant architecture
+- User role and permission system
+
+### Phase 2 (Weeks 3-4): Data Ingestion
+- Meter data upload wizard
+- Customer import functionality
+- Data validation and processing
+
+### Phase 3 (Weeks 5-6): Billing Engine
+- Tariff calculation implementation
+- Automated billing process
+- Invoice generation system
+
+### Phase 4 (Weeks 7-8): Customer Portal
+- Dashboard UI implementation
+- Consumption analytics views
+- Self-service billing interface
+
+### Phase 5 (Weeks 9-10): Admin Interface
+- Administrative dashboard
+- Bulk operations interface
+- System monitoring tools
+
+### Phase 6 (Weeks 11-12): Testing & Deployment
+- Comprehensive testing
+- Performance optimization
+- Production deployment
+
+## Success Criteria
+
+### Functional Success:
+- EIS Power admins can upload September sample files
+- Automatic invoice generation with correct calculations
+- Customer dashboard displays accurate consumption data
+- PDF downloads work reliably
+- Cross-tenant access is prevented (403 errors for unauthorized access)
+
+### Technical Success:
+- CI/CD pipeline runs successfully
+- Production deployment completes in <10 minutes
+- Zero-downtime deployment achieved
+- 90% test coverage maintained
+
+### Business Success:
+- Customer self-service reduces EIS Power support load
+- Automated billing improves accuracy and efficiency
+- Platform supports future client onboarding
+- Foundation established for additional energy service features
+
+## Reference Implementation
+All billing calculations must match the logic demonstrated in "Ejemplo de procesamiento de descargas de medidores - Nodo Ateos 5614086" Excel workbook, ensuring mathematical accuracy and business rule compliance. 

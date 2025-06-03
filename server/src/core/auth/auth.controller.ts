@@ -41,12 +41,19 @@ export class AuthController {
   async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) response: Response) {
     const result = await this.authService.login(loginDto);
     
-    // Return multiple token format options to ensure compatibility with frontend
+    // Get the complete user information
+    const user = await this.authService.validateUser(loginDto.email, loginDto.password);
+    
+    // Return both token formats and complete user object to ensure compatibility with frontend
     return { 
       accessToken: result.accessToken,
-      token: result.accessToken, // Alternative property name
+      token: result.accessToken, // Alternative property name for compatibility
       user: {
-        email: loginDto.email
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        emailVerified: true // For now, assume verified since we can login
       }
     };
   }

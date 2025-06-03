@@ -334,6 +334,10 @@ function getFullModuleSet() {
   const automationModule = require('./modules/automation/automation.module').AutomationModule;
   const codeExecutionModule = require('./services/code-execution/code-execution.module').CodeExecutionModule;
   
+  // Energy billing modules
+  const clientsModule = require('./modules/clients/clients.module').ClientsModule;
+  const customersModule = require('./modules/customers/customers.module').CustomersModule;
+  
   const commonModules = [
     authModule,
     chatModule,
@@ -351,6 +355,9 @@ function getFullModuleSet() {
     snowflakeModule,
     automationModule,
     codeExecutionModule,
+    // Energy billing modules
+    clientsModule,
+    customersModule,
   ];
   
   // Add Bull-dependent modules only if Bull is enabled

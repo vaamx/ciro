@@ -68,7 +68,8 @@ export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
     filePath: string, 
     dataSourceId: number,
     organizationId: number,
-    sourceName: string,
+    userId: string,
+    metadata: Record<string, any> = {}
   ): Promise<EnhancedProcessingResult> {
     let processingStarted = false;
     const processingStartTime = Date.now();
@@ -80,7 +81,8 @@ export class EnhancedExcelProcessorService extends BaseDocumentProcessor {
       await this.updateStatus(dataSourceId, organizationId, DataSourceProcessingStatus.PROCESSING);
       processingStarted = true;
 
-      // 2. Generate collection name 
+      // 2. Generate collection name using the file path as source name
+      const sourceName = metadata.originalName || path.basename(filePath);
       const collectionName = this.generateCollectionName(dataSourceId, sourceName);
       
       // 3. Ensure collection exists
